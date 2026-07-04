@@ -1,0 +1,78 @@
+{
+  "transactions": [],
+  "categories": [
+    "Comida",
+    "Bebida",
+    "Salidas",
+    "Caprichos",
+    "Transporte",
+    "Vivienda",
+    "Salud",
+    "Educación",
+    "Otros",
+    "Cine",
+    "Imprevisto"
+  ],
+  "types": [
+    "Ingreso",
+    "Gasto"
+  ],
+  "paymentMethods": [
+    "Efectivo",
+    "Tarjeta",
+    "Bizum",
+    "Transferencia"
+  ],
+  "currentMonth": "2026-07",
+  "archives": {},
+  "budgetConfig": {
+    "weeklyIncome": 70,
+    "monthlyExtra": 110,
+    "categoryLimits": {
+      "Comida": 40,
+      "Salidas": 20,
+      "Caprichos": 10
+    }
+  },
+  "savingGoals": [
+    {
+      "id": "mr6hqz2d2sk0wj",
+      "name": "prueba",
+      "targetAmount": 532,
+      "currentAmount": 10,
+      "targetDate": "2027-07-04",
+      "priority": 0,
+      "createdAt": "2026-07-04T15:02:22.213Z"
+    }
+  ],
+  "roundUpEnabled": true,
+  "roundUpGoalId": null,
+  "totalRoundUpSavings": 0,
+  "foodBudget": 200,
+  "checkingBalance": 67.98,
+  "savingsBalance": 42.43173089636078,
+  "transfers": [
+    {
+      "id": "mr6iccco",
+      "date": "2026-07-04",
+      "amount": 9.581730896360781,
+      "note": "Ahorro semanal",
+      "month": "2026-07"
+    }
+  ],
+  "pinCode": null,
+  "_lastModified": 1783180004731,
+  "plannedExpenses": [
+    {
+      "id": "mr6jc1gyceqa1g",
+      "name": "pelicula ophenhaimer",
+      "amount": 18,
+      "targetDate": "2026-07-17",
+      "savedSoFar": 0,
+      "createdAt": "2026-07-04T15:46:44.722Z"
+    }
+  ],
+  "imprevistosBudget": 20,
+  "checkingBaseBalance": 60,
+  "imprevistosSavings": 0
+}

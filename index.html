@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#4F46E5">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="mobile-web-app-capable" content="yes">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icon.svg">
+  <title>Presupuesto</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-top">
+      <div class="app-title">💰 Presupuesto</div>
+      <div class="header-controls">
+        <select id="monthSelector"></select>
+        <button id="archiveBtn" class="btn-secondary">Archivar</button>
+        <button class="btn-secondary" onclick="App._exportData()" title="Descargar backup">⬇</button>
+        <button class="btn-secondary" onclick="document.getElementById('restoreInput').click()" title="Restaurar backup">⬆</button>
+        <input type="file" id="restoreInput" accept=".json" style="display:none">
+      </div>
+    </div>
+  </header>
+
+  <div class="container">
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="dashboard">🏠 Inicio</button>
+      <button class="tab-btn" data-tab="registro">📝 Movimientos</button>
+      <button class="tab-btn" data-tab="presupuesto">💡 Ahorro</button>
+      <button class="tab-btn" data-tab="semanas">📅 Semanas</button>
+      <button class="tab-btn" data-tab="graficos">📊 Gráficos</button>
+      <button class="tab-btn" data-tab="categorias">⚙️</button>
+    </div>
+
+    <div id="tab-dashboard" class="tab-content active"></div>
+    <div id="tab-registro" class="tab-content"></div>
+    <div id="tab-presupuesto" class="tab-content"></div>
+    <div id="tab-semanas" class="tab-content"></div>
+    <div id="tab-graficos" class="tab-content"></div>
+    <div id="tab-categorias" class="tab-content"></div>
+  </div>
+
+  <button class="fab" id="quickAddBtn" title="Añadir gasto rápido">+</button>
+
+  <div class="quick-backdrop" id="quickBackdrop"></div>
+  <div class="quick-overlay" id="quickOverlay">
+    <div class="handle"></div>
+    <div id="quickForm"></div>
+  </div>
+
+  <div class="modal-overlay" id="modalOverlay">
+    <div class="modal">
+      <div class="modal-title" id="modalTitle"></div>
+      <div id="modalBody"></div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="modalCancel">Cancelar</button>
+        <button class="btn btn-primary" id="modalConfirm">Aceptar</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/store.js"></script>
+  <script src="js/presupuesto.js"></script>
+  <script src="js/dashboard.js"></script>
+  <script src="js/registro.js"></script>
+  <script src="js/semanas.js"></script>
+  <script src="js/graficos.js"></script>
+  <script src="js/categorias.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js');
+    }
+  </script>
+</body>
+</html>
