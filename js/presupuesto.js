@@ -484,7 +484,16 @@ const Presupuesto = {
           <option value="weekly">Semanal</option>
           <option value="yearly">Anual</option>
         </select>
-        <input type="number" id="recDay" placeholder="Día" min="1" max="31" value="${new Date().getDate()}" class="rec-input rec-input-narrow" title="Día del mes">
+        <input type="number" id="recDay" placeholder="Día" min="1" max="31" value="${new Date().getDate()}" class="rec-input rec-input-narrow" title="Día del mes (1-31)">
+        <select id="recDayOfWeek" class="rec-input" style="display:none" title="Día de la semana (0=Dom, 1=Lun...)">
+          <option value="0">Dom</option>
+          <option value="1" selected>Lun</option>
+          <option value="2">Mar</option>
+          <option value="3">Mié</option>
+          <option value="4">Jue</option>
+          <option value="5">Vie</option>
+          <option value="6">Sáb</option>
+        </select>
         <select id="recMethod" class="rec-input">${methods.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('')}</select>
         <button class="btn btn-primary btn-sm" onclick="Presupuesto._addRecurring()">+</button>
       </div>
@@ -515,16 +524,17 @@ const Presupuesto = {
   _toggleRecDay() {
     const freq = document.getElementById('recFreq')?.value;
     const dayEl = document.getElementById('recDay');
+    const dowEl = document.getElementById('recDayOfWeek');
     if (!dayEl) return;
     if (freq === 'weekly') {
-      dayEl.min = 0; dayEl.max = 6; dayEl.value = 1;
-      dayEl.title = '0=Dom, 1=Lun... 6=Sáb';
-    } else if (freq === 'monthly') {
-      dayEl.min = 1; dayEl.max = 31; dayEl.value = new Date().getDate();
-      dayEl.title = 'Día del mes';
+      dayEl.style.display = 'none';
+      if (dowEl) dowEl.style.display = '';
     } else {
-      dayEl.min = 1; dayEl.max = 31; dayEl.value = new Date().getDate();
-      dayEl.title = 'Día del mes (anual)';
+      dayEl.style.display = '';
+      dayEl.min = 1; dayEl.max = 31;
+      if (!dayEl.value || dayEl.value < 1) dayEl.value = new Date().getDate();
+      dayEl.title = freq === 'yearly' ? 'Día del mes (anual)' : 'Día del mes';
+      if (dowEl) dowEl.style.display = 'none';
     }
   },
 
@@ -535,15 +545,16 @@ const Presupuesto = {
     const category = document.getElementById('recCategory').value;
     const frequency = document.getElementById('recFreq').value;
     const dayVal = parseInt(document.getElementById('recDay').value, 10);
+    const dowVal = parseInt(document.getElementById('recDayOfWeek')?.value ?? '1', 10);
     const paymentMethod = document.getElementById('recMethod').value;
     if (!name || !amount || amount <= 0) return;
     const today = new Date();
     let nextDate = today.toISOString().split('T')[0];
     const data = { name, amount, type, category, paymentMethod, frequency, active: true, nextDate };
     if (frequency === 'weekly') {
-      data.dayOfWeek = isNaN(dayVal) ? 1 : dayVal;
+      data.dayOfWeek = isNaN(dowVal) ? 1 : dowVal;
     } else {
-      data.dayOfMonth = isNaN(dayVal) ? today.getDate() : dayVal;
+      data.dayOfMonth = isNaN(dayVal) ? today.getDate() : Math.max(1, Math.min(31, dayVal));
     }
     Store.addRecurringTransaction(data);
     document.getElementById('recName').value = '';
