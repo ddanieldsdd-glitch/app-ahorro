@@ -306,6 +306,9 @@ body {
 
 .tx-adjustment { border-left: 3px solid #F59E0B; opacity: 0.8; }
 .tx-adj-badge { display: inline-block; font-size: 9px; font-weight: 700; background: #FEF3C7; color: #92400E; padding: 1px 5px; border-radius: 6px; vertical-align: middle; text-transform: uppercase; letter-spacing: 0.3px; }
+.tx-traspaso { border-left: 3px solid #4F46E5; }
+.transaction-icon.traspaso { background: #E0E7FF; color: #4F46E5; }
+.transaction-amount.traspaso { color: #4F46E5; font-weight: 700; }
 
 .empty-state { text-align: center; padding: 30px 20px; color: var(--text-secondary); font-size: 14px; }
 
@@ -872,6 +875,11 @@ body {
 .cal-tx-actions { display: flex; gap: 4px; flex-shrink: 0; }
 .cal-tx-actions button { background: none; border: none; cursor: pointer; font-size: 15px; padding: 2px 4px; border-radius: 6px; line-height: 1; }
 .cal-tx-actions button:hover { background: var(--bg); }
+.week-tx-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--border); }
+.week-tx-row:last-child { border-bottom: none; }
+.week-tx-info { flex: 1; min-width: 0; }
+.week-tx-desc { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.week-tx-meta { font-size: 11px; color: var(--text-secondary); }
 .cal-type-btn { flex: 1; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); font-weight: 700; cursor: pointer; font-size: 13px; }
 .cal-type-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 .cal-cat-chips { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; margin-top: 6px; }

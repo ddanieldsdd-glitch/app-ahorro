@@ -856,7 +856,7 @@ const Presupuesto = {
   _getSpendingStats() {
     const archives = Store.getArchives();
     const currentMonth = Store.getCurrentMonth();
-    const currentTx = Store.getTransactions().filter(t => !Store.isAdjustment(t) && t.type !== 'Ingreso');
+    const currentTx = Store.getTransactions().filter(t => Store.isExpense(t));
 
     // Build per-month expense totals
     const byMonth = {};
@@ -864,7 +864,7 @@ const Presupuesto = {
       byMonth[t.month] = (byMonth[t.month] || 0) + t.amount;
     }
     for (const [month, txs] of Object.entries(archives)) {
-      const expenses = txs.filter(t => !Store.isAdjustment(t) && t.type !== 'Ingreso');
+      const expenses = txs.filter(t => Store.isExpense(t));
       if (expenses.length > 0) {
         byMonth[month] = expenses.reduce((s, t) => s + t.amount, 0);
       }
@@ -873,7 +873,7 @@ const Presupuesto = {
     // Per-category averages
     const allExpenses = [...currentTx];
     for (const txs of Object.values(archives)) {
-      allExpenses.push(...txs.filter(t => !Store.isAdjustment(t) && t.type !== 'Ingreso'));
+      allExpenses.push(...txs.filter(t => Store.isExpense(t)));
     }
 
     const months = Object.keys(byMonth).sort();

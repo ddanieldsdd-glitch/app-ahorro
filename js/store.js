@@ -20,7 +20,7 @@ const defaultData = {
   transactions: [],
   categories: ['Comida', 'Bebida', 'Salidas', 'Caprichos', 'Transporte', 'Vivienda', 'Salud', 'Educación', 'Imprevisto', 'Otros'],
   incomeCategories: ['Mensualidad', 'Paga', 'Extra'],
-  types: ['Ingreso', 'Gasto'],
+  types: ['Ingreso', 'Gasto', 'Traspaso'],
   paymentMethods: ['Efectivo', 'Tarjeta', 'Bizum', 'Transferencia'],
   currentMonth: null,
   archives: {},
@@ -235,6 +235,13 @@ const Store = {
    *  Skips transactions flagged `_noAutoBalance` (internal system transfers). */
   _applyBalanceDelta(t, sign) {
     if (t._noAutoBalance) return;
+    // Traspaso: debit checking, credit savings
+    if (t.type === 'Traspaso') {
+      if (this._data.checkingBalance === null) this._data.checkingBalance = this._data.initialCheckingBalance || 0;
+      this._data.checkingBalance   = Math.round((this._data.checkingBalance   - t.amount * sign) * 100) / 100;
+      this._data.savingsBalance    = Math.round(((this._data.savingsBalance || 0) + t.amount * sign) * 100) / 100;
+      return;
+    }
     const account = this._resolveAccount(t);
     if (account === 'cash') return;
     const delta = (t.type === 'Ingreso' ? t.amount : -t.amount) * sign;
@@ -951,6 +958,8 @@ const Store = {
 
   /** Returns true if a transaction is a balance-sync adjustment (not a real income/expense). */
   isAdjustment(t) { return t.category === '__ajuste__'; },
+  isTraspaso(t)   { return t.type === 'Traspaso'; },
+  isExpense(t)    { return t.type !== 'Ingreso' && t.type !== 'Traspaso' && !this.isAdjustment(t); },
 
   /** Transactions visible in financial reports (excludes adjustments and internal system ops). */
   getReportableTransactions() {

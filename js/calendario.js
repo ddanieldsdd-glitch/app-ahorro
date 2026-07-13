@@ -334,6 +334,7 @@ const Calendario = {
       `<div style="display:flex;gap:6px;margin-bottom:10px">
         <button type="button" class="cal-type-btn active" data-cal-type="Gasto" onclick="Calendario._setType('Gasto')">💸 Gasto</button>
         <button type="button" class="cal-type-btn" data-cal-type="Ingreso" onclick="Calendario._setType('Ingreso')">💰 Ingreso</button>
+        <button type="button" class="cal-type-btn" data-cal-type="Traspaso" onclick="Calendario._setType('Traspaso')">⇄ Traspaso</button>
       </div>
       <div class="form-group"><label>Importe (€)</label>
         <input type="number" id="calAmount" step="0.01" min="0.01" placeholder="0.00" style="font-size:18px;font-weight:700;width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)">
@@ -371,14 +372,18 @@ const Calendario = {
         const date = document.getElementById('calDate').value;
         if (!amount || amount <= 0 || !date) return;
         if (date !== dateStr) { App.showToast('⚠️ Fecha inválida'); return; }
-        Store.addTransaction({ date, amount, description: desc, type, category, paymentMethod: method, account });
+        const txData = type === 'Traspaso'
+          ? { date, amount, description: desc || 'Traspaso a ahorro', type, category: 'Traspaso', paymentMethod: 'Transferencia', account: 'checking' }
+          : { date, amount, description: desc, type, category, paymentMethod: method, account };
+        Store.addTransaction(txData);
         if (type === 'Ingreso') {
           App.suggestSavings(amount);
         }
-        App._closeModal();
         App._refreshAll();
         this.render();
-        App.showToast(`✅ ${type} añadido para ${date.split('-').reverse().join('/')}`);
+        App.showToast(`✅ ${type} añadido`);
+        // Reopen day view so user can keep adding movements
+        setTimeout(() => Calendario._showDay(dateStr), 80);
       }
     );
     setTimeout(() => {
@@ -403,6 +408,17 @@ const Calendario = {
     document.querySelectorAll('.cal-type-btn').forEach(b => {
       b.classList.toggle('active', b.dataset.calType === type);
     });
+    // For Traspaso, hide category/method/account fields
+    const catGroup    = document.getElementById('calCategory')?.closest('.form-group');
+    const methodGroup = document.getElementById('calMethod')?.closest('.form-group');
+    const accountGroup = document.getElementById('calAccount')?.closest('.form-group');
+    const isTraspaso = type === 'Traspaso';
+    if (catGroup)    catGroup.style.display    = isTraspaso ? 'none' : '';
+    if (methodGroup) methodGroup.style.display = isTraspaso ? 'none' : '';
+    if (accountGroup) accountGroup.style.display = isTraspaso ? 'none' : '';
+    const descInput = document.getElementById('calDesc');
+    if (descInput && isTraspaso && !descInput.value) descInput.value = 'Traspaso a ahorro';
+    if (isTraspaso) return;
     const sel = document.getElementById('calCategory');
     if (!sel) return;
     const cats = Store.getCategoriesForType(type);

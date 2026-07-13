@@ -114,6 +114,8 @@ const Registro = {
     document.getElementById('txDate').valueAsDate = new Date();
     document.getElementById('txType').addEventListener('change', (e) => {
       const type = e.target.value;
+      this._toggleTraspasoMode(type);
+      if (type === 'Traspaso') return;
       const currentCat = document.getElementById('txCategory').value;
       const cats = Store.getCategoriesForType(type);
       const defaultCat = type === 'Ingreso' ? (cats.includes('Mensualidad') ? 'Mensualidad' : cats[0]) : 'Comida';
@@ -130,6 +132,14 @@ const Registro = {
       e.preventDefault();
       this._handleSubmit();
     });
+  },
+
+  _toggleTraspasoMode(type) {
+    const isTraspaso = type === 'Traspaso';
+    const hide = ['txCategory', 'txMethod', 'txAccount'].map(id => document.getElementById(id)?.closest('.form-group'));
+    hide.forEach(el => { if (el) el.style.display = isTraspaso ? 'none' : ''; });
+    const desc = document.getElementById('txDesc');
+    if (desc && isTraspaso) { desc.value = desc.value || 'Traspaso a ahorro'; }
   },
 
   _populateSelect(id, options, selected) {
@@ -186,7 +196,9 @@ const Registro = {
     const account = document.getElementById('txAccount')?.value || 'checking';
     if (!date || !amount || amount <= 0) return;
 
-    const data = { date, amount, description: desc, type, category, paymentMethod: method, account };
+    const data = type === 'Traspaso'
+      ? { date, amount, description: desc || 'Traspaso a ahorro', type, category: 'Traspaso', paymentMethod: 'Transferencia', account: 'checking', _noAutoBalance: false }
+      : { date, amount, description: desc, type, category, paymentMethod: method, account };
     if (this._editingId) {
       Store.updateTransaction(this._editingId, data);
       this._editingId = null;
@@ -238,16 +250,21 @@ const Registro = {
       return b.date.localeCompare(a.date) || b.id.localeCompare(a.id); // date_desc (default)
     });
     container.innerHTML = sorted.map(t => {
-      const isIncome = t.type === 'Ingreso';
-      const isAdjust = Store.isAdjustment(t);
+      const isIncome    = t.type === 'Ingreso';
+      const isTraspaso  = Store.isTraspaso(t);
+      const isAdjust    = Store.isAdjustment(t);
       const accountLabel = { checking: '💳', savings: '🐷', cash: '💵' }[t.account] || '';
-      return `<div class="transaction-item ${isAdjust ? 'tx-adjustment' : ''}" data-id="${t.id}">
-        <div class="transaction-icon ${isIncome ? 'income' : 'expense'}">${isAdjust ? '⚖' : isIncome ? '↑' : '↓'}</div>
+      const iconClass = isTraspaso ? 'traspaso' : isIncome ? 'income' : 'expense';
+      const icon      = isAdjust ? '⚖' : isTraspaso ? '⇄' : isIncome ? '↑' : '↓';
+      const amtClass  = isTraspaso ? 'traspaso' : isIncome ? 'income' : 'expense';
+      const amtPrefix = isIncome ? '+' : isTraspaso ? '⇄ ' : '-';
+      return `<div class="transaction-item ${isAdjust ? 'tx-adjustment' : isTraspaso ? 'tx-traspaso' : ''}" data-id="${t.id}">
+        <div class="transaction-icon ${iconClass}">${icon}</div>
         <div class="transaction-info">
-          <div class="transaction-desc">${esc(t.description || t.category)}${isAdjust ? ' <span class="tx-adj-badge">ajuste</span>' : ''}</div>
-          <div class="transaction-meta">${t.date.split('-').reverse().join('/')} · ${esc(isAdjust ? 'Ajuste bancario' : t.category)}${t.paymentMethod && !isAdjust ? ` · ${esc(t.paymentMethod)}` : ''} ${accountLabel}</div>
+          <div class="transaction-desc">${esc(t.description || t.category)}${isAdjust ? ' <span class="tx-adj-badge">ajuste</span>' : ''}${isTraspaso ? ' <span class="tx-adj-badge" style="background:#E0E7FF;color:#4F46E5">traspaso</span>' : ''}</div>
+          <div class="transaction-meta">${t.date.split('-').reverse().join('/')} · ${esc(isAdjust ? 'Ajuste bancario' : t.category)}${t.paymentMethod && !isAdjust && !isTraspaso ? ` · ${esc(t.paymentMethod)}` : ''} ${isTraspaso ? '💳→🐷' : accountLabel}</div>
         </div>
-        <div class="transaction-amount ${isIncome ? 'income' : 'expense'}">${isIncome ? '+' : '-'}${t.amount.toFixed(2)}€</div>
+        <div class="transaction-amount ${amtClass}">${amtPrefix}${t.amount.toFixed(2)}€</div>
         ${isArchived ? '' : `<div class="transaction-actions">
           <button onclick="Registro._edit('${t.id}')" title="Editar">✏️</button>
           <button onclick="Registro._delete('${t.id}')" title="Eliminar">🗑️</button>
@@ -449,33 +466,63 @@ const Registro = {
 
     const fmt = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
 
+    const isArchived = App.isViewingArchived();
     grid.innerHTML = weeks.map((week, idx) => {
       const weekTx = transactions.filter(t => {
         const d = new Date(t.date + 'T00:00:00');
         return d >= week.start && d <= week.end;
       });
-      const income  = weekTx.filter(t => t.type === 'Ingreso').reduce((s, t) => s + t.amount, 0);
-      const expense = weekTx.filter(t => t.type !== 'Ingreso').reduce((s, t) => s + t.amount, 0);
-      const balance = income - expense;
+      const income   = weekTx.filter(t => t.type === 'Ingreso').reduce((s, t) => s + t.amount, 0);
+      const expense  = weekTx.filter(t => Store.isExpense(t)).reduce((s, t) => s + t.amount, 0);
+      const traspaso = weekTx.filter(t => Store.isTraspaso(t)).reduce((s, t) => s + t.amount, 0);
+      const balance  = income - expense;
       const catTotals = {};
-      weekTx.forEach(t => { if (t.type !== 'Ingreso') catTotals[t.category] = (catTotals[t.category] || 0) + t.amount; });
+      weekTx.forEach(t => { if (Store.isExpense(t)) catTotals[t.category] = (catTotals[t.category] || 0) + t.amount; });
       const catEntries = Object.entries(catTotals).sort((a, b) => b[1] - a[1]);
 
+      const txListHtml = weekTx.length === 0
+        ? '<div style="font-size:13px;color:var(--text-secondary);padding:6px 0">Sin movimientos</div>'
+        : weekTx.sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id)).map(t => {
+            const isIncome   = t.type === 'Ingreso';
+            const isTrsp     = Store.isTraspaso(t);
+            const iconClass  = isTrsp ? 'traspaso' : isIncome ? 'income' : 'expense';
+            const icon       = isTrsp ? '⇄' : isIncome ? '↑' : '↓';
+            const amtClass   = isTrsp ? 'traspaso' : isIncome ? 'income' : 'expense';
+            const amtPrefix  = isIncome ? '+' : isTrsp ? '⇄ ' : '-';
+            return `<div class="week-tx-row">
+              <div class="transaction-icon ${iconClass}" style="width:24px;height:24px;font-size:12px;flex-shrink:0">${icon}</div>
+              <div class="week-tx-info">
+                <div class="week-tx-desc">${esc(t.description || t.category)}</div>
+                <div class="week-tx-meta">${t.date.split('-').reverse().join('/')} · ${esc(t.category)}</div>
+              </div>
+              <span class="transaction-amount ${amtClass}" style="font-size:13px">${amtPrefix}${t.amount.toFixed(2)}€</span>
+              ${!isArchived ? `<div class="cal-tx-actions">
+                <button title="Editar" onclick="Registro._edit('${t.id}');document.getElementById('tab-registro').scrollIntoView({behavior:'smooth'})">✏️</button>
+                <button title="Eliminar" onclick="Registro._delete('${t.id}')">🗑️</button>
+              </div>` : ''}
+            </div>`;
+          }).join('');
+
       return `<div class="week-card">
-        <div class="week-header">
+        <div class="week-header" onclick="this.nextElementSibling.classList.toggle('collapsed')" style="cursor:pointer">
           <span>Semana ${idx + 1}: ${fmt(week.startDisplay)} – ${fmt(week.endDisplay)}</span>
-          <span style="font-weight:600;font-size:13px">${weekTx.length} movimiento${weekTx.length !== 1 ? 's' : ''}</span>
+          <span style="font-weight:600;font-size:13px">${weekTx.length} movimiento${weekTx.length !== 1 ? 's' : ''} ▾</span>
         </div>
         <div class="week-body">
           <div class="week-stats">
             <div class="week-stat"><div class="week-stat-label">Ingresos</div><div class="week-stat-value income">+${income.toFixed(2)} €</div></div>
             <div class="week-stat"><div class="week-stat-label">Gastos</div><div class="week-stat-value expense">-${expense.toFixed(2)} €</div></div>
             <div class="week-stat"><div class="week-stat-label">Balance</div><div class="week-stat-value" style="color:${balance >= 0 ? 'var(--income)' : 'var(--expense)'}">${balance >= 0 ? '+' : ''}${balance.toFixed(2)} €</div></div>
+            ${traspaso > 0 ? `<div class="week-stat"><div class="week-stat-label">Traspasos</div><div class="week-stat-value" style="color:#4F46E5">⇄ ${traspaso.toFixed(2)} €</div></div>` : ''}
           </div>
-          ${catEntries.length > 0 ? `<div style="font-size:13px;font-weight:600;margin-bottom:6px">Desglose por categoría</div>
-          <div class="week-categories">${catEntries.map(([cat, amt]) =>
+          ${catEntries.length > 0 ? `<details style="margin-top:8px"><summary style="font-size:13px;font-weight:600;cursor:pointer;color:var(--text-secondary)">Desglose por categoría</summary>
+          <div class="week-categories" style="margin-top:6px">${catEntries.map(([cat, amt]) =>
             `<div class="week-cat-item"><span class="cat-name">${esc(cat)}</span><span class="cat-amount">${amt.toFixed(2)} €</span></div>`
-          ).join('')}</div>` : '<div style="font-size:13px;color:var(--text-secondary)">Sin gastos esta semana</div>'}
+          ).join('')}</div></details>` : ''}
+          <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">
+            <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">MOVIMIENTOS</div>
+            ${txListHtml}
+          </div>
         </div>
       </div>`;
     }).join('');
