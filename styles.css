@@ -940,6 +940,9 @@ body {
 [data-theme='dark'] .debt-pill.i-owe           { background: #2d0a0a; }
 [data-theme='dark'] .owed-hint { background: #052e16; color: #6ee7b7; }
 [data-theme='dark'] .iowe-hint { background: #2d0a0a; color: #fca5a5; }
+
+.debt-inline-block { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.debt-inline-toggle { display: flex; align-items: center; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--text); gap: 4px; }
 .cal-type-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 .cal-cat-chips { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
 .cal-cat-chip { padding: 3px 8px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg); font-size: 11px; cursor: pointer; }

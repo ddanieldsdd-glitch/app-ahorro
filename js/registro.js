@@ -67,6 +67,7 @@ const Registro = {
             </select>
           </div>
         </form>
+        <div id="txDebtContainer" style="margin-top:10px;grid-column:1/-1"></div>
         <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
           <button type="submit" class="btn btn-primary" id="txSubmit" form="txForm">➕ Añadir</button>
         </div>
@@ -96,6 +97,10 @@ const Registro = {
     this._populateSelect('txMethod', Store.getPaymentMethods(), 'Tarjeta');
     this._setupInlineAdd();
     document.getElementById('txDate').valueAsDate = new Date();
+    // Inject debt inline block
+    const debtContainer = document.getElementById('txDebtContainer');
+    if (debtContainer) debtContainer.innerHTML = Deudas.inlineFormHtml('tx');
+
     document.getElementById('txType').addEventListener('change', (e) => {
       const type = e.target.value;
       this._toggleTraspasoMode(type);
@@ -183,19 +188,27 @@ const Registro = {
     const data = type === 'Traspaso'
       ? { date, amount, description: desc || 'Traspaso a ahorro', type, category: 'Traspaso', paymentMethod: 'Transferencia', account: 'checking', _noAutoBalance: false }
       : { date, amount, description: desc, type, category, paymentMethod: method, account };
+    let savedTxId = null;
     if (this._editingId) {
       Store.updateTransaction(this._editingId, data);
+      savedTxId = this._editingId;
       this._editingId = null;
       document.getElementById('txSubmit').textContent = '➕ Añadir';
     } else {
-      Store.addTransaction(data);
+      const saved = Store.addTransaction(data);
+      savedTxId = saved?.id;
       if (type === 'Ingreso') {
         this._suggestSavings(amount);
       }
     }
+    // Save inline debt if user filled it in
+    Deudas.saveInlineDebt('tx', savedTxId, date, desc, category);
     document.getElementById('txAmount').value = '';
     document.getElementById('txDesc').value = '';
     document.getElementById('txDate').valueAsDate = new Date();
+    // Reset debt block
+    const debtContainer = document.getElementById('txDebtContainer');
+    if (debtContainer) debtContainer.innerHTML = Deudas.inlineFormHtml('tx');
     this._renderWeeks();
     if (!App.isViewingArchived()) {
       Graficos.render();

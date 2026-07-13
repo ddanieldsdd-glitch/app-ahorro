@@ -290,4 +290,81 @@ const Deudas = {
       if (prefill.linkedTxId) document.getElementById('debtLinkTx').value = prefill.linkedTxId;
     }, 120);
   },
+
+  // ── Inline debt block (embedded in movement forms) ─────────────────────────
+
+  /** Returns the HTML snippet to embed inside a movement add/edit form.
+   *  prefix: short string to namespace IDs ('tx' for registro, 'cal' for calendar). */
+  inlineFormHtml(prefix = 'tx', defaultAmount = '', defaultDesc = '') {
+    return `
+      <div class="debt-inline-block" id="${prefix}DebtBlock">
+        <label class="debt-inline-toggle" onclick="Deudas.toggleInlineDebt('${prefix}')">
+          <input type="checkbox" id="${prefix}DebtEnabled" style="margin-right:6px">
+          💸 Asociar deuda a este movimiento
+        </label>
+        <div id="${prefix}DebtFields" style="display:none;margin-top:10px;padding:10px 12px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">
+          <div style="display:flex;gap:6px;margin-bottom:10px">
+            <button type="button" class="cal-type-btn active" id="${prefix}DebtTypeOwed" onclick="Deudas._toggleInlineType('${prefix}','owed_to_me')">🟢 Me deben</button>
+            <button type="button" class="cal-type-btn" id="${prefix}DebtTypeIOwe" onclick="Deudas._toggleInlineType('${prefix}','i_owe')">🔴 Debo yo</button>
+          </div>
+          <input type="hidden" id="${prefix}DebtType" value="owed_to_me">
+          <div id="${prefix}DebtHint" class="debt-type-hint owed-hint" style="margin-bottom:8px;font-size:12px">
+            Pagaste tú el gasto. Cuando te lo devuelvan, márcalo como cobrado en Deudas.
+          </div>
+          <div class="form-group" style="margin-bottom:8px">
+            <label style="font-size:12px">Persona</label>
+            <input type="text" id="${prefix}DebtPerson" placeholder="Nombre" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px">
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label style="font-size:12px">Importe que me deben / debo (€)</label>
+            <input type="number" id="${prefix}DebtAmt" step="0.01" min="0.01" value="${defaultAmount}"
+              placeholder="0.00" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px">
+          </div>
+        </div>
+      </div>`;
+  },
+
+  toggleInlineDebt(prefix) {
+    const cb     = document.getElementById(prefix + 'DebtEnabled');
+    const fields = document.getElementById(prefix + 'DebtFields');
+    if (fields) fields.style.display = cb?.checked ? '' : 'none';
+  },
+
+  _toggleInlineType(prefix, type) {
+    document.getElementById(prefix + 'DebtType').value = type;
+    document.getElementById(prefix + 'DebtTypeOwed').classList.toggle('active', type === 'owed_to_me');
+    document.getElementById(prefix + 'DebtTypeIOwe').classList.toggle('active', type === 'i_owe');
+    const hint = document.getElementById(prefix + 'DebtHint');
+    if (hint) {
+      hint.className = `debt-type-hint ${type === 'owed_to_me' ? 'owed-hint' : 'iowe-hint'}`;
+      hint.textContent = type === 'owed_to_me'
+        ? 'Pagaste tú el gasto. Cuando te lo devuelvan, márcalo como cobrado en Deudas.'
+        : 'Alguien pagó por ti. El gasto NO se descuenta hasta que lo pagues en Deudas.';
+    }
+  },
+
+  /** Reads inline debt fields and creates a debt if enabled.
+   *  txId: ID of the freshly saved transaction to link.
+   *  txDate, txDesc, txCategory: context for the debt.
+   *  Returns true if a debt was created. */
+  saveInlineDebt(prefix, txId, txDate, txDesc, txCategory) {
+    const enabled = document.getElementById(prefix + 'DebtEnabled')?.checked;
+    if (!enabled) return false;
+    const person = document.getElementById(prefix + 'DebtPerson')?.value.trim();
+    const amt    = parseFloat(document.getElementById(prefix + 'DebtAmt')?.value);
+    const type   = document.getElementById(prefix + 'DebtType')?.value || 'owed_to_me';
+    if (!person || !amt || amt <= 0) { App.showToast('Deuda: indica persona e importe'); return false; }
+    Store.addDebt({
+      person, amount: amt,
+      description: txDesc || '',
+      category: txCategory || 'Otros',
+      date: txDate,
+      type,
+      linkedTxId: txId || null,
+    });
+    if (document.getElementById('tab-deudas')?.classList.contains('active')) Deudas.render();
+    Dashboard.render();
+    App.showToast(`💸 Deuda añadida: ${person} · ${amt.toFixed(2)}€`);
+    return true;
+  },
 };

@@ -324,7 +324,8 @@ const Calendario = {
             <option value="savings"${t.account === 'savings' ? ' selected' : ''}>🐷 Ahorro</option>
             <option value="cash"${t.account === 'cash' ? ' selected' : ''}>💵 Efectivo (no computa)</option>
           </select>
-        </div>`,
+        </div>
+        ${Deudas.inlineFormHtml('calEdit', t.amount.toString(), t.description || '')}`,
       actions: [
         { label: 'Cancelar' },
         { label: '💾 Guardar', primary: true, cb: () => {
@@ -335,6 +336,7 @@ const Calendario = {
           const account  = document.getElementById('calEditAccount')?.value;
           if (!amount || amount <= 0) { App.showToast('Importe inválido'); return; }
           Store.updateTransaction(id, { amount, description: desc, category, paymentMethod: method, account });
+          Deudas.saveInlineDebt('calEdit', id, t.date, desc, category);
           Calendario.render();
           if (document.getElementById('tab-registro')?.classList.contains('active')) Registro.render();
           Dashboard.render(); Presupuesto.render(); Graficos.render();
@@ -404,7 +406,8 @@ const Calendario = {
           <option value="cash">💵 Efectivo (no computa)</option>
         </select>
       </div>
-      <input type="hidden" id="calDate" value="${dateStr}">`,
+      <input type="hidden" id="calDate" value="${dateStr}">
+      ${Deudas.inlineFormHtml('cal')}`,
       '➕ Añadir', () => {
         const amount = parseFloat(document.getElementById('calAmount').value);
         const desc = document.getElementById('calDesc').value.trim();
@@ -418,7 +421,8 @@ const Calendario = {
         const txData = type === 'Traspaso'
           ? { date, amount, description: desc || 'Traspaso a ahorro', type, category: 'Traspaso', paymentMethod: 'Transferencia', account: 'checking' }
           : { date, amount, description: desc, type, category, paymentMethod: method, account };
-        Store.addTransaction(txData);
+        const saved = Store.addTransaction(txData);
+        Deudas.saveInlineDebt('cal', saved?.id, date, desc, category);
         if (type === 'Ingreso') {
           App.suggestSavings(amount);
         }
