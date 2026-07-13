@@ -72,19 +72,6 @@ const Registro = {
         </div>
         `}
       </div>
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title">Movimientos</span>
-          <span id="txCount" style="font-size:12px;color:var(--text-secondary)"></span>
-        </div>
-        <div id="txSearch" style="margin-bottom:8px">
-          <input type="text" id="txFilter" placeholder="🔍 Buscar..." style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;margin-bottom:6px">
-          <div style="display:flex;gap:4px;flex-wrap:wrap" id="sortBtns">
-            ${[['date_desc','📅 Reciente'],['date_asc','📅 Antiguo'],['added_desc','🕐 Añadido'],['amount_desc','💶 Mayor'],['amount_asc','💶 Menor']].map(([m,l])=>`<button class="tx-sort-btn${this._sortMode===m?' active':''}" onclick="Registro._setSort('${m}')">${l}</button>`).join('')}
-          </div>
-        </div>
-        <div id="transactionList" class="transaction-list"></div>
-      </div>
       <div class="card" id="semanasSection">
         <div class="card-header">
           <span class="card-title">📅 Desglose semanal</span>
@@ -94,10 +81,7 @@ const Registro = {
       </div>
     `;
     if (!isArchived) this._initForm();
-    this._renderList();
     this._renderWeeks();
-    const filter = document.getElementById('txFilter');
-    if (filter) filter.addEventListener('input', () => this._renderList());
   },
 
   _setSort(mode) {
@@ -212,7 +196,6 @@ const Registro = {
     document.getElementById('txAmount').value = '';
     document.getElementById('txDesc').value = '';
     document.getElementById('txDate').valueAsDate = new Date();
-    this._renderList();
     this._renderWeeks();
     if (!App.isViewingArchived()) {
       Graficos.render();
@@ -453,7 +436,6 @@ const Registro = {
     if (!t) return;
     App.showConfirm('Eliminar', `¿Eliminar "${t.description || t.category}" (${t.amount.toFixed(2)} €)?`, () => {
       Store.deleteTransaction(id);
-      this._renderList();
       this._renderWeeks(); Graficos.render(); Presupuesto.render(); Dashboard.render();
     });
   },
@@ -623,7 +605,73 @@ const Registro = {
       cur.setDate(cur.getDate() + 7);
     }
 
-    const fmt = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
+    const fmt       = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
+    const dayNames  = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+    const isArchived = App.isViewingArchived();
+    const allGroups  = Store.getTxGroups();
+
+    // Helper: render one tx row inside weekly view
+    const renderTxRow = (t) => {
+      const isIncome = t.type === 'Ingreso';
+      const isTrsp   = Store.isTraspaso(t);
+      const cls      = isTrsp ? 'traspaso' : isIncome ? 'income' : 'expense';
+      const pfx      = isIncome ? '+' : isTrsp ? '⇄ ' : '-';
+      return `<div class="week-tx-row">
+        <div class="transaction-icon ${cls}" style="width:22px;height:22px;font-size:11px;flex-shrink:0">${isTrsp?'⇄':isIncome?'↑':'↓'}</div>
+        <div class="week-tx-info">
+          <div class="week-tx-desc">${esc(t.description || t.category)}</div>
+          <div class="week-tx-meta">${esc(t.category)}${t.paymentMethod && !isTrsp ? ' · '+esc(t.paymentMethod) : ''}</div>
+        </div>
+        <span class="transaction-amount ${cls}" style="font-size:13px;white-space:nowrap">${pfx}${t.amount.toFixed(2)}€</span>
+        ${!isArchived ? `<div class="cal-tx-actions">
+          <button title="Agrupar" onclick="Registro._openGroupModal('${t.id}')">🔗</button>
+          <button title="Editar" onclick="Registro._edit('${t.id}');document.getElementById('tab-registro').scrollIntoView({behavior:'smooth'})">✏️</button>
+          <button title="Eliminar" onclick="Registro._delete('${t.id}')">🗑️</button>
+        </div>` : ''}
+      </div>`;
+    };
+
+    // Helper: render a group card inside weekly view
+    const renderGroupCard = (groupId, group, members) => {
+      const expense = members.filter(t => Store.isExpense(t)).reduce((s,t) => s+t.amount, 0);
+      const income  = members.filter(t => t.type === 'Ingreso').reduce((s,t) => s+t.amount, 0);
+      const net     = expense - income;
+      return `<div class="tx-group-card" style="margin:4px 0">
+        <div class="tx-group-header" onclick="this.nextElementSibling.classList.toggle('hidden')">
+          <div class="transaction-icon expense" style="width:22px;height:22px;font-size:11px;flex-shrink:0">🔗</div>
+          <div class="transaction-info">
+            <div class="transaction-desc" style="font-size:13px">${esc(group.name)}</div>
+            <div class="transaction-meta">neto: <strong style="color:${net<=0?'var(--income)':'var(--expense)'}">${net>=0?'-':'+'}${Math.abs(net).toFixed(2)}€</strong></div>
+          </div>
+          <div style="text-align:right;flex-shrink:0;font-size:12px">
+            <div style="color:var(--expense)">-${expense.toFixed(2)}€</div>
+            ${income>0?`<div style="color:var(--income)">+${income.toFixed(2)}€</div>`:''}
+          </div>
+          ${!isArchived ? `<div class="transaction-actions" onclick="event.stopPropagation()">
+            <button onclick="Registro._renameGroup('${groupId}')" title="Renombrar">✏️</button>
+            <button onclick="Registro._dissolveGroup('${groupId}')" title="Disolver">🗑️</button>
+          </div>` : ''}
+        </div>
+        <div class="tx-group-members hidden">
+          ${members.map(m => {
+            const isIncome = m.type === 'Ingreso';
+            const isTrsp   = Store.isTraspaso(m);
+            const cls      = isTrsp ? 'traspaso' : isIncome ? 'income' : 'expense';
+            const pfx      = isIncome ? '+' : isTrsp ? '⇄ ' : '-';
+            return `<div class="tx-group-member-row">
+              <div class="transaction-icon ${cls}" style="width:20px;height:20px;font-size:10px;flex-shrink:0">${isTrsp?'⇄':isIncome?'↑':'↓'}</div>
+              <div class="transaction-info"><div style="font-size:12px;font-weight:600">${esc(m.description||m.category)}</div><div style="font-size:11px;color:var(--text-secondary)">${m.date.split('-').reverse().join('/')}</div></div>
+              <span class="transaction-amount ${cls}" style="font-size:12px;white-space:nowrap">${pfx}${m.amount.toFixed(2)}€</span>
+              ${!isArchived ? `<div class="transaction-actions">
+                <button onclick="Registro._removeFromGroup('${m.id}')" title="Sacar">✂️</button>
+                <button onclick="Registro._edit('${m.id}');document.getElementById('tab-registro').scrollIntoView({behavior:'smooth'})">✏️</button>
+                <button onclick="Registro._delete('${m.id}')">🗑️</button>
+              </div>` : ''}
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+    };
 
     grid.innerHTML = weeks.map((week, idx) => {
       const weekTx = transactions.filter(t => {
@@ -634,14 +682,46 @@ const Registro = {
       const expense  = weekTx.filter(t => Store.isExpense(t)).reduce((s, t) => s + t.amount, 0);
       const traspaso = weekTx.filter(t => Store.isTraspaso(t)).reduce((s, t) => s + t.amount, 0);
       const balance  = income - expense;
-      const catTotals = {};
-      weekTx.forEach(t => { if (Store.isExpense(t)) catTotals[t.category] = (catTotals[t.category] || 0) + t.amount; });
-      const catEntries = Object.entries(catTotals).sort((a, b) => b[1] - a[1]);
+
+      // Build sorted list of days that have transactions
+      const dayMap = {};
+      weekTx.forEach(t => { (dayMap[t.date] = dayMap[t.date] || []).push(t); });
+      const days = Object.keys(dayMap).sort();
+
+      const daysHtml = days.map(dateStr => {
+        const dayTxs = dayMap[dateStr].sort((a,b) => a.type === 'Ingreso' ? -1 : 1);
+        const d = new Date(dateStr + 'T12:00:00');
+        const dayLabel = `${dayNames[d.getDay()]} ${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
+        const dayIncome  = dayTxs.filter(t => t.type === 'Ingreso').reduce((s,t) => s+t.amount, 0);
+        const dayExpense = dayTxs.filter(t => Store.isExpense(t)).reduce((s,t) => s+t.amount, 0);
+        const renderedGrps = new Set();
+
+        const txRows = dayTxs.map(t => {
+          if (t.groupId && allGroups[t.groupId]) {
+            if (renderedGrps.has(t.groupId)) return '';
+            renderedGrps.add(t.groupId);
+            const members = weekTx.filter(x => x.groupId === t.groupId);
+            return renderGroupCard(t.groupId, allGroups[t.groupId], members);
+          }
+          return renderTxRow(t);
+        }).join('');
+
+        return `<div class="week-day-block">
+          <div class="week-day-header">
+            <span class="week-day-label">${dayLabel}</span>
+            <span class="week-day-totals">
+              ${dayIncome > 0 ? `<span class="income">+${dayIncome.toFixed(2)}€</span>` : ''}
+              ${dayExpense > 0 ? `<span class="expense">-${dayExpense.toFixed(2)}€</span>` : ''}
+            </span>
+          </div>
+          ${txRows}
+        </div>`;
+      }).join('');
 
       return `<div class="week-card">
         <div class="week-header">
           <span>Semana ${idx + 1}: ${fmt(week.startDisplay)} – ${fmt(week.endDisplay)}</span>
-          <span style="font-weight:600;font-size:13px">${weekTx.length} movimiento${weekTx.length !== 1 ? 's' : ''}</span>
+          <span style="font-weight:600;font-size:13px">${weekTx.length} mov.</span>
         </div>
         <div class="week-body">
           <div class="week-stats">
@@ -650,10 +730,7 @@ const Registro = {
             <div class="week-stat"><div class="week-stat-label">Balance</div><div class="week-stat-value" style="color:${balance >= 0 ? 'var(--income)' : 'var(--expense)'}">${balance >= 0 ? '+' : ''}${balance.toFixed(2)} €</div></div>
             ${traspaso > 0 ? `<div class="week-stat"><div class="week-stat-label">Traspasos</div><div class="week-stat-value" style="color:#4F46E5">⇄ ${traspaso.toFixed(2)} €</div></div>` : ''}
           </div>
-          ${catEntries.length > 0 ? `<details style="margin-top:8px"><summary style="font-size:13px;font-weight:600;cursor:pointer;color:var(--text-secondary)">Desglose por categoría</summary>
-          <div class="week-categories" style="margin-top:6px">${catEntries.map(([cat, amt]) =>
-            `<div class="week-cat-item"><span class="cat-name">${esc(cat)}</span><span class="cat-amount">${amt.toFixed(2)} €</span></div>`
-          ).join('')}</div></details>` : '<div style="font-size:13px;color:var(--text-secondary)">Sin gastos esta semana</div>'}
+          ${days.length > 0 ? daysHtml : '<div style="font-size:13px;color:var(--text-secondary);padding:6px 0">Sin movimientos esta semana</div>'}
         </div>
       </div>`;
     }).join('');
