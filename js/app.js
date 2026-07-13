@@ -32,6 +32,27 @@ const App = {
     }
   },
 
+  _toggleMoreMenu() {
+    const menu = document.getElementById('bottomNavMenu');
+    if (!menu) return;
+    const open = menu.style.display !== 'none';
+    menu.style.display = open ? 'none' : 'flex';
+    if (!open) {
+      const close = (e) => { if (!e.target.closest('#bottomNavMenu, .bottom-nav-more')) { menu.style.display = 'none'; document.removeEventListener('click', close); } };
+      setTimeout(() => document.addEventListener('click', close), 10);
+    }
+  },
+
+  _setupTipHints() {
+    document.addEventListener('touchstart', (e) => {
+      const tip = e.target.closest('.tip-hint');
+      document.querySelectorAll('.tip-hint.tip-open').forEach(el => {
+        if (el !== tip) el.classList.remove('tip-open');
+      });
+      if (tip) { e.preventDefault(); tip.classList.toggle('tip-open'); }
+    }, { passive: false });
+  },
+
   async _initAfterPin() {
     if (!Store._ready) await Store.init();
     Store.processRecurringTransactions();
@@ -45,6 +66,7 @@ const App = {
     this._setupArchive();
     this._setupQuickAdd();
     this._setupRestore();
+    this._setupTipHints();
     this._switchTab('dashboard');
   },
 
@@ -95,8 +117,11 @@ const App = {
   _switchTab(tab) {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    document.querySelectorAll('.bottom-nav-btn').forEach(b => b.classList.remove('active'));
     const tb = document.querySelector(`.tab-btn[data-tab="${tab}"]`);
     if (tb) tb.classList.add('active');
+    const bnb = document.querySelector(`.bottom-nav-btn[data-tab="${tab}"]`);
+    if (bnb) bnb.classList.add('active');
     const tc = document.getElementById(`tab-${tab}`);
     if (tc) tc.classList.add('active');
     if (tab === 'dashboard') Dashboard.render();

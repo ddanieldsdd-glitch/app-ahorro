@@ -12,6 +12,14 @@
   <link rel="apple-touch-icon" href="/icon.svg">
   <title>Presupuesto</title>
   <link rel="stylesheet" href="styles.css">
+  <!-- Anti-flash: apply stored theme before first paint -->
+  <script>
+    (function() {
+      var t = localStorage.getItem('appTheme');
+      if (t === 'dark') document.documentElement.setAttribute('data-theme','dark');
+      else if (t === 'light') document.documentElement.setAttribute('data-theme','light');
+    })();
+  </script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 </head>
 <body>
@@ -57,6 +65,20 @@
       placeholder="····">
     <button onclick="App._checkPin()" class="btn btn-primary" style="width:140px">Entrar</button>
     <div id="pinError" style="color:var(--expense);font-size:13px;min-height:18px"></div>
+  </div>
+
+  <!-- Mobile bottom navigation -->
+  <nav class="bottom-nav" id="bottomNav">
+    <button class="bottom-nav-btn active" data-tab="dashboard">🏠<span>Inicio</span></button>
+    <button class="bottom-nav-btn" data-tab="registro">📝<span>Movimientos</span></button>
+    <button class="bottom-nav-btn" data-tab="calendario">📆<span>Calendario</span></button>
+    <button class="bottom-nav-btn" data-tab="presupuesto">💡<span>Ahorro</span></button>
+    <button class="bottom-nav-btn bottom-nav-more" onclick="App._toggleMoreMenu()">⋯<span>Más</span></button>
+  </nav>
+  <div class="bottom-nav-menu" id="bottomNavMenu" style="display:none">
+    <button class="bottom-nav-menu-item" data-tab="semanas" onclick="App._switchTab('semanas');App._toggleMoreMenu()">📅 Semanas</button>
+    <button class="bottom-nav-menu-item" data-tab="graficos" onclick="App._switchTab('graficos');App._toggleMoreMenu()">📊 Gráficos</button>
+    <button class="bottom-nav-menu-item" data-tab="categorias" onclick="App._switchTab('categorias');App._toggleMoreMenu()">⚙️ Configuración</button>
   </div>
 
   <button class="fab" id="quickAddBtn" title="Añadir gasto rápido">+</button>

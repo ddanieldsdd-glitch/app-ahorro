@@ -52,6 +52,28 @@ const Categorias = {
         </div>` : ''}
       </div>
 
+      <div class="card" style="margin-bottom:10px">
+        <div class="card-header">
+          <span class="card-title">⚙️ Apariencia</span>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0">
+          <span style="font-size:13px;font-weight:600">Modo oscuro</span>
+          <button id="themeToggleBtn" class="btn btn-sm btn-secondary" onclick="Categorias._toggleTheme()" style="min-width:80px">
+            ${document.documentElement.getAttribute('data-theme') === 'dark' ? '☀️ Claro' : '🌙 Oscuro'}
+          </button>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border)">
+          <div>
+            <div style="font-size:13px;font-weight:600">PIN de bloqueo</div>
+            <div style="font-size:11px;color:var(--text-secondary)">${Store.getPinCode() ? '🔒 Activado' : 'No configurado'}</div>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-sm btn-secondary" onclick="Categorias._setPin()">✏️ ${Store.getPinCode() ? 'Cambiar' : 'Activar'}</button>
+            ${Store.getPinCode() ? `<button class="btn btn-sm btn-danger" onclick="Categorias._clearPin()">✕</button>` : ''}
+          </div>
+        </div>
+      </div>
+
       <div class="cat-grid">
         <div class="cat-section">
           <div class="cat-section-title">
@@ -238,6 +260,48 @@ const Categorias = {
     document.getElementById('transferFeedback').style.color = 'var(--income)';
     document.getElementById('transferFeedback').textContent = `✅ ${amt.toFixed(2)} € transferidos a la cuenta ahorro`;
     this.render();
+  },
+
+  _toggleTheme() {
+    const current = document.documentElement.getAttribute('data-theme');
+    const next = current === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('appTheme', next);
+    this.render();
+  },
+
+  _setPin() {
+    App.openModal({
+      title: '🔒 Configura tu PIN',
+      body: `<div class="form-group">
+        <label>PIN de 4 dígitos</label>
+        <input type="password" id="pinSetInput" inputmode="numeric" maxlength="4"
+          style="width:100%;text-align:center;font-size:28px;letter-spacing:10px;padding:10px;border:2px solid var(--border);border-radius:10px">
+      </div>
+      <p style="font-size:12px;color:var(--text-secondary);margin-top:8px">Se pedirá al abrir la app.</p>`,
+      actions: [
+        { label: 'Cancelar' },
+        { label: 'Guardar', primary: true, cb: () => {
+          const v = document.getElementById('pinSetInput')?.value;
+          if (v && v.length === 4 && /^\d{4}$/.test(v)) {
+            Store.setPinCode(v);
+            App.showToast('🔒 PIN configurado');
+            Categorias.render();
+          } else {
+            App.showToast('⚠️ El PIN debe ser de exactamente 4 dígitos');
+          }
+        }},
+      ],
+    });
+    setTimeout(() => document.getElementById('pinSetInput')?.focus(), 100);
+  },
+
+  _clearPin() {
+    App.showConfirm('Desactivar PIN', '¿Desactivar el bloqueo por PIN?', () => {
+      Store.clearPinCode();
+      App.showToast('🔓 PIN desactivado');
+      Categorias.render();
+    });
   },
 
   _undoTransfer(id) {
