@@ -869,6 +869,9 @@ body {
 .cal-tx-desc { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cal-tx-meta { font-size: 11px; color: var(--text-secondary); }
 .cal-tx-amt { font-weight: 700; white-space: nowrap; }
+.cal-tx-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.cal-tx-actions button { background: none; border: none; cursor: pointer; font-size: 15px; padding: 2px 4px; border-radius: 6px; line-height: 1; }
+.cal-tx-actions button:hover { background: var(--bg); }
 .cal-type-btn { flex: 1; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); font-weight: 700; cursor: pointer; font-size: 13px; }
 .cal-type-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 .cal-cat-chips { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; margin-top: 6px; }

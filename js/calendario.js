@@ -212,16 +212,21 @@ const Calendario = {
     const d = new Date(dateStr + 'T12:00:00');
     const label = d.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' });
 
+    const isArchived = App.isViewingArchived();
     const txHtml = txs.length === 0
       ? '<p style="font-size:13px;color:var(--text-secondary);text-align:center;padding:12px">Sin movimientos este día</p>'
       : txs.sort((a, b) => (a.type === 'Ingreso' ? -1 : 1)).map(t => `
-        <div class="cal-tx-row">
+        <div class="cal-tx-row" id="cal-tx-${t.id}">
           <span class="cal-tx-icon ${t.type === 'Ingreso' ? 'income' : 'expense'}">${t.type === 'Ingreso' ? '↑' : '↓'}</span>
           <div class="cal-tx-info">
             <div class="cal-tx-desc">${esc(t.description || t.category)}</div>
             <div class="cal-tx-meta">${esc(t.category)}${t.paymentMethod ? ' · ' + esc(t.paymentMethod) : ''}</div>
           </div>
           <span class="cal-tx-amt ${t.type === 'Ingreso' ? 'income' : 'expense'}">${t.type === 'Ingreso' ? '+' : '-'}${t.amount.toFixed(2)}€</span>
+          ${!isArchived ? `<div class="cal-tx-actions">
+            <button title="Editar" onclick="Calendario._editFromCalendar('${t.id}','${dateStr}')">✏️</button>
+            <button title="Eliminar" onclick="Calendario._deleteFromCalendar('${t.id}','${dateStr}')">🗑️</button>
+          </div>` : ''}
         </div>`).join('');
 
     const plannedHtml = planned.length > 0 ? `
@@ -237,9 +242,78 @@ const Calendario = {
         <div><span>Balance</span><strong style="color:${balance >= 0 ? 'var(--income)' : 'var(--expense)'}">${balance >= 0 ? '+' : ''}${balance.toFixed(2)} €</strong></div>
       </div>
       ${txHtml}${plannedHtml}
-      ${!App.isViewingArchived() ? `<button class="btn btn-primary btn-sm" style="width:100%;margin-top:12px" onclick="App._closeModal();Calendario._openAddForm('${dateStr}')">➕ Añadir movimiento</button>` : ''}`,
+      ${!isArchived ? `<button class="btn btn-primary btn-sm" style="width:100%;margin-top:12px" onclick="App._closeModal();Calendario._openAddForm('${dateStr}')">➕ Añadir movimiento</button>` : ''}`,
       'Cerrar', () => App._closeModal()
     );
+  },
+
+  _editFromCalendar(id, dateStr) {
+    const t = Store.getTransactions().find(tx => tx.id === id);
+    if (!t) return;
+
+    const expenseCats = Store.getCategories();
+    const incomeCats  = Store.getIncomeCategories();
+    const methods     = Store.getPaymentMethods();
+    const cats        = t.type === 'Ingreso' ? incomeCats : expenseCats;
+
+    App.openModal({
+      title: '✏️ Editar movimiento',
+      body: `
+        <div class="form-group"><label>Importe (€)</label>
+          <input type="number" id="calEditAmount" step="0.01" min="0.01" value="${t.amount}" style="font-size:18px;font-weight:700;width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)">
+        </div>
+        <div class="form-group"><label>Descripción</label>
+          <input type="text" id="calEditDesc" value="${esc(t.description || '')}" maxlength="100" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)">
+        </div>
+        <div class="form-group"><label>Categoría</label>
+          <select id="calEditCategory" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)">
+            ${cats.map(c => `<option value="${esc(c)}"${c === t.category ? ' selected' : ''}>${esc(c)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group"><label>Método de pago</label>
+          <select id="calEditMethod" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)">
+            ${methods.map(m => `<option value="${esc(m)}"${m === t.paymentMethod ? ' selected' : ''}>${esc(m)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group"><label>Cuenta</label>
+          <select id="calEditAccount" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)">
+            <option value="checking"${t.account === 'checking' ? ' selected' : ''}>💳 Corriente</option>
+            <option value="savings"${t.account === 'savings' ? ' selected' : ''}>🐷 Ahorro</option>
+            <option value="cash"${t.account === 'cash' ? ' selected' : ''}>💵 Efectivo (no computa)</option>
+          </select>
+        </div>`,
+      actions: [
+        { label: 'Cancelar' },
+        { label: '💾 Guardar', primary: true, cb: () => {
+          const amount   = parseFloat(document.getElementById('calEditAmount')?.value);
+          const desc     = document.getElementById('calEditDesc')?.value.trim();
+          const category = document.getElementById('calEditCategory')?.value;
+          const method   = document.getElementById('calEditMethod')?.value;
+          const account  = document.getElementById('calEditAccount')?.value;
+          if (!amount || amount <= 0) { App.showToast('Importe inválido'); return; }
+          Store.updateTransaction(id, { amount, description: desc, category, paymentMethod: method, account });
+          Calendario.render();
+          if (document.getElementById('tab-registro')?.classList.contains('active')) Registro.render();
+          Dashboard.render(); Presupuesto.render(); Graficos.render();
+          App.showToast('Movimiento actualizado');
+          setTimeout(() => Calendario._showDay(dateStr), 100);
+        }},
+      ],
+    });
+  },
+
+  _deleteFromCalendar(id, dateStr) {
+    const t = Store.getTransactions().find(tx => tx.id === id);
+    if (!t) return;
+    App.showConfirm('Eliminar', `¿Eliminar "${esc(t.description || t.category)}" (${t.amount.toFixed(2)} €)?`, () => {
+      Store.deleteTransaction(id);
+      Calendario.render();
+      if (document.getElementById('tab-registro')?.classList.contains('active')) Registro.render();
+      Dashboard.render(); Presupuesto.render(); Graficos.render();
+      App.showToast('Movimiento eliminado');
+      const remaining = Store.getTransactions().filter(tx => tx.date === dateStr);
+      if (remaining.length > 0) setTimeout(() => Calendario._showDay(dateStr), 100);
+    });
   },
 
   _openAddForm(dateStr) {

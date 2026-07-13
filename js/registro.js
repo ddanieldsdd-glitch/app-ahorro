@@ -85,9 +85,17 @@ const Registro = {
         </div>
         <div id="transactionList" class="transaction-list"></div>
       </div>
+      <div class="card" id="semanasSection">
+        <div class="card-header">
+          <span class="card-title">📅 Desglose semanal</span>
+          <span style="font-size:12px;color:var(--text-secondary)" id="semanasMonth"></span>
+        </div>
+        <div class="week-grid" id="weekGrid"></div>
+      </div>
     `;
     if (!isArchived) this._initForm();
     this._renderList();
+    this._renderWeeks();
     const filter = document.getElementById('txFilter');
     if (filter) filter.addEventListener('input', () => this._renderList());
   },
@@ -193,8 +201,8 @@ const Registro = {
     document.getElementById('txDesc').value = '';
     document.getElementById('txDate').valueAsDate = new Date();
     this._renderList();
+    this._renderWeeks();
     if (!App.isViewingArchived()) {
-      Semanas.render();
       Graficos.render();
       Presupuesto.render();
       Dashboard.render();
@@ -270,7 +278,7 @@ const Registro = {
     App.showConfirm('Eliminar', `¿Eliminar "${t.description || t.category}" (${t.amount.toFixed(2)} €)?`, () => {
       Store.deleteTransaction(id);
       this._renderList();
-      Semanas.render(); Graficos.render(); Presupuesto.render(); Dashboard.render();
+      this._renderWeeks(); Graficos.render(); Presupuesto.render(); Dashboard.render();
     });
   },
 
@@ -408,4 +416,68 @@ const Registro = {
 
   // Delegate to the shared suggestSavings helper in App so it works from FAB too
   _suggestSavings(incomeAmount) { App.suggestSavings(incomeAmount); },
+
+  _renderWeeks() {
+    const grid = document.getElementById('weekGrid');
+    const monthLabel = document.getElementById('semanasMonth');
+    if (!grid) return;
+
+    const transactions = App.getCurrentTransactions().filter(t => !Store.isAdjustment(t));
+    const month = App.getCurrentViewMonth();
+    const [year, m] = month.split('-').map(Number);
+
+    if (monthLabel) monthLabel.textContent = `${['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][m-1]} ${year}`;
+
+    const firstDay = new Date(year, m - 1, 1);
+    const lastDay = new Date(year, m, 0);
+    const weeks = [];
+    let cur = new Date(firstDay);
+    const dow = cur.getDay();
+    cur.setDate(cur.getDate() + (dow === 0 ? -6 : 1 - dow));
+    cur.setHours(0, 0, 0, 0);
+    let guard = 6;
+    while (guard-- > 0) {
+      const end = new Date(cur); end.setDate(end.getDate() + 6); end.setHours(23, 59, 59, 999);
+      if (cur > lastDay) break;
+      weeks.push({
+        start: new Date(cur), end: new Date(end),
+        startDisplay: new Date(Math.max(cur.getTime(), firstDay.getTime())),
+        endDisplay:   new Date(Math.min(end.getTime(), lastDay.getTime())),
+      });
+      cur.setDate(cur.getDate() + 7);
+    }
+
+    const fmt = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
+
+    grid.innerHTML = weeks.map((week, idx) => {
+      const weekTx = transactions.filter(t => {
+        const d = new Date(t.date + 'T00:00:00');
+        return d >= week.start && d <= week.end;
+      });
+      const income  = weekTx.filter(t => t.type === 'Ingreso').reduce((s, t) => s + t.amount, 0);
+      const expense = weekTx.filter(t => t.type !== 'Ingreso').reduce((s, t) => s + t.amount, 0);
+      const balance = income - expense;
+      const catTotals = {};
+      weekTx.forEach(t => { if (t.type !== 'Ingreso') catTotals[t.category] = (catTotals[t.category] || 0) + t.amount; });
+      const catEntries = Object.entries(catTotals).sort((a, b) => b[1] - a[1]);
+
+      return `<div class="week-card">
+        <div class="week-header">
+          <span>Semana ${idx + 1}: ${fmt(week.startDisplay)} – ${fmt(week.endDisplay)}</span>
+          <span style="font-weight:600;font-size:13px">${weekTx.length} movimiento${weekTx.length !== 1 ? 's' : ''}</span>
+        </div>
+        <div class="week-body">
+          <div class="week-stats">
+            <div class="week-stat"><div class="week-stat-label">Ingresos</div><div class="week-stat-value income">+${income.toFixed(2)} €</div></div>
+            <div class="week-stat"><div class="week-stat-label">Gastos</div><div class="week-stat-value expense">-${expense.toFixed(2)} €</div></div>
+            <div class="week-stat"><div class="week-stat-label">Balance</div><div class="week-stat-value" style="color:${balance >= 0 ? 'var(--income)' : 'var(--expense)'}">${balance >= 0 ? '+' : ''}${balance.toFixed(2)} €</div></div>
+          </div>
+          ${catEntries.length > 0 ? `<div style="font-size:13px;font-weight:600;margin-bottom:6px">Desglose por categoría</div>
+          <div class="week-categories">${catEntries.map(([cat, amt]) =>
+            `<div class="week-cat-item"><span class="cat-name">${esc(cat)}</span><span class="cat-amount">${amt.toFixed(2)} €</span></div>`
+          ).join('')}</div>` : '<div style="font-size:13px;color:var(--text-secondary)">Sin gastos esta semana</div>'}
+        </div>
+      </div>`;
+    }).join('');
+  },
 };

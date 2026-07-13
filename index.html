@@ -42,7 +42,6 @@
       <button class="tab-btn" data-tab="registro">📝 Movimientos</button>
       <button class="tab-btn" data-tab="calendario">📆 Calendario</button>
       <button class="tab-btn" data-tab="presupuesto">💡 Ahorro</button>
-      <button class="tab-btn" data-tab="semanas">📅 Semanas</button>
       <button class="tab-btn" data-tab="graficos">📊 Gráficos</button>
       <button class="tab-btn" data-tab="categorias">⚙️</button>
     </div>
@@ -51,7 +50,6 @@
     <div id="tab-registro" class="tab-content"></div>
     <div id="tab-calendario" class="tab-content"></div>
     <div id="tab-presupuesto" class="tab-content"></div>
-    <div id="tab-semanas" class="tab-content"></div>
     <div id="tab-graficos" class="tab-content"></div>
     <div id="tab-categorias" class="tab-content"></div>
   </div>
@@ -76,7 +74,6 @@
     <button class="bottom-nav-btn bottom-nav-more" onclick="App._toggleMoreMenu()">⋯<span>Más</span></button>
   </nav>
   <div class="bottom-nav-menu" id="bottomNavMenu" style="display:none">
-    <button class="bottom-nav-menu-item" data-tab="semanas" onclick="App._switchTab('semanas');App._toggleMoreMenu()">📅 Semanas</button>
     <button class="bottom-nav-menu-item" data-tab="graficos" onclick="App._switchTab('graficos');App._toggleMoreMenu()">📊 Gráficos</button>
     <button class="bottom-nav-menu-item" data-tab="categorias" onclick="App._switchTab('categorias');App._toggleMoreMenu()">⚙️ Configuración</button>
   </div>
@@ -103,7 +100,6 @@
   <script src="js/dashboard.js"></script>
   <script src="js/registro.js"></script>
   <script src="js/calendario.js"></script>
-  <script src="js/semanas.js"></script>
   <script src="js/graficos.js"></script>
   <script src="js/categorias.js"></script>
   <script src="js/app.js"></script>

@@ -127,7 +127,6 @@ const App = {
     if (tab === 'dashboard') Dashboard.render();
     else if (tab === 'registro') Registro.render();
     else if (tab === 'calendario') Calendario.render();
-    else if (tab === 'semanas') Semanas.render();
     else if (tab === 'graficos') Graficos.render();
     else if (tab === 'categorias') Categorias.render();
     else if (tab === 'presupuesto') Presupuesto.render();
