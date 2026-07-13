@@ -906,6 +906,40 @@ body {
 .cal-group-members { padding: 0 10px 8px; border-top: 1px solid var(--border); }
 .cal-group-members.hidden { display: none; }
 .cal-type-btn { flex: 1; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); font-weight: 700; cursor: pointer; font-size: 13px; }
+
+/* ── Debts tab ─────────────────────────────────────────────────────────────── */
+.debt-summary-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+.debt-pill { border-radius: 12px; padding: 14px; text-align: center; }
+.debt-pill.owed-to-me { background: #D1FAE5; }
+.debt-pill.i-owe      { background: #FEE2E2; }
+.debt-pill-label  { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; opacity: .7; }
+.debt-pill-amount { font-size: 22px; font-weight: 800; margin: 2px 0; }
+.debt-pill.owed-to-me .debt-pill-amount { color: var(--income); }
+.debt-pill.i-owe      .debt-pill-amount { color: var(--expense); }
+.debt-pill-count  { font-size: 11px; opacity: .6; }
+
+.debt-card { border-radius: 12px; padding: 12px 14px; margin-bottom: 8px; }
+.debt-card.debt-owed-to-me { background: #F0FDF4; border: 1px solid #A7F3D0; }
+.debt-card.debt-i-owe      { background: #FFF5F5; border: 1px solid #FECACA; }
+.debt-card.debt-settled    { background: var(--bg); border: 1px solid var(--border); opacity: .8; }
+.debt-card-main  { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.debt-avatar     { width: 36px; height: 36px; border-radius: 50%; background: var(--border); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 15px; flex-shrink: 0; }
+.debt-info       { flex: 1; min-width: 0; }
+.debt-person     { font-weight: 700; font-size: 14px; }
+.debt-desc       { font-size: 12px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.debt-meta       { display: flex; gap: 6px; align-items: center; margin-top: 2px; flex-wrap: wrap; }
+.debt-amount     { font-size: 18px; font-weight: 800; white-space: nowrap; flex-shrink: 0; }
+.debt-actions    { display: flex; gap: 6px; }
+.debt-type-hint  { font-size: 12px; padding: 8px 10px; border-radius: 8px; margin-bottom: 10px; }
+.owed-hint { background: #D1FAE5; color: #065F46; }
+.iowe-hint { background: #FEE2E2; color: #991B1B; }
+
+[data-theme='dark'] .debt-card.debt-owed-to-me { background: #052e16; border-color: #166534; }
+[data-theme='dark'] .debt-card.debt-i-owe      { background: #2d0a0a; border-color: #7f1d1d; }
+[data-theme='dark'] .debt-pill.owed-to-me      { background: #052e16; }
+[data-theme='dark'] .debt-pill.i-owe           { background: #2d0a0a; }
+[data-theme='dark'] .owed-hint { background: #052e16; color: #6ee7b7; }
+[data-theme='dark'] .iowe-hint { background: #2d0a0a; color: #fca5a5; }
 .cal-type-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 .cal-cat-chips { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
 .cal-cat-chip { padding: 3px 8px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg); font-size: 11px; cursor: pointer; }

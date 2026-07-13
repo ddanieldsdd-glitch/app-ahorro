@@ -35,8 +35,9 @@ const Dashboard = {
     const weekExpenses = weekTx.filter(t => t.type !== 'Ingreso');
     const catsWithLimits = Object.keys(limits).filter(c => limits[c] > 0);
     const plannedExpenses = Store.getPlannedExpenses();
-    const debts = Store.getDebts();
-    const activeDebts = debts.filter(d => !d.isPaid);
+    const owedToMe  = Store.getPendingOwedToMe();
+    const iOwe      = Store.getPendingIOwe();
+    const activeDebts = [...owedToMe, ...iOwe];
 
     const _now = new Date();
     const _dow = _now.getDay();
@@ -271,17 +272,29 @@ const Dashboard = {
       ${activeDebts.length > 0 ? `
       <div class="dh-section">
         <div class="dh-section-header">
-          <span class="dh-section-title">📋 Deudas a cobrar</span>
+          <span class="dh-section-title">💸 Deudas pendientes</span>
           <span class="dh-section-badge">${activeDebts.length}</span>
         </div>
-        ${activeDebts.slice(0, 5).map(d => `
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:12px">
-          <span>👤 ${esc(d.person)}${d.description ? ` · ${esc(d.description)}` : ''}</span>
-          <span style="font-weight:700;color:var(--income)">${d.amount.toFixed(2)} €</span>
-        </div>`).join('')}
-        ${activeDebts.length > 5 ? `<div style="font-size:11px;color:var(--text-secondary);text-align:center;padding:4px">... y ${activeDebts.length - 5} más</div>` : ''}
-        <div style="margin-top:6px;text-align:center">
-          <button class="btn btn-sm" style="border:1px solid var(--border);background:var(--card);border-radius:6px;cursor:pointer;font-size:11px" onclick="App._switchTab('presupuesto')">💰 Gestionar deudas</button>
+        ${owedToMe.length > 0 ? `
+          <div style="font-size:11px;font-weight:700;color:var(--income);margin:4px 0 2px;text-transform:uppercase;letter-spacing:.5px">Me deben · +${owedToMe.reduce((s,d)=>s+d.amount,0).toFixed(2)}€</div>
+          ${owedToMe.slice(0, 3).map(d => `
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;font-size:12px">
+            <span>👤 ${esc(d.person)}${d.description ? ` · ${esc(d.description)}` : ''}</span>
+            <span style="font-weight:700;color:var(--income)">+${d.amount.toFixed(2)} €</span>
+          </div>`).join('')}
+          ${owedToMe.length > 3 ? `<div style="font-size:11px;color:var(--text-secondary);padding:2px 0">... y ${owedToMe.length - 3} más</div>` : ''}
+        ` : ''}
+        ${iOwe.length > 0 ? `
+          <div style="font-size:11px;font-weight:700;color:var(--expense);margin:6px 0 2px;text-transform:uppercase;letter-spacing:.5px">Debo · -${iOwe.reduce((s,d)=>s+d.amount,0).toFixed(2)}€</div>
+          ${iOwe.slice(0, 3).map(d => `
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;font-size:12px">
+            <span>👤 ${esc(d.person)}${d.description ? ` · ${esc(d.description)}` : ''}</span>
+            <span style="font-weight:700;color:var(--expense)">-${d.amount.toFixed(2)} €</span>
+          </div>`).join('')}
+          ${iOwe.length > 3 ? `<div style="font-size:11px;color:var(--text-secondary);padding:2px 0">... y ${iOwe.length - 3} más</div>` : ''}
+        ` : ''}
+        <div style="margin-top:8px;text-align:center">
+          <button class="btn btn-sm" style="border:1px solid var(--border);background:var(--card);border-radius:6px;cursor:pointer;font-size:11px" onclick="App._switchTab('deudas')">💸 Ver deudas</button>
         </div>
       </div>` : ''}
       ${this._renderUpcomingPayments()}

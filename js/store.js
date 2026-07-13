@@ -782,49 +782,85 @@ const Store = {
   },
 
   getDebts() { return [...(this._data.debts || [])]; },
-  addDebt(person, amount, description) {
-    const d = {
-      id: Date.now().toString(36) + Math.random().toString(36).substr(2, 6),
-      person, amount, description: description || '',
-      date: new Date().toISOString().split('T')[0],
-      isPaid: false, paidDate: null, paidTo: null,
-    };
+  getPendingDebts()  { return this.getDebts().filter(d => !d.isPaid); },
+  getSettledDebts()  { return this.getDebts().filter(d => d.isPaid); },
+  getPendingOwedToMe() { return this.getPendingDebts().filter(d => (d.type || 'owed_to_me') === 'owed_to_me'); },
+  getPendingIOwe()     { return this.getPendingDebts().filter(d => d.type === 'i_owe'); },
+
+  addDebt(data) {
+    // Accepts object: { person, amount, description, type, category, date, linkedTxId }
+    // Or legacy (person, amount, description) for backward compat
+    let d;
+    if (typeof data === 'object' && data !== null && !Array.isArray(data)) {
+      d = {
+        id: Date.now().toString(36) + Math.random().toString(36).substr(2, 6),
+        person: data.person || '',
+        amount: data.amount,
+        description: data.description || '',
+        date: data.date || new Date().toISOString().split('T')[0],
+        type: data.type || 'owed_to_me',
+        category: data.category || 'Otros',
+        isPaid: false, paidDate: null, paidTxId: null,
+        linkedTxId: data.linkedTxId || null,
+      };
+    } else {
+      // Legacy call: addDebt(person, amount, description)
+      const [person, amount, description] = arguments;
+      d = {
+        id: Date.now().toString(36) + Math.random().toString(36).substr(2, 6),
+        person: person || '', amount, description: description || '',
+        date: new Date().toISOString().split('T')[0],
+        type: 'owed_to_me', category: 'Otros',
+        isPaid: false, paidDate: null, paidTxId: null, linkedTxId: null,
+      };
+    }
     this._data.debts.push(d);
     this._save();
     return d;
   },
+
+  updateDebt(id, updates) {
+    const d = this._data.debts.find(x => x.id === id);
+    if (d) { Object.assign(d, updates); this._save(); }
+  },
+
   deleteDebt(id) {
     this._data.debts = this._data.debts.filter(d => d.id !== id);
     this._save();
   },
-  payDebt(id, destination) {
+
+  /** Settle a debt. Creates the appropriate transaction automatically. */
+  settleDebt(id) {
     const debt = this._data.debts.find(d => d.id === id);
-    if (!debt || debt.isPaid) return 0;
-    const amount = debt.amount;
+    if (!debt || debt.isPaid) return null;
+    const today = new Date().toISOString().split('T')[0];
+    const month = today.substring(0, 7);
     debt.isPaid = true;
-    debt.paidDate = new Date().toISOString().split('T')[0];
-    debt.paidTo = destination;
-    if (destination === 'checkingBase') {
-      this._data.checkingBaseBalance = (this._data.checkingBaseBalance || 0) + amount;
-      this._data.checkingBalance = this._data.checkingBalance !== null ? this._data.checkingBalance + amount : null;
-    } else if (destination === 'checkingFree') {
-      this._data.checkingBalance = this._data.checkingBalance !== null ? this._data.checkingBalance + amount : null;
-    } else if (destination === 'savings') {
-      this._data.savingsBalance = (this._data.savingsBalance || 0) + amount;
-    }
+    debt.paidDate = today;
+
+    const isOwedToMe = (debt.type || 'owed_to_me') === 'owed_to_me';
     const tx = {
       id: Date.now().toString(36) + Math.random().toString(36).substr(2, 8),
-      date: debt.paidDate, month: Store.getCurrentMonth(),
-      type: 'Ingreso', category: 'Deuda cobrada',
-      amount, description: `Cobrado a ${debt.person}${debt.description ? ': ' + debt.description : ''}`,
-      paymentMethod: 'Transferencia',
-      account: destination === 'savings' ? 'savings' : 'checking',
-      _noAutoBalance: true,   // balance updated above directly
+      date: today, month,
+      type: isOwedToMe ? 'Ingreso' : 'Gasto',
+      category: isOwedToMe ? 'Deuda cobrada' : (debt.category || 'Otros'),
+      amount: debt.amount,
+      description: isOwedToMe
+        ? `Cobrado a ${debt.person}${debt.description ? ': ' + debt.description : ''}`
+        : `Pago a ${debt.person}${debt.description ? ': ' + debt.description : ''}`,
+      paymentMethod: 'Bizum',
+      account: 'checking',
+      _debtId: id,
     };
+    this._applyBalanceDelta(tx, 1);
     this._data.transactions.push(tx);
+    debt.paidTxId = tx.id;
     this._save();
-    return amount;
+    return tx;
   },
+
+  /** Legacy payDebt kept for any existing calls */
+  payDebt(id) { return this.settleDebt(id); },
 
   exportJSON() {
     const d = JSON.parse(JSON.stringify(this._data));

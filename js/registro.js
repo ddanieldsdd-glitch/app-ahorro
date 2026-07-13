@@ -671,6 +671,7 @@ const Registro = {
             ${income>0?`<div style="color:var(--income)">+${income.toFixed(2)}€</div>`:''}
           </div>
           ${!isArchived ? `<div class="transaction-actions" onclick="event.stopPropagation()">
+            <button onclick="Registro._addToExistingGroup('${groupId}')" title="Añadir al grupo">➕</button>
             <button onclick="Registro._renameGroup('${groupId}')" title="Renombrar">✏️</button>
             <button onclick="Registro._dissolveGroup('${groupId}')" title="Disolver">🗑️</button>
           </div>` : ''}
