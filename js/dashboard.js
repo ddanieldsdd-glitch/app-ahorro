@@ -9,7 +9,7 @@ const Dashboard = {
     const balance = income - expense;
 
     const goals = Store.getSavingGoals();
-    const totalSaved = goals.reduce((s, g) => s + g.currentAmount, 0) + (Store.getTotalRoundUpSavings() || 0);
+    const totalSaved = goals.reduce((s, g) => s + g.currentAmount, 0);
     const savingsBalance = Store.getSavingsBalance();
     const checkingBalance = Store.getCheckingBalance();
     const totalWealth = checkingBalance !== null && checkingBalance !== undefined ? checkingBalance + savingsBalance : savingsBalance;

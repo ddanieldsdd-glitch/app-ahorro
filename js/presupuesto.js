@@ -40,7 +40,7 @@ const Presupuesto = {
     const allIncome = allTx.filter(t => t.type === 'Ingreso');
     const goals = Store.getSavingGoals();
     const recommendedWeeklySaving = Store.getRecommendedWeeklySaving(goals);
-    const totalSaved = goals.reduce((s,g) => s+g.currentAmount, 0) + (Store.getTotalRoundUpSavings() || 0);
+    const totalSaved = goals.reduce((s,g) => s+g.currentAmount, 0);
     const foodBudget = Store.getFoodBudget();
     const foodSpent = this._getMonthFoodSpending();
     const foodRemaining = Math.max(0, foodBudget - foodSpent);
@@ -176,6 +176,8 @@ const Presupuesto = {
         ${goals.length > 0 || totalSaved > 0 ? `<div class="sa-saving-total">Total ahorrado: <strong>${totalSaved.toFixed(2)} €</strong></div>` : ''}
       </div>
 
+      ${this._renderAutonomy(allExpenses, allIncome)}
+
       ${this._renderPlannedExpenses(budget, limits, weekExpenses, recommendedWeeklySaving, available)}
 
       <div class="card">
@@ -189,10 +191,10 @@ const Presupuesto = {
           <div class="week-stat"><div class="week-stat-label">Restante</div><div class="week-stat-value" style="color:${budget.remaining >= 0 ? 'var(--income)' : 'var(--expense)'}">${budget.remaining.toFixed(0)} €</div></div>
           <div class="week-stat"><div class="week-stat-label">Por día</div><div class="week-stat-value" style="color:var(--primary)">${Math.max(0,budget.daysLeft>0?budget.remaining/budget.daysLeft:0).toFixed(1)} €</div></div>
         </div>
-        ${Object.keys(limits).filter(c => limits[c] > 0).length > 0 ? `
+        ${Object.keys(limits).filter(c => limits[c] > 0 && categories.includes(c)).length > 0 ? `
         <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border)">
           <div style="font-size:11px;font-weight:700;color:var(--text-secondary);margin-bottom:4px">🏷️ Lo que te queda por categoría:</div>
-          ${Object.entries(limits).filter(([,l]) => l > 0).map(([cat, limit]) => {
+          ${Object.entries(limits).filter(([c, l]) => l > 0 && categories.includes(c)).map(([cat, limit]) => {
             const spent = weekExpenses.filter(t => t.category === cat).reduce((s, t) => s + t.amount, 0);
             const remain = limit - spent;
             const pct = limit > 0 ? Math.min(100, (spent / limit) * 100) : 0;
@@ -295,7 +297,6 @@ const Presupuesto = {
 
       ${this._renderDebts()}
       ${this._renderRecurring()}
-      ${this._renderRoundUps()}
       ${this._render503020(budget, allIncome, allExpenses)}
 
       <div class="card">
@@ -335,6 +336,7 @@ const Presupuesto = {
       { selector: '.sa-card-limits', id: 'limits', title: '📊 Límites y control semanal', defaultOpen: true },
       { selector: '.sa-card-food', id: 'food', title: '🍽️ Presupuesto comida', defaultOpen: false },
       { selector: '.sa-card-imprevistos', id: 'imprevistos', title: '⚠️ Fondo de imprevistos', defaultOpen: false },
+      { selector: '.sa-card-autonomy', id: 'autonomy', title: '🏦 Autonomía financiera', defaultOpen: true },
       { selector: '.sa-card-plan-gastos', id: 'plangastos', title: '📋 Gastos planificados', defaultOpen: false },
       { selector: '.sa-card-debts', id: 'debts', title: '💳 Deudas pendientes', defaultOpen: false },
       { selector: '.sa-card-recurring, [style*="06B6D4"]', id: 'recurring', title: '🔁 Movimientos recurrentes', defaultOpen: false },
@@ -436,7 +438,7 @@ const Presupuesto = {
   },
 
   _renderCategoryLimits(categories, limits, weekExpenses) {
-    const cats = categories.filter(c => limits[c]);
+    const cats = categories.filter(c => limits[c] !== undefined && limits[c] > 0);
     if (cats.length === 0) return '<p style="color:var(--text-secondary);font-size:14px;text-align:center;padding:8px">Añade límites a las categorías que más gastas</p>';
     return cats.map(cat => {
       const limit = limits[cat];
@@ -445,17 +447,21 @@ const Presupuesto = {
       const remain = limit - spent;
       const level = this._alertLevel(spent, limit);
       const barColor = { good: 'var(--income)', caution: '#F59E0B', warning: '#F97316', danger: 'var(--expense)' }[level];
-      return `<div class="budget-cat-item" data-cat="${cat}">
+      const safecat = esc(cat);
+      return `<div class="budget-cat-item" data-cat="${safecat}">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-          <span style="font-weight:600;font-size:14px">${cat}</span>
-          <span style="font-size:13px"><strong style="color:${spent <= limit ? 'var(--text)' : 'var(--expense)'}">${spent.toFixed(1)}</strong><span style="color:var(--text-secondary)"> / ${limit.toFixed(0)} €</span></span>
+          <span style="font-weight:600;font-size:14px">${safecat}</span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:13px"><strong style="color:${spent <= limit ? 'var(--text)' : 'var(--expense)'}">${spent.toFixed(1)}</strong><span style="color:var(--text-secondary)"> / ${limit.toFixed(0)} €</span></span>
+            <button class="btn-sm" style="border:1px solid var(--border);background:var(--card);border-radius:4px;cursor:pointer;font-size:11px;padding:2px 6px" title="Editar límite" onclick="Presupuesto._editLimit('${safecat}')">✏️</button>
+            <button class="btn-sm" style="border:1px solid var(--border);background:var(--card);border-radius:4px;cursor:pointer;font-size:11px;padding:2px 6px" title="Eliminar límite" onclick="Presupuesto._removeLimit('${safecat}')">✕</button>
+          </div>
         </div>
         <div class="progress-bar" style="height:10px"><div class="progress-fill" style="width:${pct}%;background:${barColor};border-radius:5px"></div></div>
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-secondary);margin-top:2px">
-          <span>${pct.toFixed(0)}%</span>
-          <span>${remain >= 0 ? `Restan ${remain.toFixed(1)} €` : `${(spent - limit).toFixed(1)} € excedido`}</span>
+          <span>${pct.toFixed(0)}% gastado esta semana</span>
+          <span>${remain >= 0 ? `Restan ${remain.toFixed(1)} €` : `<strong style="color:var(--expense)">${(spent - limit).toFixed(1)} € excedido</strong>`}</span>
         </div>
-        <button class="btn-sm" style="margin-top:4px;border:1px solid var(--border);background:var(--card);border-radius:4px;cursor:pointer" onclick="Presupuesto._removeLimit('${esc(cat)}')">✕</button>
       </div>`;
     }).join('');
   },
@@ -467,7 +473,7 @@ const Presupuesto = {
     const needsCats = ['Comida','Bebida','Vivienda','Transporte','Salud','Educación'];
     const needs = allExpenses.filter(t => needsCats.includes(t.category)).reduce((s, t) => s + t.amount, 0);
     const wants = allExpenses.filter(t => !needsCats.includes(t.category) && !skipCats.includes(t.category)).reduce((s, t) => s + t.amount, 0);
-    const savings = Store.getSavingGoals().reduce((s, g) => s + g.currentAmount, 0) + (Store.getTotalRoundUpSavings() || 0);
+    const savings = Store.getSavingGoals().reduce((s, g) => s + g.currentAmount, 0);
     const pctNeeds = monthly > 0 ? (needs / monthly) * 100 : 0;
     const pctWants = monthly > 0 ? (wants / monthly) * 100 : 0;
     const pctSavings = monthly > 0 ? (savings / monthly) * 100 : 0;
@@ -560,7 +566,7 @@ const Presupuesto = {
       <div class="rec-form">
         <input type="text" id="recName" placeholder="Nombre (ej: Netflix)" class="rec-input rec-input-wide">
         <input type="number" id="recAmount" placeholder="€" step="1" class="rec-input rec-input-narrow">
-        <select id="recType" class="rec-input"><option value="Gasto">Gasto</option><option value="Ingreso">Ingreso</option></select>
+        <select id="recType" class="rec-input" onchange="Presupuesto._syncRecCategory()"><option value="Gasto">Gasto</option><option value="Ingreso">Ingreso</option></select>
         <select id="recCategory" class="rec-input">${cats.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}</select>
         <select id="recFreq" class="rec-input" onchange="Presupuesto._toggleRecDay()">
           <option value="monthly">Mensual</option>
@@ -602,6 +608,19 @@ const Presupuesto = {
         </div>`;
       }).join('')}
     </div>`;
+  },
+
+  _syncRecCategory() {
+    const type = document.getElementById('recType')?.value || 'Gasto';
+    const sel = document.getElementById('recCategory');
+    if (!sel) return;
+    const cats = Store.getCategoriesForType(type);
+    const current = sel.value;
+    const defaultCat = type === 'Ingreso'
+      ? (cats.includes('Mensualidad') ? 'Mensualidad' : cats[0])
+      : (cats.includes('Comida') ? 'Comida' : cats[0]);
+    const pick = cats.includes(current) ? current : defaultCat;
+    sel.innerHTML = cats.map(c => `<option value="${esc(c)}" ${c === pick ? 'selected' : ''}>${esc(c)}</option>`).join('');
   },
 
   _toggleRecDay() {
@@ -657,29 +676,6 @@ const Presupuesto = {
     });
   },
 
-  _renderRoundUps() {
-    const enabled = Store.isRoundUpEnabled();
-    const total = Store.getTotalRoundUpSavings();
-    const goals = Store.getSavingGoals();
-    const goalId = Store.getRoundUpGoalId();
-    return `<div class="card">
-      <div class="card-header">
-        <span class="card-title">🔄 Redondeo automático</span>
-        <label style="display:flex;align-items:center;gap:6px;font-size:14px;cursor:pointer">
-          <input type="checkbox" ${enabled ? 'checked' : ''} onchange="Presupuesto._toggleRoundUp()">
-          ${enabled ? 'Activado' : 'Desactivado'}
-        </label>
-      </div>
-      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:8px">Cada gasto se redondea al euro y la diferencia se ahorra. ${enabled && total > 0 ? `<strong>Ahorrado: ${total.toFixed(2)} €</strong>` : ''}</p>
-      ${goals.length > 0 ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <span style="font-size:13px">Destinar a:</span>
-        <select id="roundUpGoalSelect" style="flex:1;padding:8px;border:1px solid var(--border);border-radius:var(--radius)" onchange="Presupuesto._setRoundUpGoal()">
-          <option value="">Sin destino</option>
-          ${goals.map(g => `<option value="${g.id}" ${g.id === goalId ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}
-        </select>
-      </div>` : ''}
-    </div>`;
-  },
 
   _renderPlannedExpenses(budget, limits, weekExpenses, recommendedWeeklySaving, available) {
     const expenses = Store.getPlannedExpenses();
@@ -771,7 +767,7 @@ const Presupuesto = {
     if (recommendedWeeklySaving > 0 && remaining > recommendedWeeklySaving) {
       tips.push(`💰 Tienes suficiente para tu ahorro semanal (${recommendedWeeklySaving.toFixed(0)}€). ¡No lo dejes pasar!`);
     }
-    const totalSaved = goals.reduce((s,g)=>s+g.currentAmount,0)+(Store.getTotalRoundUpSavings()||0);
+    const totalSaved = goals.reduce((s,g)=>s+g.currentAmount,0);
     if (totalSaved > 0) tips.push(`🏦 Llevas ${totalSaved.toFixed(0)}€ ahorrados en total.`);
     if (tips.length === 0) tips.push('➕ Crea metas de ahorro y añade límites para recibir consejos personalizados.');
     return tips.map(t => `<div style="padding:4px 0;font-size:14px;line-height:1.5">${t}</div>`).join('');
@@ -856,6 +852,140 @@ const Presupuesto = {
     }
   },
 
+  /** Calculates real spending averages across all available months (current + archives). */
+  _getSpendingStats() {
+    const archives = Store.getArchives();
+    const currentMonth = Store.getCurrentMonth();
+    const currentTx = Store.getTransactions().filter(t => !Store.isAdjustment(t) && t.type !== 'Ingreso');
+
+    // Build per-month expense totals
+    const byMonth = {};
+    for (const t of currentTx) {
+      byMonth[t.month] = (byMonth[t.month] || 0) + t.amount;
+    }
+    for (const [month, txs] of Object.entries(archives)) {
+      const expenses = txs.filter(t => !Store.isAdjustment(t) && t.type !== 'Ingreso');
+      if (expenses.length > 0) {
+        byMonth[month] = expenses.reduce((s, t) => s + t.amount, 0);
+      }
+    }
+
+    // Per-category averages
+    const allExpenses = [...currentTx];
+    for (const txs of Object.values(archives)) {
+      allExpenses.push(...txs.filter(t => !Store.isAdjustment(t) && t.type !== 'Ingreso'));
+    }
+
+    const months = Object.keys(byMonth).sort();
+    const numMonths = Math.max(months.length, 1);
+    const totalSpent = Object.values(byMonth).reduce((s, v) => s + v, 0);
+    const avgMonthly = totalSpent / numMonths;
+    const avgWeekly = avgMonthly / 4.33;
+    const avgDaily = avgMonthly / 30;
+
+    const byCat = {};
+    for (const t of allExpenses) {
+      byCat[t.category] = (byCat[t.category] || 0) + t.amount;
+    }
+    const catAvg = {};
+    for (const [cat, total] of Object.entries(byCat)) {
+      catAvg[cat] = total / numMonths;
+    }
+
+    return { avgMonthly, avgWeekly, avgDaily, numMonths, byMonth, catAvg };
+  },
+
+  _renderAutonomy(allExpenses, allIncome) {
+    const stats = this._getSpendingStats();
+    const { avgMonthly, avgWeekly, avgDaily, numMonths, byMonth, catAvg } = stats;
+
+    if (numMonths < 1 || avgMonthly <= 0) return '';
+
+    const checking = Store.getCheckingBalance() ?? 0;
+    const savings = Store.getSavingsBalance() ?? 0;
+    const totalWealth = checking + savings;
+    const monthsAutonomy = avgMonthly > 0 ? totalWealth / avgMonthly : 0;
+    const autonomyTarget = 6; // months considered "safe"
+    const autonomyNeeded = Math.max(0, autonomyTarget * avgMonthly - totalWealth);
+
+    // Category breakdown sorted by average
+    const catEntries = Object.entries(catAvg)
+      .filter(([c]) => !['Ahorro','Ahorro programado','__ajuste__'].includes(c))
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6);
+
+    const autonomyPct = Math.min(100, (monthsAutonomy / autonomyTarget) * 100);
+    const autonomyColor = monthsAutonomy >= autonomyTarget ? 'var(--income)' : monthsAutonomy >= 3 ? '#F59E0B' : 'var(--expense)';
+    const autonomyMsg = monthsAutonomy >= autonomyTarget
+      ? `✅ Tienes reservas para ${monthsAutonomy.toFixed(1)} meses. ¡Objetivo de autonomía alcanzado!`
+      : monthsAutonomy >= 3
+        ? `🟡 Tienes para ${monthsAutonomy.toFixed(1)} meses. Objetivo: ${autonomyTarget} meses (faltan ${autonomyNeeded.toFixed(0)} €)`
+        : `🔴 Solo tienes para ${monthsAutonomy.toFixed(1)} meses. Prioriza ahorrar para llegar a ${autonomyTarget} meses.`;
+
+    const thisMonthKey = Store.getCurrentMonth();
+    const thisMonthSpent = byMonth[thisMonthKey] || 0;
+    const lastMonthKey = Object.keys(byMonth).filter(m => m < thisMonthKey).sort().reverse()[0];
+    const lastMonthSpent = lastMonthKey ? byMonth[lastMonthKey] : null;
+    const trend = lastMonthSpent !== null
+      ? (thisMonthSpent > lastMonthSpent * 1.1 ? '📈 Más que el mes pasado' : thisMonthSpent < lastMonthSpent * 0.9 ? '📉 Menos que el mes pasado' : '➡️ Similar al mes pasado')
+      : '';
+
+    return `<div class="sa-card sa-card-autonomy" style="border-left:3px solid #10B981">
+      <div class="card-header">
+        <span class="card-title">🏦 Autonomía financiera</span>
+        <span style="font-size:11px;color:var(--text-secondary)">${numMonths} mes${numMonths !== 1 ? 'es' : ''} de datos</span>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px">
+        <div style="text-align:center;padding:10px;background:var(--bg);border-radius:10px">
+          <div style="font-size:11px;color:var(--text-secondary);margin-bottom:2px">Media diaria</div>
+          <div style="font-size:18px;font-weight:800;color:var(--expense)">${avgDaily.toFixed(1)} €</div>
+        </div>
+        <div style="text-align:center;padding:10px;background:var(--bg);border-radius:10px">
+          <div style="font-size:11px;color:var(--text-secondary);margin-bottom:2px">Media semanal</div>
+          <div style="font-size:18px;font-weight:800;color:var(--expense)">${avgWeekly.toFixed(1)} €</div>
+        </div>
+        <div style="text-align:center;padding:10px;background:var(--bg);border-radius:10px">
+          <div style="font-size:11px;color:var(--text-secondary);margin-bottom:2px">Media mensual</div>
+          <div style="font-size:18px;font-weight:800;color:var(--expense)">${avgMonthly.toFixed(1)} €</div>
+        </div>
+      </div>
+
+      <div style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <span style="font-size:13px;font-weight:700">Meses de autonomía con tu saldo actual</span>
+          <span style="font-size:15px;font-weight:800;color:${autonomyColor}">${monthsAutonomy.toFixed(1)} / ${autonomyTarget}</span>
+        </div>
+        <div class="progress-bar" style="height:12px;border-radius:6px">
+          <div class="progress-fill" style="width:${autonomyPct}%;background:${autonomyColor};border-radius:6px;transition:width .6s ease"></div>
+        </div>
+        <div style="font-size:12px;margin-top:6px;font-weight:600;color:${autonomyColor}">${autonomyMsg}</div>
+      </div>
+
+      ${catEntries.length > 0 ? `
+      <div>
+        <div style="font-size:11px;font-weight:700;color:var(--text-secondary);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.3px">🏷️ En qué gastas de media al mes</div>
+        ${catEntries.map(([cat, avg]) => {
+          const pct = avgMonthly > 0 ? Math.min(100, (avg / avgMonthly) * 100) : 0;
+          return `<div style="margin-bottom:5px">
+            <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px">
+              <span style="font-weight:600">${esc(cat)}</span>
+              <span>${avg.toFixed(1)} € <span style="color:var(--text-secondary)">(${pct.toFixed(0)}%)</span></span>
+            </div>
+            <div class="progress-bar" style="height:5px"><div class="progress-fill" style="width:${pct}%;background:var(--primary);border-radius:3px"></div></div>
+          </div>`;
+        }).join('')}
+      </div>` : ''}
+
+      ${trend ? `<div style="margin-top:8px;font-size:12px;color:var(--text-secondary)">${trend} · Este mes: <strong>${thisMonthSpent.toFixed(0)} €</strong></div>` : ''}
+
+      ${autonomyNeeded > 0 ? `<div style="margin-top:10px;padding:8px 12px;background:#F0FDF4;border-radius:8px;font-size:12px;color:#166534">
+        💡 Para tener 6 meses de reserva necesitas ahorrar <strong>${autonomyNeeded.toFixed(0)} €</strong> más.
+        A tu ritmo actual (${avgMonthly.toFixed(0)} €/mes de gastos), con ahorrar <strong>${Math.ceil(autonomyNeeded / 6).toFixed(0)} €/mes</strong> durante 6 meses lo conseguirías.
+      </div>` : ''}
+    </div>`;
+  },
+
   _calc() {
     const weeklyIncome = Store.getBudgetWeeklyIncome();
     const monthlyExtra = Store.getBudgetMonthlyExtra();
@@ -919,10 +1049,6 @@ const Presupuesto = {
     return { limit, alreadySpent, projectedTotal, level: this._alertLevel(projectedTotal, limit) };
   },
 
-  getRoundUp(amount) {
-    if (!Store.isRoundUpEnabled()) return 0;
-    return Math.ceil(amount) - amount;
-  },
 
   _saveIncome() {
     Store.setBudgetWeeklyIncome(parseFloat(document.getElementById('budgetWeekly').value) || 70);
@@ -972,6 +1098,33 @@ const Presupuesto = {
   },
 
   _removeLimit(cat) { Store.removeCategoryLimit(cat); this.render(); },
+
+  _editLimit(cat) {
+    const limits = Store.getCategoryLimits();
+    const current = limits[cat] || 0;
+    const weekExpenses = this._getWeekTransactions().filter(t => t.type !== 'Ingreso');
+    const spent = weekExpenses.filter(t => t.category === cat).reduce((s, t) => s + t.amount, 0);
+    App.showCustom(`✏️ Límite semanal — ${cat}`, `
+      <div style="margin-bottom:10px;padding:8px 12px;background:var(--bg);border-radius:8px;font-size:13px">
+        <span>Gastado esta semana: </span><strong style="color:var(--expense)">${spent.toFixed(2)} €</strong>
+      </div>
+      <div class="form-group">
+        <label>Nuevo límite semanal (€)</label>
+        <input type="number" id="editLimitInput" value="${current}" step="1" min="1"
+          style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:18px;font-weight:700">
+      </div>
+    `, 'Guardar', () => {
+      const amt = parseFloat(document.getElementById('editLimitInput')?.value);
+      if (!amt || amt <= 0) return;
+      Store.setCategoryLimit(cat, amt);
+      this.render();
+      App.showToast(`✅ Límite de ${cat} actualizado a ${amt.toFixed(0)} €/sem`);
+    });
+    setTimeout(() => {
+      const inp = document.getElementById('editLimitInput');
+      if (inp) { inp.focus(); inp.select(); }
+    }, 80);
+  },
 
   _addGoal() {
     document.getElementById('modalTitle').textContent = 'Nueva meta de ahorro';
@@ -1092,8 +1245,6 @@ const Presupuesto = {
     App.showConfirm('Eliminar meta', `¿Eliminar "${g.name}"?`, () => { Store.deleteSavingGoal(id); this.render(); });
   },
 
-  _toggleRoundUp() { Store.toggleRoundUp(); this.render(); },
-  _setRoundUpGoal() { Store.setRoundUpGoalId(document.getElementById('roundUpGoalSelect').value || null); },
 
   _pePreview() {
     const el = document.getElementById('pePreview');

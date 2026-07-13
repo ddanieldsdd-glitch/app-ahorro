@@ -188,7 +188,7 @@ const App = {
     overlay.classList.add('open');
 
     const today = presetDate || new Date().toISOString().split('T')[0];
-    const cats = Store.getCategories();
+    const expenseCats = Store.getCategories();
     const methods = Store.getPaymentMethods();
 
     form.innerHTML = `
@@ -214,7 +214,7 @@ const App = {
         </div>
         <div class="form-group">
           <label>Categoría</label>
-          <select id="qaCategory">${cats.map(c => `<option value="${c}">${c}</option>`).join('')}</select>
+          <select id="qaCategory">${expenseCats.map(c => `<option value="${c}">${c}</option>`).join('')}</select>
         </div>
         <div class="form-group">
           <label>Pago</label>
@@ -233,11 +233,6 @@ const App = {
       <div style="display:flex;gap:8px;margin-top:10px">
         <button class="btn btn-primary" style="flex:1;padding:12px;font-size:16px" id="qaSubmit">➕ Añadir</button>
       </div>
-      <div id="qaRoundUpRow">
-        <label style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:13px;color:var(--text-secondary);cursor:pointer">
-          <input type="checkbox" id="qaRoundUp" checked> Redondear al euro y ahorrar la diferencia
-        </label>
-      </div>
     `;
 
     document.getElementById('qaAmount').focus();
@@ -246,9 +241,18 @@ const App = {
       btn.addEventListener('click', () => {
         document.querySelectorAll('.qa-type-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        const isExpense = btn.dataset.qaType === 'Gasto';
-        document.getElementById('qaRoundUpRow').style.display = isExpense ? '' : 'none';
+        const type = btn.dataset.qaType;
+        const isExpense = type === 'Gasto';
         document.getElementById('qaSubmit').textContent = isExpense ? '➕ Añadir gasto' : '💰 Añadir ingreso';
+        const cats = Store.getCategoriesForType(type);
+        const defaultCat = type === 'Ingreso'
+          ? (cats.includes('Mensualidad') ? 'Mensualidad' : cats[0])
+          : (cats.includes('Comida') ? 'Comida' : cats[0]);
+        const sel = document.getElementById('qaCategory');
+        const current = sel.value;
+        const pick = cats.includes(current) ? current : defaultCat;
+        sel.innerHTML = cats.map(c => `<option value="${c}" ${c === pick ? 'selected' : ''}>${c}</option>`).join('');
+        this._checkQuickBudget();
       });
     });
 
@@ -297,16 +301,10 @@ const App = {
     const method = document.getElementById('qaMethod').value;
     const account = document.getElementById('qaAccount')?.value || 'checking';
     const type = document.querySelector('.qa-type-btn.active')?.dataset?.qaType || 'Gasto';
-    const roundUp = document.getElementById('qaRoundUp')?.checked;
 
     if (!amount || amount <= 0 || !date) return;
 
     Store.addTransaction({ date, amount, description: desc, type, category, paymentMethod: method, account });
-
-    if (type !== 'Ingreso' && roundUp) {
-      const diff = Presupuesto.getRoundUp(amount);
-      if (diff > 0) Store.addRoundUp(diff);
-    }
     if (type === 'Ingreso') {
       App.suggestSavings(amount);
     }
@@ -416,11 +414,102 @@ const App = {
     return { overlay: document.getElementById('modalOverlay') };
   },
 
+  /** Performs the actual savings transfer (shared between modal modes). */
+  _doSavingsTransfer(val, description) {
+    if (!val || val <= 0) return;
+    Store.addTransfer(val, description || 'Ahorro automático');
+    const ck = Store.getCheckingBalance();
+    if (ck !== null) Store.setCheckingBalance(Math.max(0, ck - val));
+    const tx = {
+      id: Date.now().toString(36) + Math.random().toString(36).substr(2, 8),
+      date: new Date().toISOString().split('T')[0],
+      month: Store.getCurrentMonth(),
+      type: 'Gasto', category: 'Ahorro',
+      amount: val,
+      description: description || 'Ahorro automático desde ingreso',
+      paymentMethod: 'Transferencia',
+      account: 'checking',
+      _noAutoBalance: true,
+    };
+    Store.getData().transactions.push(tx);
+    Store._save();
+    App.showToast(`✅ ${val.toFixed(2)} € transferidos al ahorro`);
+  },
+
   /** Shared saving-suggestion logic. Safe to call even if Registro tab was never visited. */
   suggestSavings(incomeAmount) {
     const goals = Store.getSavingGoals();
     const goalsWeekly = Store.getRecommendedWeeklySaving(goals);
     const peWeekly = Store.getPlannedExpensesWeeklyNeed();
+
+    // --- Compute average monthly expense from real historical data ---
+    const archives = Store.getArchives();
+    const currentTx = Store.getTransactions().filter(t => !Store.isAdjustment(t) && t.type !== 'Ingreso');
+    const byMonth = {};
+    for (const t of currentTx) { byMonth[t.month] = (byMonth[t.month] || 0) + t.amount; }
+    for (const [month, txs] of Object.entries(archives)) {
+      const exp = txs.filter(t => !Store.isAdjustment(t) && t.type !== 'Ingreso').reduce((s, t) => s + t.amount, 0);
+      if (exp > 0) byMonth[month] = exp;
+    }
+    const numMonths = Math.max(Object.keys(byMonth).length, 1);
+    const avgMonthly = Object.values(byMonth).reduce((s, v) => s + v, 0) / numMonths;
+    const isLargeIncome = avgMonthly > 0 && incomeAmount >= avgMonthly * 1.5;
+
+    if (isLargeIncome) {
+      // --- Large income mode ---
+      const checking = Store.getCheckingBalance() ?? 0;
+      const savings = Store.getSavingsBalance() ?? 0;
+      const totalWealth = checking + savings + incomeAmount;
+      const monthsAutonomy = avgMonthly > 0 ? totalWealth / avgMonthly : 0;
+
+      // Suggestion: keep 1 month living expenses, save the rest
+      const keepForMonth = Math.ceil(avgMonthly);
+      const suggestSave = Math.max(0, Math.floor(incomeAmount - keepForMonth));
+      const monthsIfSaved = avgMonthly > 0 ? (checking + savings + suggestSave) / avgMonthly : 0;
+
+      this.openModal({
+        title: '🎉 ¡Gran ingreso recibido!',
+        body: `
+          <div style="background:linear-gradient(135deg,#4F46E5,#10B981);border-radius:12px;padding:14px;color:#fff;margin-bottom:14px;text-align:center">
+            <div style="font-size:13px;opacity:0.85">Ingreso recibido</div>
+            <div style="font-size:28px;font-weight:800">+${incomeAmount.toFixed(2)} €</div>
+            <div style="font-size:11px;opacity:0.8;margin-top:2px">Tu gasto medio mensual es ${avgMonthly.toFixed(0)} €</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+            <div style="text-align:center;padding:8px;background:var(--bg);border-radius:8px">
+              <div style="font-size:10px;color:var(--text-secondary)">Meses de autonomía actuales</div>
+              <div style="font-size:18px;font-weight:800;color:${monthsAutonomy >= 6 ? 'var(--income)' : '#F59E0B'}">${((checking + savings) / avgMonthly).toFixed(1)}</div>
+            </div>
+            <div style="text-align:center;padding:8px;background:var(--bg);border-radius:8px">
+              <div style="font-size:10px;color:var(--text-secondary)">Si ahorras la sugerencia</div>
+              <div style="font-size:18px;font-weight:800;color:var(--income)">${monthsIfSaved.toFixed(1)} meses</div>
+            </div>
+          </div>
+          <div style="background:#FFF7ED;border:1px solid #FDE68A;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:#78350F">
+            <strong>💡 Recomendación:</strong> Aparta la mayor parte al ahorro. Vive del saldo ya existente en corriente y usa este ingreso para ganar autonomía financiera.
+          </div>
+          <div style="margin-bottom:10px">
+            <label style="font-size:13px;font-weight:700;display:block;margin-bottom:4px">¿Cuánto apartar al ahorro?</label>
+            <input type="number" id="suggestSavingsAmount" value="${suggestSave}" step="1" min="0" max="${incomeAmount}"
+              style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:18px;font-weight:700">
+            <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
+              <button class="btn-sm" style="border:1px solid var(--border);background:var(--card);border-radius:6px;cursor:pointer;font-size:11px" onclick="document.getElementById('suggestSavingsAmount').value=${suggestSave}">Sugerido (${suggestSave} €)</button>
+              <button class="btn-sm" style="border:1px solid var(--border);background:var(--card);border-radius:6px;cursor:pointer;font-size:11px" onclick="document.getElementById('suggestSavingsAmount').value=${Math.floor(incomeAmount * 0.8)}">80% (${Math.floor(incomeAmount * 0.8)} €)</button>
+              <button class="btn-sm" style="border:1px solid var(--border);background:var(--card);border-radius:6px;cursor:pointer;font-size:11px" onclick="document.getElementById('suggestSavingsAmount').value=${Math.floor(incomeAmount * 0.5)}">50% (${Math.floor(incomeAmount * 0.5)} €)</button>
+            </div>
+          </div>`,
+        actions: [
+          { label: 'Solo registrar' },
+          { label: '🐷 Apartar al ahorro', primary: true, cb: () => {
+            const val = parseFloat(document.getElementById('suggestSavingsAmount')?.value);
+            App._doSavingsTransfer(val, `Ahorro desde gran ingreso (${incomeAmount.toFixed(0)} €)`);
+          }},
+        ],
+      });
+      return;
+    }
+
+    // --- Normal income mode ---
     const totalWeekly = goalsWeekly + peWeekly;
     if (totalWeekly <= 0) return;
     const suggestAmount = Math.min(incomeAmount, Math.round(totalWeekly));
@@ -440,29 +529,7 @@ const App = {
         { label: 'Ahora no' },
         { label: '✅ Transferir', primary: true, cb: () => {
           const val = parseFloat(document.getElementById('suggestSavingsAmount')?.value);
-          if (val > 0) {
-            // addTransfer updates savingsBalance atomically; no separate setSavingsBalance needed
-            Store.addTransfer(val, 'Ahorro automático');
-            // Deduct from checking directly (transfer, not a new transaction to avoid double delta)
-            const ck = Store.getCheckingBalance();
-            if (ck !== null) Store.setCheckingBalance(Math.max(0, ck - val));
-            // Register as a non-auto-balance internal tx for history
-            Store.getTransactions(); // ensure loaded
-            const tx = {
-              id: Date.now().toString(36) + Math.random().toString(36).substr(2, 8),
-              date: new Date().toISOString().split('T')[0],
-              month: Store.getCurrentMonth(),
-              type: 'Gasto', category: 'Ahorro',
-              amount: val,
-              description: 'Ahorro automático desde ingreso',
-              paymentMethod: 'Transferencia',
-              account: 'checking',
-              _noAutoBalance: true,
-            };
-            Store.getData().transactions.push(tx);
-            Store._save();
-            App.showToast(`✅ ${val.toFixed(2)} € transferidos al ahorro`);
-          }
+          App._doSavingsTransfer(val, 'Ahorro automático desde ingreso');
         }},
       ],
     });

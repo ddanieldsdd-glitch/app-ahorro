@@ -81,6 +81,19 @@ const MovementForm = {
       b.classList.remove('active', 'income', 'expense');
       if (b.dataset.mfType === type) b.classList.add('active', type === 'Ingreso' ? 'income' : 'expense');
     });
+    this._refreshCategories(prefix, type);
+  },
+
+  _refreshCategories(prefix, type, selected) {
+    const sel = document.getElementById(`${prefix}Category`);
+    if (!sel) return;
+    const cats = Store.getCategoriesForType(type);
+    const current = selected || sel.value;
+    const defaultCat = type === 'Ingreso'
+      ? (cats.includes('Mensualidad') ? 'Mensualidad' : cats[0])
+      : (cats.includes('Comida') ? 'Comida' : cats[0]);
+    const pick = cats.includes(current) ? current : defaultCat;
+    sel.innerHTML = cats.map(c => `<option value="${esc(c)}" ${c === pick ? 'selected' : ''}>${esc(c)}</option>`).join('');
   },
 
   _syncAccount(prefix) {

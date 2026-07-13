@@ -77,12 +77,22 @@ const Categorias = {
       <div class="cat-grid">
         <div class="cat-section">
           <div class="cat-section-title">
-            <span>Categorías</span>
+            <span>Categorías de gasto</span>
           </div>
           <div class="cat-list" id="catList"></div>
           <div class="add-cat-form">
-            <input type="text" id="newCategory" placeholder="Nueva categoría...">
+            <input type="text" id="newCategory" placeholder="Nueva categoría de gasto...">
             <button onclick="Categorias._add('category')">Añadir</button>
+          </div>
+        </div>
+        <div class="cat-section">
+          <div class="cat-section-title">
+            <span>Categorías de ingreso</span>
+          </div>
+          <div class="cat-list" id="incomeCatList"></div>
+          <div class="add-cat-form">
+            <input type="text" id="newIncomeCategory" placeholder="Nueva categoría de ingreso...">
+            <button onclick="Categorias._add('incomeCategory')">Añadir</button>
           </div>
         </div>
         <div class="cat-section">
@@ -109,10 +119,12 @@ const Categorias = {
     `;
 
     this._renderList('catList', Store.getCategories(), 'category');
+    this._renderList('incomeCatList', Store.getIncomeCategories(), 'incomeCategory');
     this._renderList('typeList', Store.getTypes(), 'type');
     this._renderList('methodList', Store.getPaymentMethods(), 'method');
 
     document.getElementById('newCategory').addEventListener('keydown', e => { if (e.key === 'Enter') this._add('category'); });
+    document.getElementById('newIncomeCategory').addEventListener('keydown', e => { if (e.key === 'Enter') this._add('incomeCategory'); });
     document.getElementById('newType').addEventListener('keydown', e => { if (e.key === 'Enter') this._add('type'); });
     document.getElementById('newMethod').addEventListener('keydown', e => { if (e.key === 'Enter') this._add('method'); });
   },
@@ -122,12 +134,16 @@ const Categorias = {
     const usedItems = this._getUsedItems(type);
     el.innerHTML = items.map(item => {
       const inUse = usedItems.has(item);
+      const safeItem = item.replace(/'/g, "\\'");
+      const canEdit = type === 'category' || type === 'incomeCategory';
       return `
         <div class="cat-item">
-          <span class="cat-name">${item}</span>
-          <button class="delete-cat" onclick="Categorias._delete('${type}', '${item.replace(/'/g, "\\'")}')"
-            ${inUse ? `title="En uso por algún movimiento"` : ''}
-            style="${inUse ? 'opacity:0.4;cursor:not-allowed' : ''}">✕</button>
+          <span class="cat-name">${esc(item)}</span>
+          <div style="display:flex;gap:4px;align-items:center">
+            ${canEdit ? `<button class="btn-sm" style="border:1px solid var(--border);border-radius:4px;background:var(--card);cursor:pointer;font-size:11px;padding:2px 6px" title="Renombrar" onclick="Categorias._rename('${type}', '${safeItem}')">✏️</button>` : ''}
+            <button class="delete-cat" onclick="Categorias._delete('${type}', '${safeItem}')"
+              title="${inUse ? 'En uso — al eliminar podrás reasignar los movimientos' : 'Eliminar'}">✕</button>
+          </div>
         </div>
       `;
     }).join('');
@@ -139,7 +155,8 @@ const Categorias = {
     const used = new Set();
 
     const checkTx = (tx) => {
-      if (type === 'category') used.add(tx.category);
+      if (type === 'category' && tx.type !== 'Ingreso') used.add(tx.category);
+      else if (type === 'incomeCategory' && tx.type === 'Ingreso') used.add(tx.category);
       else if (type === 'type') used.add(tx.type);
       else if (type === 'method') used.add(tx.paymentMethod);
     };
@@ -151,12 +168,13 @@ const Categorias = {
   },
 
   _add(type) {
-    const inputId = { category: 'newCategory', type: 'newType', method: 'newMethod' }[type];
+    const inputId = { category: 'newCategory', incomeCategory: 'newIncomeCategory', type: 'newType', method: 'newMethod' }[type];
     const input = document.getElementById(inputId);
     const name = input.value.trim();
     if (!name) return;
 
     if (type === 'category') Store.addCategory(name);
+    else if (type === 'incomeCategory') Store.addIncomeCategory(name);
     else if (type === 'type') Store.addType(name);
     else Store.addPaymentMethod(name);
 
@@ -165,16 +183,95 @@ const Categorias = {
     Registro.render();
   },
 
+  _rename(type, name) {
+    const isIncome = type === 'incomeCategory';
+    const otherCats = isIncome
+      ? Store.getIncomeCategories().filter(c => c !== name)
+      : Store.getCategories().filter(c => c !== name);
+
+    App.showCustom(`✏️ Renombrar "${name}"`, `
+      <div class="form-group">
+        <label>Nuevo nombre</label>
+        <input type="text" id="renameCatInput" value="${esc(name)}"
+          style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:15px">
+        <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">Los movimientos existentes se actualizarán automáticamente.${!isIncome ? ' El límite semanal también se renombrará si existe.' : ''}</div>
+      </div>
+    `, 'Renombrar', () => {
+      const newName = document.getElementById('renameCatInput')?.value.trim();
+      if (!newName || newName === name) return;
+      if (otherCats.includes(newName)) {
+        App.showToast(`⚠️ Ya existe una categoría con ese nombre`);
+        return;
+      }
+      const ok = isIncome ? Store.renameIncomeCategory(name, newName) : Store.renameCategory(name, newName);
+      if (ok) {
+        App.showToast(`✅ "${name}" renombrado a "${newName}"`);
+        this.render();
+        Registro.render();
+        Presupuesto.render();
+      } else {
+        App.showToast('⚠️ No se pudo renombrar');
+      }
+    });
+    setTimeout(() => {
+      const inp = document.getElementById('renameCatInput');
+      if (inp) { inp.focus(); inp.select(); }
+    }, 80);
+  },
+
   _delete(type, name) {
     const usedItems = this._getUsedItems(type);
-    if (usedItems.has(name)) return;
+    const inUse = usedItems.has(name);
+    const isIncome = type === 'incomeCategory';
 
-    App.showConfirm('Eliminar', `¿Eliminar "${name}"?`, () => {
+    if (!inUse || type === 'type' || type === 'method') {
+      App.showConfirm('Eliminar', `¿Eliminar "${name}"?`, () => {
+        if (type === 'category') Store.deleteCategory(name);
+        else if (type === 'incomeCategory') Store.deleteIncomeCategory(name);
+        else if (type === 'type') Store.deleteType(name);
+        else Store.deletePaymentMethod(name);
+        this.render();
+        Registro.render();
+        if (type === 'category') Presupuesto.render();
+      });
+      return;
+    }
+
+    // Category is in use — ask for reassignment before deleting
+    const alternatives = isIncome
+      ? Store.getIncomeCategories().filter(c => c !== name)
+      : Store.getCategories().filter(c => c !== name);
+
+    const altOptions = alternatives.map(c =>
+      `<option value="${esc(c)}">${esc(c)}</option>`
+    ).join('');
+
+    const hasLimit = !isIncome && Store.getCategoryLimits()[name] !== undefined;
+
+    App.showCustom(`🗑️ Eliminar categoría "${name}"`, `
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:10px">
+        Esta categoría está usada en movimientos. Elige qué hacer con ellos:
+      </p>
+      <div class="form-group">
+        <label>Reasignar movimientos a</label>
+        <select id="reassignTarget" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)">
+          <option value="">— Dejar sin categoría (Otros)</option>
+          ${altOptions}
+        </select>
+      </div>
+      ${hasLimit ? `<p style="font-size:12px;color:var(--text-secondary);margin-top:6px">⚠️ El límite semanal de esta categoría también se eliminará.</p>` : ''}
+    `, 'Eliminar', () => {
+      let target = document.getElementById('reassignTarget')?.value || '';
+      if (!target) target = isIncome ? (alternatives[0] || 'Extra') : 'Otros';
+      if (!isIncome && !Store.getCategories().includes(target)) Store.addCategory(target);
+      if (isIncome && !Store.getIncomeCategories().includes(target)) Store.addIncomeCategory(target);
+      Store.reassignCategory(name, target, isIncome);
       if (type === 'category') Store.deleteCategory(name);
-      else if (type === 'type') Store.deleteType(name);
-      else Store.deletePaymentMethod(name);
+      else Store.deleteIncomeCategory(name);
+      App.showToast(`✅ "${name}" eliminado. Movimientos → "${target}"`);
       this.render();
       Registro.render();
+      if (type === 'category') Presupuesto.render();
     });
   },
 

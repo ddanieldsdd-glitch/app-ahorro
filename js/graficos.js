@@ -140,7 +140,7 @@ const Graficos = {
     const expense = tx.filter(t => t.type !== 'Ingreso').reduce((s, t) => s + t.amount, 0);
     const balance = income - expense;
     const goals = Store.getSavingGoals();
-    const totalSaved = goals.reduce((s, g) => s + g.currentAmount, 0) + (Store.getTotalRoundUpSavings() || 0);
+    const totalSaved = goals.reduce((s, g) => s + g.currentAmount, 0);
     const days = Math.max(1, Math.ceil((range.end - range.start) / 86400000));
     el.innerHTML = `
       <div class="gc-stat-card"><span class="gc-stat-label">Ingresos</span><span class="gc-stat-val income">+${income.toFixed(0)}€</span></div>

@@ -54,7 +54,8 @@ const Calendario = {
           <span><i class="cal-dot cal-dot-pos"></i> Positivo</span>
           <span><i class="cal-dot cal-dot-neg"></i> Negativo</span>
           <span><i class="cal-dot cal-dot-rem"></i> Recordatorio</span>
-          <span class="tip-hint" data-tip="Toca un día con movimientos para ver el detalle. En días futuros puedes añadir un gasto o ingreso planificado.">ℹ️ Ayuda</span>
+          <span style="display:inline-flex;align-items:center;gap:3px;font-size:11px">🐷 Ahorro día ${Store.getSavingsDay()} <button style="border:none;background:none;cursor:pointer;font-size:10px;color:var(--primary);padding:0" onclick="Calendario._configureSavingsDay()">✏️</button></span>
+          <span class="tip-hint" data-tip="Toca un día para ver el detalle o añadir un gasto/ingreso. En días futuros puedes planificar movimientos.">ℹ️ Ayuda</span>
         </div>
       </div>
       ${planned.length > 0 ? `
@@ -78,6 +79,9 @@ const Calendario = {
     const lastDay = new Date(this._viewYear, this._viewMonth + 1, 0).getDate();
     let startDow = first.getDay();
     startDow = startDow === 0 ? 6 : startDow - 1;
+
+    const savingsDay = Store.getSavingsDay();
+    const imprevistosBudget = Store.getImprevistosBudget();
 
     let html = '';
     for (let i = 0; i < startDow; i++) {
@@ -108,11 +112,18 @@ const Calendario = {
       else if (balance < 0) balClass = 'cal-bal-neg';
 
       const reminders = dayPlanned.length + dayRecurring.length;
-      const tip = hasTx
-        ? `Ingresos: ${data.income.toFixed(2)}€ · Gastos: ${data.expense.toFixed(2)}€ · Balance: ${balance >= 0 ? '+' : ''}${balance.toFixed(2)}€`
-        : isFuture ? 'Toca para añadir un movimiento planificado' : 'Sin movimientos';
+      const isSavingsDay = day === savingsDay;
+      const isImprevistoDay = imprevistosBudget > 0 && day === savingsDay;
 
-      html += `<button type="button" class="cal-day ${isToday ? 'cal-day-today' : ''} ${isFuture ? 'cal-day-future' : ''} ${hasTx ? 'cal-day-has-tx' : ''} ${isOtherMonth ? 'cal-day-other' : ''}"
+      const tipExtras = [];
+      if (isSavingsDay) tipExtras.push('🐷 Día de ahorro mensual');
+      if (isImprevistoDay) tipExtras.push('⚠️ Reserva imprevistos');
+      const tip = hasTx
+        ? `Ingresos: ${data.income.toFixed(2)}€ · Gastos: ${data.expense.toFixed(2)}€ · Balance: ${balance >= 0 ? '+' : ''}${balance.toFixed(2)}€${tipExtras.length ? ' · ' + tipExtras.join(' · ') : ''}`
+        : tipExtras.length ? tipExtras.join(' · ')
+        : isFuture ? 'Toca para añadir un movimiento planificado' : 'Toca para ver o añadir un movimiento';
+
+      html += `<button type="button" class="cal-day ${isToday ? 'cal-day-today' : ''} ${isFuture ? 'cal-day-future' : ''} ${hasTx ? 'cal-day-has-tx' : ''} ${isOtherMonth ? 'cal-day-other' : ''} ${isSavingsDay ? 'cal-day-savings' : ''}"
         onclick="Calendario._onDayClick('${dateStr}')"
         title="${tip}"
         aria-label="${day} de ${MONTHS[this._viewMonth]}">
@@ -122,6 +133,7 @@ const Calendario = {
           ${data.expense > 0 ? `<span class="cal-exp">-${data.expense >= 100 ? Math.round(data.expense) : data.expense.toFixed(0)}</span>` : ''}
         </div>` : ''}
         ${hasTx ? `<span class="cal-bal-bar ${balClass}"></span>` : ''}
+        ${isSavingsDay ? `<span class="cal-savings-icon" title="${isImprevistoDay ? 'Ahorro + imprevistos' : 'Día de ahorro'}">🐷${isImprevistoDay ? '⚠️' : ''}</span>` : ''}
         ${dayRecurring.length > 0 && isFuture ? `<span class="cal-rec-dot" title="${dayRecurring.map(r => r.name || r.category).join(', ')}">🔁</span>` : ''}
         ${dayPlanned.length > 0 && reminders > 0 ? `<span class="cal-rem-dot" title="${dayPlanned.map(p => p.name).join(', ')}"></span>` : ''}
         ${dayRecurring.length > 0 && !isFuture ? `<span class="cal-rem-dot" title="${dayRecurring.length} recurrente${dayRecurring.length !== 1 ? 's' : ''}"></span>` : ''}
@@ -169,7 +181,16 @@ const Calendario = {
 
   _onDayClick(dateStr) {
     const today = new Date().toISOString().split('T')[0];
+    if (App.isViewingArchived()) {
+      this._showDay(dateStr);
+      return;
+    }
     if (dateStr > today) {
+      this._openAddForm(dateStr);
+      return;
+    }
+    const txs = Store.getTransactions().filter(t => t.date === dateStr);
+    if (txs.length === 0) {
       this._openAddForm(dateStr);
     } else {
       this._showDay(dateStr);
@@ -216,7 +237,7 @@ const Calendario = {
         <div><span>Balance</span><strong style="color:${balance >= 0 ? 'var(--income)' : 'var(--expense)'}">${balance >= 0 ? '+' : ''}${balance.toFixed(2)} €</strong></div>
       </div>
       ${txHtml}${plannedHtml}
-      ${dateStr >= today && !App.isViewingArchived() ? `<button class="btn btn-primary btn-sm" style="width:100%;margin-top:12px" onclick="App._closeModal();Calendario._openAddForm('${dateStr}')">➕ Añadir movimiento</button>` : ''}`,
+      ${!App.isViewingArchived() ? `<button class="btn btn-primary btn-sm" style="width:100%;margin-top:12px" onclick="App._closeModal();Calendario._openAddForm('${dateStr}')">➕ Añadir movimiento</button>` : ''}`,
       'Cerrar', () => App._closeModal()
     );
   },
@@ -226,18 +247,11 @@ const Calendario = {
       App.showToast('No puedes añadir movimientos en meses archivados');
       return;
     }
-    const today = new Date().toISOString().split('T')[0];
-    if (dateStr < today) {
-      this._showDay(dateStr);
-      return;
-    }
 
-    const cats = Store.getCategories();
+    const expenseCats = Store.getCategories();
     const methods = Store.getPaymentMethods();
-    const frequent = Store.getFrequentCategories(4);
-    const freqChips = frequent.map(c =>
-      `<button type="button" class="cal-cat-chip" onclick="document.getElementById('calCategory').value='${esc(c)}'">${esc(c)}</button>`
-    ).join('');
+    const frequentExpense = Store.getFrequentCategories(4);
+    const frequentIncome = Store.getFrequentIncomeCategories(4);
 
     const d = new Date(dateStr + 'T12:00:00');
     const label = d.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -255,9 +269,9 @@ const Calendario = {
       </div>
       <div class="form-group"><label>Categoría</label>
         <select id="calCategory" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)">
-          ${cats.map(c => `<option value="${esc(c)}" ${c === (frequent[0] || 'Comida') ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+          ${expenseCats.map(c => `<option value="${esc(c)}" ${c === (frequentExpense[0] || 'Comida') ? 'selected' : ''}>${esc(c)}</option>`).join('')}
         </select>
-        ${frequent.length > 0 ? `<div class="cal-cat-chips"><span style="font-size:11px;color:var(--text-secondary)">Frecuentes:</span>${freqChips}</div>` : ''}
+        <div class="cal-cat-chips" id="calCatChips"><span style="font-size:11px;color:var(--text-secondary)">Frecuentes:</span></div>
       </div>
       <div class="form-group"><label>Método de pago</label>
         <select id="calMethod" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)"
@@ -284,9 +298,8 @@ const Calendario = {
         if (!amount || amount <= 0 || !date) return;
         if (date !== dateStr) { App.showToast('⚠️ Fecha inválida'); return; }
         Store.addTransaction({ date, amount, description: desc, type, category, paymentMethod: method, account });
-        if (type !== 'Ingreso' && Store.isRoundUpEnabled()) {
-          const diff = Presupuesto.getRoundUp(amount);
-          if (diff > 0) Store.addRoundUp(diff);
+        if (type === 'Ingreso') {
+          App.suggestSavings(amount);
         }
         App._closeModal();
         App._refreshAll();
@@ -294,13 +307,38 @@ const Calendario = {
         App.showToast(`✅ ${type} añadido para ${date.split('-').reverse().join('/')}`);
       }
     );
-    setTimeout(() => document.getElementById('calAmount')?.focus(), 80);
+    setTimeout(() => {
+      document.getElementById('calAmount')?.focus();
+      Calendario._renderCatChips('Gasto', frequentExpense, frequentIncome);
+    }, 80);
+  },
+
+  _renderCatChips(type, frequentExpense, frequentIncome) {
+    const chipsEl = document.getElementById('calCatChips');
+    if (!chipsEl) return;
+    const frequent = type === 'Ingreso' ? frequentIncome : frequentExpense;
+    const label = type === 'Ingreso' ? 'Frecuentes:' : 'Frecuentes:';
+    chipsEl.innerHTML = frequent.length > 0
+      ? `<span style="font-size:11px;color:var(--text-secondary)">${label}</span>${frequent.map(c =>
+          `<button type="button" class="cal-cat-chip" onclick="document.getElementById('calCategory').value='${esc(c)}'">${esc(c)}</button>`
+        ).join('')}`
+      : '';
   },
 
   _setType(type) {
     document.querySelectorAll('.cal-type-btn').forEach(b => {
       b.classList.toggle('active', b.dataset.calType === type);
     });
+    const sel = document.getElementById('calCategory');
+    if (!sel) return;
+    const cats = Store.getCategoriesForType(type);
+    const defaultCat = type === 'Ingreso'
+      ? (cats.includes('Mensualidad') ? 'Mensualidad' : cats[0])
+      : (cats.includes('Comida') ? 'Comida' : cats[0]);
+    const current = sel.value;
+    const pick = cats.includes(current) ? current : defaultCat;
+    sel.innerHTML = cats.map(c => `<option value="${esc(c)}" ${c === pick ? 'selected' : ''}>${esc(c)}</option>`).join('');
+    this._renderCatChips(type, Store.getFrequentCategories(4), Store.getFrequentIncomeCategories(4));
   },
 
   _syncAccountFromMethod() {
@@ -309,6 +347,34 @@ const Calendario = {
     if (!acc) return;
     if (method === 'Efectivo') acc.value = 'cash';
     else if (acc.value === 'cash') acc.value = 'checking';
+  },
+
+  _configureSavingsDay() {
+    const current = Store.getSavingsDay();
+    const imprevistosBudget = Store.getImprevistosBudget();
+    App.showCustom('🐷 Día mensual de ahorro', `
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:10px">
+        El día del mes en que debes hacer tu transferencia de ahorro${imprevistosBudget > 0 ? ' y reservar imprevistos' : ''}.
+        Aparecerá marcado en el calendario.
+      </p>
+      <div class="form-group">
+        <label>Día del mes (1-28)</label>
+        <input type="number" id="savingsDayInput" value="${current}" min="1" max="28" step="1"
+          style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:18px;font-weight:700">
+        <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">Máximo día 28 para que sea válido todos los meses.</div>
+      </div>
+    `, 'Guardar', () => {
+      const v = parseInt(document.getElementById('savingsDayInput')?.value, 10);
+      if (v >= 1 && v <= 28) {
+        Store.setSavingsDay(v);
+        this.render();
+        App.showToast(`✅ Día de ahorro configurado: día ${v} de cada mes`);
+      }
+    });
+    setTimeout(() => {
+      const inp = document.getElementById('savingsDayInput');
+      if (inp) { inp.focus(); inp.select(); }
+    }, 80);
   },
 
   resetView() {

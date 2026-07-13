@@ -19,6 +19,7 @@ const MONTHS = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto
 const defaultData = {
   transactions: [],
   categories: ['Comida', 'Bebida', 'Salidas', 'Caprichos', 'Transporte', 'Vivienda', 'Salud', 'Educación', 'Imprevisto', 'Otros'],
+  incomeCategories: ['Mensualidad', 'Paga', 'Extra'],
   types: ['Ingreso', 'Gasto'],
   paymentMethods: ['Efectivo', 'Tarjeta', 'Bizum', 'Transferencia'],
   currentMonth: null,
@@ -114,6 +115,34 @@ const Store = {
     if (!d.recurringTransactions) d.recurringTransactions = [];
     if (d.initialCheckingBalance === undefined) d.initialCheckingBalance = 0;
     if (d.initialSavingsBalance === undefined) d.initialSavingsBalance = 0;
+
+    if (!d.incomeCategories) d.incomeCategories = ['Mensualidad', 'Paga', 'Extra'];
+    const incomeCatNames = ['Mensualidad', 'Paga', 'Extra'];
+    for (const name of incomeCatNames) {
+      if (!d.incomeCategories.includes(name)) d.incomeCategories.push(name);
+    }
+    const expenseIncomeCats = ['Mensualidad', 'Paga', 'Extra'];
+    d.categories = d.categories.filter(c => !expenseIncomeCats.includes(c));
+    for (const t of d.transactions) {
+      if (t.type === 'Ingreso' && (t.category === '__add__' || !d.incomeCategories.includes(t.category))) {
+        if (expenseIncomeCats.includes(t.category) || t.category === '__add__') {
+          t.category = t.description?.toLowerCase().includes('paga') ? 'Paga'
+            : t.description?.toLowerCase().includes('extra') ? 'Extra'
+            : 'Mensualidad';
+        } else if (!d.incomeCategories.includes(t.category)) {
+          d.incomeCategories.push(t.category);
+        }
+      }
+    }
+    for (const month of Object.keys(d.archives || {})) {
+      for (const t of d.archives[month]) {
+        if (t.type === 'Ingreso' && (t.category === '__add__' || expenseIncomeCats.includes(t.category))) {
+          t.category = t.description?.toLowerCase().includes('paga') ? 'Paga'
+            : t.description?.toLowerCase().includes('extra') ? 'Extra'
+            : 'Mensualidad';
+        }
+      }
+    }
 
     // One-time migration: assign `account` to existing transactions and compute initialCheckingBalance
     if (!d._balanceMigrated) {
@@ -312,11 +341,84 @@ const Store = {
   },
 
   getCategories() { return [...this._data.categories]; },
+  getIncomeCategories() { return [...(this._data.incomeCategories || [])]; },
+  getCategoriesForType(type) {
+    return type === 'Ingreso' ? this.getIncomeCategories() : this.getCategories();
+  },
   addCategory(name) {
     if (!this._data.categories.includes(name)) { this._data.categories.push(name); this._save(); }
   },
+  addIncomeCategory(name) {
+    if (!this._data.incomeCategories) this._data.incomeCategories = [];
+    if (!this._data.incomeCategories.includes(name)) { this._data.incomeCategories.push(name); this._save(); }
+  },
   deleteCategory(name) {
     this._data.categories = this._data.categories.filter(c => c !== name);
+    // Clean up any weekly limit associated with this category
+    if (this._data.budgetConfig?.categoryLimits) {
+      delete this._data.budgetConfig.categoryLimits[name];
+    }
+    this._save();
+  },
+  deleteIncomeCategory(name) {
+    this._data.incomeCategories = (this._data.incomeCategories || []).filter(c => c !== name);
+    this._save();
+  },
+
+  renameCategory(oldName, newName) {
+    const cats = this._data.categories;
+    const idx = cats.indexOf(oldName);
+    if (idx === -1 || cats.includes(newName)) return false;
+    cats[idx] = newName;
+    // Rename in all transactions
+    for (const t of this._data.transactions) {
+      if (t.category === oldName) t.category = newName;
+    }
+    for (const month of Object.keys(this._data.archives || {})) {
+      for (const t of this._data.archives[month]) {
+        if (t.category === oldName) t.category = newName;
+      }
+    }
+    // Rename limit key if exists
+    const limits = this._data.budgetConfig?.categoryLimits;
+    if (limits && limits[oldName] !== undefined) {
+      limits[newName] = limits[oldName];
+      delete limits[oldName];
+    }
+    this._save();
+    return true;
+  },
+
+  renameIncomeCategory(oldName, newName) {
+    const cats = this._data.incomeCategories || [];
+    const idx = cats.indexOf(oldName);
+    if (idx === -1 || cats.includes(newName)) return false;
+    cats[idx] = newName;
+    for (const t of this._data.transactions) {
+      if (t.type === 'Ingreso' && t.category === oldName) t.category = newName;
+    }
+    for (const month of Object.keys(this._data.archives || {})) {
+      for (const t of this._data.archives[month]) {
+        if (t.type === 'Ingreso' && t.category === oldName) t.category = newName;
+      }
+    }
+    this._save();
+    return true;
+  },
+
+  reassignCategory(oldName, newName, isIncome) {
+    for (const t of this._data.transactions) {
+      if (t.category === oldName && (isIncome ? t.type === 'Ingreso' : t.type !== 'Ingreso')) {
+        t.category = newName;
+      }
+    }
+    for (const month of Object.keys(this._data.archives || {})) {
+      for (const t of this._data.archives[month]) {
+        if (t.category === oldName && (isIncome ? t.type === 'Ingreso' : t.type !== 'Ingreso')) {
+          t.category = newName;
+        }
+      }
+    }
     this._save();
   },
 
@@ -835,6 +937,18 @@ const Store = {
       .map(([cat]) => cat);
   },
 
+  getFrequentIncomeCategories(limit = 5) {
+    const counts = {};
+    for (const t of this._data.transactions) {
+      if (t.type !== 'Ingreso') continue;
+      counts[t.category] = (counts[t.category] || 0) + 1;
+    }
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, limit)
+      .map(([cat]) => cat);
+  },
+
   /** Returns true if a transaction is a balance-sync adjustment (not a real income/expense). */
   isAdjustment(t) { return t.category === '__ajuste__'; },
 
@@ -848,6 +962,7 @@ const Store = {
     if (!d || typeof d !== 'object') return 'No hay datos';
     if (!Array.isArray(d.transactions)) return 'transactions debe ser un array';
     if (!Array.isArray(d.categories)) return 'categories debe ser un array';
+    if (d.incomeCategories && !Array.isArray(d.incomeCategories)) return 'incomeCategories debe ser un array';
     if (!Array.isArray(d.types)) return 'types debe ser un array';
     for (const t of d.transactions) {
       if (!t.id || !t.date || typeof t.amount !== 'number' || !t.type || !t.category) {

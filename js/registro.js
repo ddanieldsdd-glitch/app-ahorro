@@ -21,6 +21,7 @@ function parseISODate(str) {
 
 const Registro = {
   _editingId: null,
+  _sortMode: 'date_desc',
 
   render() {
     const el = document.getElementById('tab-registro');
@@ -68,9 +69,6 @@ const Registro = {
         </form>
         <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
           <button type="submit" class="btn btn-primary" id="txSubmit" form="txForm">➕ Añadir</button>
-          <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer">
-            <input type="checkbox" id="txRoundUp" checked> Redondear y ahorrar
-          </label>
         </div>
         `}
       </div>
@@ -80,7 +78,10 @@ const Registro = {
           <span id="txCount" style="font-size:12px;color:var(--text-secondary)"></span>
         </div>
         <div id="txSearch" style="margin-bottom:8px">
-          <input type="text" id="txFilter" placeholder="🔍 Buscar..." style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px">
+          <input type="text" id="txFilter" placeholder="🔍 Buscar..." style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;margin-bottom:6px">
+          <div style="display:flex;gap:4px;flex-wrap:wrap" id="sortBtns">
+            ${[['date_desc','📅 Reciente'],['date_asc','📅 Antiguo'],['added_desc','🕐 Añadido'],['amount_desc','💶 Mayor'],['amount_asc','💶 Menor']].map(([m,l])=>`<button class="tx-sort-btn${this._sortMode===m?' active':''}" onclick="Registro._setSort('${m}')">${l}</button>`).join('')}
+          </div>
         </div>
         <div id="transactionList" class="transaction-list"></div>
       </div>
@@ -91,14 +92,25 @@ const Registro = {
     if (filter) filter.addEventListener('input', () => this._renderList());
   },
 
+  _setSort(mode) {
+    this._sortMode = mode;
+    this.render();
+  },
+
   _initForm() {
     const form = document.getElementById('txForm');
     this._populateSelect('txType', Store.getTypes(), 'Gasto');
-    this._populateSelect('txCategory', Store.getCategories(), 'Comida');
+    this._populateCategorySelect('Gasto', 'Comida');
     this._populateSelect('txMethod', Store.getPaymentMethods(), 'Tarjeta');
     this._setupInlineAdd();
     document.getElementById('txDate').valueAsDate = new Date();
-    document.getElementById('txRoundUp').checked = Store.isRoundUpEnabled();
+    document.getElementById('txType').addEventListener('change', (e) => {
+      const type = e.target.value;
+      const currentCat = document.getElementById('txCategory').value;
+      const cats = Store.getCategoriesForType(type);
+      const defaultCat = type === 'Ingreso' ? (cats.includes('Mensualidad') ? 'Mensualidad' : cats[0]) : 'Comida';
+      this._populateCategorySelect(type, cats.includes(currentCat) ? currentCat : defaultCat);
+    });
     document.getElementById('txMethod').addEventListener('change', () => {
       const method = document.getElementById('txMethod').value;
       const acc = document.getElementById('txAccount');
@@ -126,6 +138,10 @@ const Registro = {
     sel.appendChild(addOpt);
   },
 
+  _populateCategorySelect(type, selected) {
+    this._populateSelect('txCategory', Store.getCategoriesForType(type), selected);
+  },
+
   _setupInlineAdd() {
     ['txType', 'txCategory', 'txMethod'].forEach(id => {
       const sel = document.getElementById(id);
@@ -133,12 +149,20 @@ const Registro = {
       sel.addEventListener('focus', () => { prevValue = sel.value; });
       sel.addEventListener('change', (e) => {
         if (e.target.value !== '__add__') return;
-        const map = { txType: { label: 'tipo', store: 'Type' }, txCategory: { label: 'categoría', store: 'Category' }, txMethod: { label: 'método de pago', store: 'PaymentMethod' } };
-        const { label, store } = map[id];
+        const type = document.getElementById('txType').value;
+        const map = {
+          txType: { label: 'tipo', store: 'Type', getter: 'getTypes' },
+          txCategory: type === 'Ingreso'
+            ? { label: 'categoría de ingreso', store: 'IncomeCategory', getter: 'getIncomeCategories' }
+            : { label: 'categoría de gasto', store: 'Category', getter: 'getCategories' },
+          txMethod: { label: 'método de pago', store: 'PaymentMethod', getter: 'getPaymentMethods' },
+        };
+        const { label, store, getter } = map[id];
         App.showPrompt(`Nuevo ${label}`, `Nombre:`, '', (name) => {
           if (!name) { sel.value = prevValue; return; }
           Store[`add${store}`](name);
-          this._populateSelect(id, Store[`get${store}s`](), name);
+          if (id === 'txCategory') this._populateCategorySelect(type, name);
+          else this._populateSelect(id, Store[getter](), name);
         });
       });
     });
@@ -152,7 +176,6 @@ const Registro = {
     const category = document.getElementById('txCategory').value;
     const method = document.getElementById('txMethod').value;
     const account = document.getElementById('txAccount')?.value || 'checking';
-    const roundUp = document.getElementById('txRoundUp')?.checked;
     if (!date || !amount || amount <= 0) return;
 
     const data = { date, amount, description: desc, type, category, paymentMethod: method, account };
@@ -162,10 +185,6 @@ const Registro = {
       document.getElementById('txSubmit').textContent = '➕ Añadir';
     } else {
       Store.addTransaction(data);
-      if (type !== 'Ingreso' && roundUp) {
-        const diff = Presupuesto.getRoundUp(amount);
-        if (diff > 0) Store.addRoundUp(diff);
-      }
       if (type === 'Ingreso') {
         this._suggestSavings(amount);
       }
@@ -201,7 +220,15 @@ const Registro = {
       return;
     }
     const isArchived = App.isViewingArchived();
-    const sorted = [...filtered].sort((a, b) => b.date.localeCompare(a.date) || (b.id > a.id ? 1 : -1));
+    const sorted = [...filtered].sort((a, b) => {
+      const m = this._sortMode;
+      if (m === 'date_asc')    return a.date.localeCompare(b.date) || a.id.localeCompare(b.id);
+      if (m === 'added_desc')  return b.id.localeCompare(a.id);
+      if (m === 'added_asc')   return a.id.localeCompare(b.id);
+      if (m === 'amount_desc') return b.amount - a.amount;
+      if (m === 'amount_asc')  return a.amount - b.amount;
+      return b.date.localeCompare(a.date) || b.id.localeCompare(a.id); // date_desc (default)
+    });
     container.innerHTML = sorted.map(t => {
       const isIncome = t.type === 'Ingreso';
       const isAdjust = Store.isAdjustment(t);
@@ -229,8 +256,7 @@ const Registro = {
     document.getElementById('txAmount').value = t.amount;
     document.getElementById('txDesc').value = t.description || '';
     document.getElementById('txType').value = t.type;
-    this._populateSelect('txCategory', Store.getCategories(), t.category);
-    document.getElementById('txCategory').value = t.category;
+    this._populateCategorySelect(t.type, t.category);
     this._populateSelect('txMethod', Store.getPaymentMethods(), t.paymentMethod || '');
     document.getElementById('txMethod').value = t.paymentMethod || '';
     const accEl = document.getElementById('txAccount');
@@ -351,9 +377,10 @@ const Registro = {
         const date = parseISODate(rawDate);
         const description = mapping.description !== undefined ? (row[mapping.description] || '') : '';
         let category = mapping.category !== undefined ? (row[mapping.category] || 'Otros') : 'Otros';
-        if (!Store.getCategories().includes(category)) category = 'Otros';
         let type = mapping.type !== undefined ? (row[mapping.type] || '') : '';
         type = type.toLowerCase().includes('ingr') || type.toLowerCase().includes('income') ? 'Ingreso' : 'Gasto';
+        const catList = Store.getCategoriesForType(type);
+        if (!catList.includes(category)) category = type === 'Ingreso' ? 'Extra' : 'Otros';
         let pm = mapping.paymentMethod !== undefined ? (row[mapping.paymentMethod] || '') : '';
         if (pm && !Store.getPaymentMethods().includes(pm)) pm = '';
         added.push({ date, amount, description, category, type, paymentMethod: pm });
@@ -361,8 +388,16 @@ const Registro = {
     });
     if (added.length === 0) { alert('No se pudieron importar movimientos' + (errors.length ? '\n' + errors.slice(0,5).join('\n') : '')); return; }
     App.showConfirm('Importar', `Se importarán ${added.length} movimiento${added.length !== 1 ? 's' : ''}${errors.length ? `. ${errors.length} omitidos.` : ''}`, () => {
-      const catSet = new Set(Store.getCategories());
-      added.forEach(t => { if (!catSet.has(t.category)) { Store.addCategory(t.category); catSet.add(t.category); } });
+      const expenseCatSet = new Set(Store.getCategories());
+      const incomeCatSet = new Set(Store.getIncomeCategories());
+      added.forEach(t => {
+        if (t.type === 'Ingreso') {
+          if (!incomeCatSet.has(t.category)) { Store.addIncomeCategory(t.category); incomeCatSet.add(t.category); }
+        } else if (!expenseCatSet.has(t.category)) {
+          Store.addCategory(t.category);
+          expenseCatSet.add(t.category);
+        }
+      });
       Store.addTransactions(added);
       App._renderMonthSelector();
       App._refreshAll();
