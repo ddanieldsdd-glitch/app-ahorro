@@ -285,67 +285,80 @@ const App = {
     } catch (e) { alert('Error: ' + e.message); }
   },
 
-  showPrompt(title, label, defaultValue, callback) {
-    const { overlay, title: t, body, confirm, cancel } = this._getModal();
-    t.textContent = title;
-    body.innerHTML = `<div class="form-group"><label>${label}</label><input type="text" id="promptInput" value="${defaultValue}" style="width:100%"></div>`;
-    overlay.classList.add('open');
-    const inp = document.getElementById('promptInput');
-    inp.focus();
-    inp.select();
+  /**
+   * Universal modal API.
+   * actions: [{label, primary, cb}]  — each defines its own button and callback.
+   * Clicking any button closes the modal then calls its cb (if provided).
+   */
+  openModal({ title, body, actions = [] }) {
+    const overlay = document.getElementById('modalOverlay');
+    const titleEl = document.getElementById('modalTitle');
+    const bodyEl = document.getElementById('modalBody');
+    const actionsEl = document.getElementById('modalActions');
+
+    titleEl.textContent = title || '';
+    bodyEl.innerHTML = typeof body === 'string' ? body : '';
+    actionsEl.innerHTML = '';
+
     const close = () => overlay.classList.remove('open');
-    const onC = () => { close(); callback(inp.value.trim()); };
-    const onX = () => { close(); };
-    const onO = (e) => { if (e.target === overlay) close(); };
-    const onK = (e) => { if (e.key === 'Enter') onC(); };
-    confirm.addEventListener('click', onC, { once: true });
-    cancel.addEventListener('click', onX, { once: true });
-    overlay.addEventListener('click', onO, { once: true });
-    inp.addEventListener('keydown', onK, { once: true });
+
+    for (const action of actions) {
+      const btn = document.createElement('button');
+      btn.className = `btn ${action.primary ? 'btn-primary' : 'btn-secondary'}`;
+      btn.textContent = action.label;
+      btn.addEventListener('click', () => {
+        close();
+        if (typeof action.cb === 'function') action.cb();
+      }, { once: true });
+      actionsEl.appendChild(btn);
+    }
+
+    const onOverlayClick = (e) => { if (e.target === overlay) close(); };
+    overlay.addEventListener('click', onOverlayClick, { once: true });
+    overlay.classList.add('open');
   },
 
+  /** Backwards-compatible: show a confirm dialog with Cancelar / custom confirm button. */
   showConfirm(title, message, callback) {
-    const { overlay, title: t, body, confirm, cancel } = this._getModal();
-    t.textContent = title;
-    body.innerHTML = `<p style="font-size:14px;color:var(--text-secondary)">${message}</p>`;
-    overlay.classList.add('open');
-    const close = () => overlay.classList.remove('open');
-    const onC = () => { close(); callback(); };
-    const onX = () => { close(); };
-    const onO = (e) => { if (e.target === overlay) close(); };
-    confirm.addEventListener('click', onC, { once: true });
-    cancel.addEventListener('click', onX, { once: true });
-    overlay.addEventListener('click', onO, { once: true });
+    this.openModal({
+      title,
+      body: `<p style="font-size:14px;color:var(--text-secondary)">${message}</p>`,
+      actions: [
+        { label: 'Cancelar' },
+        { label: 'Confirmar', primary: true, cb: callback },
+      ],
+    });
   },
 
-  showCustom(title, html, confirmText, callback) {
-    const { overlay, title: t, body, confirm, cancel } = this._getModal();
-    t.textContent = title;
-    body.innerHTML = html;
-    confirm.textContent = confirmText || 'Aceptar';
-    overlay.classList.add('open');
-    const close = () => { overlay.classList.remove('open'); confirm.textContent = 'Aceptar'; };
-    const onC = () => { close(); if (callback) callback(); };
-    const onX = () => { close(); };
-    const onO = (e) => { if (e.target === overlay) close(); };
-    confirm.addEventListener('click', onC, { once: true });
-    cancel.addEventListener('click', onX, { once: true });
-    overlay.addEventListener('click', onO, { once: true });
+  /** Backwards-compatible: show a text prompt. */
+  showPrompt(title, label, defaultValue, callback) {
+    this.openModal({
+      title,
+      body: `<div class="form-group"><label>${label}</label><input type="text" id="promptInput" value="${defaultValue || ''}" style="width:100%"></div>`,
+      actions: [
+        { label: 'Cancelar' },
+        { label: 'Aceptar', primary: true, cb: () => callback(document.getElementById('promptInput')?.value.trim() || '') },
+      ],
+    });
+    const inp = document.getElementById('promptInput');
+    if (inp) { inp.focus(); inp.select(); inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { this._closeModal(); callback(inp.value.trim()); } }, { once: true }); }
+  },
+
+  /** Backwards-compatible: show a custom HTML modal with one or two action buttons.
+   *  If `cancelText` is falsy, no cancel button is shown (single-action modal). */
+  showCustom(title, html, confirmText, callback, cancelText = 'Cancelar') {
+    const actions = [];
+    if (cancelText) actions.push({ label: cancelText });
+    actions.push({ label: confirmText || 'Aceptar', primary: true, cb: callback });
+    this.openModal({ title, body: html, actions });
   },
 
   _closeModal() {
     document.getElementById('modalOverlay').classList.remove('open');
-    document.getElementById('modalConfirm').textContent = 'Aceptar';
   },
 
   _getModal() {
-    return {
-      overlay: document.getElementById('modalOverlay'),
-      title: document.getElementById('modalTitle'),
-      body: document.getElementById('modalBody'),
-      confirm: document.getElementById('modalConfirm'),
-      cancel: document.getElementById('modalCancel'),
-    };
+    return { overlay: document.getElementById('modalOverlay') };
   },
 
   showToast(message, duration = 2800) {
