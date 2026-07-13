@@ -284,6 +284,7 @@ const Dashboard = {
           <button class="btn btn-sm" style="border:1px solid var(--border);background:var(--card);border-radius:6px;cursor:pointer;font-size:11px" onclick="App._switchTab('presupuesto')">💰 Gestionar deudas</button>
         </div>
       </div>` : ''}
+      ${this._renderUpcomingPayments()}
     `;
 
     const sel = document.getElementById('dhMonthQuick');
@@ -293,6 +294,54 @@ const Dashboard = {
         document.getElementById('monthSelector').onchange();
       };
     }
+  },
+
+  _renderUpcomingPayments() {
+    const recurring = Store.getRecurringTransactions().filter(r => r.active);
+    const planned = Store.getPlannedExpenses();
+    if (recurring.length === 0 && planned.length === 0) return '';
+
+    const today = new Date();
+    const in7 = new Date(today); in7.setDate(today.getDate() + 7);
+    const todayStr = today.toISOString().split('T')[0];
+    const in7Str = in7.toISOString().split('T')[0];
+
+    const upcoming = [];
+
+    // Recurring: check if any falls in the next 7 days
+    for (const r of recurring) {
+      const next = r.nextDate;
+      if (next && next >= todayStr && next <= in7Str) {
+        upcoming.push({ date: next, label: r.name || r.category, amount: r.amount, type: r.type, icon: '🔁' });
+      }
+    }
+
+    // Planned expenses due in 7 days
+    for (const p of planned) {
+      if (p.targetDate && p.targetDate >= todayStr && p.targetDate <= in7Str) {
+        const remaining = p.amount - (p.savedSoFar || 0);
+        if (remaining > 0) upcoming.push({ date: p.targetDate, label: p.name, amount: p.amount, type: 'Gasto', icon: '📋' });
+      }
+    }
+
+    if (upcoming.length === 0) return '';
+    upcoming.sort((a, b) => a.date.localeCompare(b.date));
+
+    return `<div class="card" style="border-left:3px solid #F59E0B">
+      <div class="card-header">
+        <span class="card-title">📅 Próximos pagos (7 días)</span>
+        <span style="font-size:11px;color:var(--text-secondary)">${upcoming.length}</span>
+      </div>
+      ${upcoming.map(u => `
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+          <span style="font-size:14px">${u.icon}</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(u.label)}</div>
+            <div style="font-size:11px;color:var(--text-secondary)">${u.date.split('-').reverse().join('/')}</div>
+          </div>
+          <strong class="${u.type === 'Ingreso' ? 'income' : 'expense'}" style="font-size:13px;white-space:nowrap">${u.type === 'Ingreso' ? '+' : '-'}${u.amount.toFixed(2)} €</strong>
+        </div>`).join('')}
+    </div>`;
   },
 
   _getMondayStr(d) {

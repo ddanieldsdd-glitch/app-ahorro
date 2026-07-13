@@ -1,4 +1,33 @@
 const Presupuesto = {
+  // Sections open by default: 'plan', 'limits', 'goals'. Others collapsed.
+  _openSections: new Set(['plan', 'limits', 'goals']),
+
+  _section(id, title, html, alwaysOpen = false) {
+    const open = alwaysOpen || this._openSections.has(id);
+    return `<div class="pres-section" data-section="${id}">
+      <button class="pres-section-header ${open ? 'open' : ''}" onclick="Presupuesto._toggleSection('${id}')">
+        <span>${title}</span>
+        <span class="pres-section-chevron">${open ? '▲' : '▼'}</span>
+      </button>
+      <div class="pres-section-body" style="${open ? '' : 'display:none'}">
+        ${html}
+      </div>
+    </div>`;
+  },
+
+  _toggleSection(id) {
+    if (this._openSections.has(id)) this._openSections.delete(id);
+    else this._openSections.add(id);
+    const el = document.querySelector(`.pres-section[data-section="${id}"]`);
+    if (!el) return;
+    const btn = el.querySelector('.pres-section-header');
+    const body = el.querySelector('.pres-section-body');
+    const open = this._openSections.has(id);
+    btn.classList.toggle('open', open);
+    el.querySelector('.pres-section-chevron').textContent = open ? '▲' : '▼';
+    body.style.display = open ? '' : 'none';
+  },
+
   render() {
     this._ensureDefaultLimits();
     const budget = this._calc();
@@ -291,10 +320,64 @@ const Presupuesto = {
         <div id="adviceContent">${this._renderAdvice(budget, limits, weekExpenses, goals, foodBudget, foodSpent, foodPct, recommendedWeeklySaving)}</div>
       </div>
     `;
+    this._applyAccordion(el);
     document.getElementById('newLimitAmount').addEventListener('input', () => this._checkNewLimit());
     document.getElementById('newLimitCategory').addEventListener('change', () => this._checkNewLimit());
     document.getElementById('peAmount')?.addEventListener('input', () => this._pePreview());
     document.getElementById('peDate')?.addEventListener('change', () => this._pePreview());
+  },
+
+  /** Wraps each top-level card/sa-card in the tab into a collapsible accordion section. */
+  _applyAccordion(container) {
+    const sectionMeta = [
+      { selector: '.sa-card-plan', id: 'plan', title: '🧠 Plan financiero', defaultOpen: true },
+      { selector: '.sa-card-saving', id: 'goals', title: '🎯 Metas de ahorro', defaultOpen: true },
+      { selector: '.sa-card-limits', id: 'limits', title: '📊 Límites y control semanal', defaultOpen: true },
+      { selector: '.sa-card-food', id: 'food', title: '🍽️ Presupuesto comida', defaultOpen: false },
+      { selector: '.sa-card-imprevistos', id: 'imprevistos', title: '⚠️ Fondo de imprevistos', defaultOpen: false },
+      { selector: '.sa-card-plan-gastos', id: 'plangastos', title: '📋 Gastos planificados', defaultOpen: false },
+      { selector: '.sa-card-debts', id: 'debts', title: '💳 Deudas pendientes', defaultOpen: false },
+      { selector: '.sa-card-recurring, [style*="06B6D4"]', id: 'recurring', title: '🔁 Movimientos recurrentes', defaultOpen: false },
+      { selector: '.sa-card-optimizer', id: 'optimizer', title: '🔧 Optimizador', defaultOpen: false },
+      { selector: '.sa-card-tip', id: 'tips', title: '💡 Consejos', defaultOpen: false },
+    ];
+    // For cards without a specific class, just add a generic accordion
+    for (const meta of sectionMeta) {
+      let card = null;
+      try { card = container.querySelector(meta.selector); } catch {}
+      if (!card) continue;
+      const open = this._openSections.has(meta.id) ?? meta.defaultOpen;
+      if (meta.defaultOpen && !this._openSections.has(meta.id + '_init')) {
+        this._openSections.add(meta.id);
+        this._openSections.add(meta.id + '_init');
+      }
+      const isOpen = this._openSections.has(meta.id);
+      card.classList.add('pres-accordeon-card');
+      const header = card.querySelector('.card-header');
+      if (!header) continue;
+      header.classList.add('pres-acc-header');
+      header.setAttribute('data-section', meta.id);
+      const chevron = document.createElement('span');
+      chevron.className = 'pres-section-chevron';
+      chevron.textContent = isOpen ? '▲' : '▼';
+      header.appendChild(chevron);
+      const body = Array.from(card.children).filter(c => c !== header);
+      const bodyWrap = document.createElement('div');
+      bodyWrap.className = 'pres-section-body';
+      bodyWrap.style.display = isOpen ? '' : 'none';
+      body.forEach(n => bodyWrap.appendChild(n));
+      card.appendChild(bodyWrap);
+      header.style.cursor = 'pointer';
+      header.addEventListener('click', (e) => {
+        if (e.target.closest('button, input, select')) return;
+        const sid = header.dataset.section;
+        const isNowOpen = this._openSections.has(sid);
+        if (isNowOpen) this._openSections.delete(sid);
+        else this._openSections.add(sid);
+        bodyWrap.style.display = isNowOpen ? 'none' : '';
+        chevron.textContent = isNowOpen ? '▼' : '▲';
+      });
+    }
   },
 
   _getMonthFoodSpending() {

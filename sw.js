@@ -6,7 +6,7 @@ self.addEventListener('install', (e) => {
     caches.open(CACHE).then((c) => c.addAll([
       '/', '/index.html', '/styles.css', '/manifest.json', '/icon.svg',
       '/js/store.js', '/js/presupuesto.js', '/js/dashboard.js',
-      '/js/registro.js', '/js/calendario.js', '/js/semanas.js', '/js/graficos.js',
+      '/js/registro.js', '/js/calendario.js', '/js/semanas.js', '/js/graficos.js', '/js/movement-form.js',
       '/js/categorias.js', '/js/app.js',
     ]))
   );

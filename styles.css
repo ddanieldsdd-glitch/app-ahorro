@@ -252,6 +252,18 @@ body {
   font-size: 11px;
 }
 .transaction-actions button:hover { background: var(--bg); }
+/* MovementForm shared styles */
+.mf-type-row { display: flex; gap: 8px; margin-bottom: 12px; }
+.mf-type-btn { flex: 1; padding: 9px; border: 2px solid var(--border); border-radius: var(--radius); background: var(--card); font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+.mf-type-btn.active.expense { background: var(--expense-bg); border-color: var(--expense); color: var(--expense); }
+.mf-type-btn.active.income { background: var(--income-bg); border-color: var(--income); color: var(--income); }
+
+/* Presupuesto accordion */
+.pres-acc-header { cursor: pointer; user-select: none; display: flex; align-items: center; justify-content: space-between; }
+.pres-acc-header:hover { opacity: 0.85; }
+.pres-section-chevron { font-size: 11px; color: var(--text-secondary); margin-left: 6px; }
+.pres-section-body { overflow: hidden; }
+
 .tx-adjustment { border-left: 3px solid #F59E0B; opacity: 0.8; }
 .tx-adj-badge { display: inline-block; font-size: 9px; font-weight: 700; background: #FEF3C7; color: #92400E; padding: 1px 5px; border-radius: 6px; vertical-align: middle; text-transform: uppercase; letter-spacing: 0.3px; }
 
@@ -780,6 +792,13 @@ body {
 .cal-bal-pos { background: var(--income); }
 .cal-bal-neg { background: var(--expense); }
 .cal-bal-neutral { background: var(--border); }
+.cal-rec-dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  font-size: 8px;
+  line-height: 1;
+}
 .cal-rem-dot { position: absolute; top: 3px; right: 4px; width: 6px; height: 6px; border-radius: 50%; background: #F59E0B; }
 .cal-legend { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px; font-size: 11px; color: var(--text-secondary); align-items: center; }
 .cal-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }

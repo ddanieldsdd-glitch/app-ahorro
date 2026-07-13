@@ -122,7 +122,9 @@ const Calendario = {
           ${data.expense > 0 ? `<span class="cal-exp">-${data.expense >= 100 ? Math.round(data.expense) : data.expense.toFixed(0)}</span>` : ''}
         </div>` : ''}
         ${hasTx ? `<span class="cal-bal-bar ${balClass}"></span>` : ''}
-        ${reminders > 0 ? `<span class="cal-rem-dot" title="${reminders} recordatorio${reminders !== 1 ? 's' : ''}"></span>` : ''}
+        ${dayRecurring.length > 0 && isFuture ? `<span class="cal-rec-dot" title="${dayRecurring.map(r => r.name || r.category).join(', ')}">🔁</span>` : ''}
+        ${dayPlanned.length > 0 && reminders > 0 ? `<span class="cal-rem-dot" title="${dayPlanned.map(p => p.name).join(', ')}"></span>` : ''}
+        ${dayRecurring.length > 0 && !isFuture ? `<span class="cal-rem-dot" title="${dayRecurring.length} recurrente${dayRecurring.length !== 1 ? 's' : ''}"></span>` : ''}
       </button>`;
     }
     return html;
