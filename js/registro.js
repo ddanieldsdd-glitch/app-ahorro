@@ -327,31 +327,33 @@ const Registro = {
   _openGroupModal(txId) {
     const t = Store.getTransactions().find(x => x.id === txId);
     if (!t) return;
-    const groups = Store.getTxGroups();
-    const otherGroups = Object.entries(groups);
-    const allTx = App.getCurrentTransactions().filter(x => x.id !== txId && !x.groupId && !Store.isAdjustment(x));
-
-    const nearTx = allTx.sort((a,b) => Math.abs(new Date(a.date) - new Date(t.date)) - Math.abs(new Date(b.date) - new Date(t.date))).slice(0, 15);
+    const allTx = App.getCurrentTransactions()
+      .filter(x => x.id !== txId && !x.groupId && !Store.isAdjustment(x))
+      .sort((a, b) => Math.abs(new Date(a.date) - new Date(t.date)) - Math.abs(new Date(b.date) - new Date(t.date)));
 
     App.openModal({
       title: '🔗 Agrupar movimiento',
       body: `
-        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">Crea un grupo para ver el coste neto (p.ej. pagaste tú y luego te devolvieron por Bizum).</p>
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:10px">Crea un grupo para ver el coste neto (p.ej. pagaste tú y luego te devolvieron por Bizum).</p>
         <div class="form-group">
           <label>Nombre del grupo</label>
           <input type="text" id="grpName" value="${esc(t.description || t.category)}" placeholder="Ej: Cena bar amigos" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)">
         </div>
         <div class="form-group">
-          <label>Añadir también estos movimientos al grupo</label>
-          <div id="grpTxList" style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:4px">
-            ${nearTx.length === 0 ? '<div style="font-size:13px;color:var(--text-secondary);padding:8px">No hay otros movimientos disponibles</div>' :
-              nearTx.map(x => `<label style="display:flex;align-items:center;gap:8px;padding:6px;cursor:pointer;border-radius:6px">
-                <input type="checkbox" value="${x.id}" style="flex-shrink:0">
-                <span style="flex:1;font-size:13px">${esc(x.description || x.category)}</span>
-                <span style="font-size:13px;font-weight:600;color:${x.type==='Ingreso'?'var(--income)':'var(--expense)'}">${x.type==='Ingreso'?'+':'-'}${x.amount.toFixed(2)}€</span>
-                <span style="font-size:11px;color:var(--text-secondary)">${x.date.split('-').reverse().join('/')}</span>
-              </label>`).join('')}
+          <label>Selecciona movimientos a incluir</label>
+          <input type="text" id="grpSearch" placeholder="🔍 Buscar..." oninput="Registro._filterGrpList('grpTxList', this.value)"
+            style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;margin-bottom:4px">
+          <div id="grpTxList" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:4px">
+            ${allTx.length === 0
+              ? '<div style="font-size:13px;color:var(--text-secondary);padding:8px">No hay otros movimientos disponibles</div>'
+              : allTx.map(x => `<label class="grp-tx-item" style="display:flex;align-items:center;gap:8px;padding:6px;cursor:pointer;border-radius:6px" data-search="${(x.description||x.category).toLowerCase()} ${x.amount.toFixed(2)} ${x.date}">
+                  <input type="checkbox" value="${x.id}" style="flex-shrink:0">
+                  <span style="flex:1;font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.description || x.category)}</span>
+                  <span style="font-size:13px;font-weight:600;white-space:nowrap;color:${x.type==='Ingreso'?'var(--income)':'var(--expense)'}">${x.type==='Ingreso'?'+':'-'}${x.amount.toFixed(2)}€</span>
+                  <span style="font-size:11px;color:var(--text-secondary);white-space:nowrap">${x.date.split('-').reverse().join('/')}</span>
+                </label>`).join('')}
           </div>
+          <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">${allTx.length} movimiento${allTx.length!==1?'s':''} disponibles</div>
         </div>`,
       actions: [
         { label: 'Cancelar' },
@@ -369,19 +371,32 @@ const Registro = {
     });
   },
 
+  _filterGrpList(listId, query) {
+    const q = query.toLowerCase();
+    document.querySelectorAll(`#${listId} .grp-tx-item`).forEach(el => {
+      el.style.display = !q || el.dataset.search.includes(q) ? '' : 'none';
+    });
+  },
+
   _addToExistingGroup(groupId) {
-    const allTx = App.getCurrentTransactions().filter(t => !t.groupId && !Store.isAdjustment(t));
+    const allTx = App.getCurrentTransactions()
+      .filter(t => !t.groupId && !Store.isAdjustment(t))
+      .sort((a, b) => b.date.localeCompare(a.date));
     if (allTx.length === 0) { App.showToast('No hay movimientos sin grupo'); return; }
     App.openModal({
       title: '➕ Añadir al grupo',
-      body: `<div id="addGrpList" style="max-height:250px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:4px">
-        ${allTx.sort((a,b)=>b.date.localeCompare(a.date)).map(x => `<label style="display:flex;align-items:center;gap:8px;padding:6px;cursor:pointer;border-radius:6px">
-          <input type="checkbox" value="${x.id}" style="flex-shrink:0">
-          <span style="flex:1;font-size:13px">${esc(x.description || x.category)}</span>
-          <span style="font-size:13px;font-weight:600;color:${x.type==='Ingreso'?'var(--income)':'var(--expense)'}">${x.type==='Ingreso'?'+':'-'}${x.amount.toFixed(2)}€</span>
-          <span style="font-size:11px;color:var(--text-secondary)">${x.date.split('-').reverse().join('/')}</span>
-        </label>`).join('')}
-      </div>`,
+      body: `
+        <input type="text" id="addGrpSearch" placeholder="🔍 Buscar..." oninput="Registro._filterGrpList('addGrpList', this.value)"
+          style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;margin-bottom:4px">
+        <div id="addGrpList" style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:4px">
+          ${allTx.map(x => `<label class="grp-tx-item" style="display:flex;align-items:center;gap:8px;padding:6px;cursor:pointer;border-radius:6px" data-search="${(x.description||x.category).toLowerCase()} ${x.amount.toFixed(2)} ${x.date}">
+            <input type="checkbox" value="${x.id}" style="flex-shrink:0">
+            <span style="flex:1;font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.description || x.category)}</span>
+            <span style="font-size:13px;font-weight:600;white-space:nowrap;color:${x.type==='Ingreso'?'var(--income)':'var(--expense)'}">${x.type==='Ingreso'?'+':'-'}${x.amount.toFixed(2)}€</span>
+            <span style="font-size:11px;color:var(--text-secondary);white-space:nowrap">${x.date.split('-').reverse().join('/')}</span>
+          </label>`).join('')}
+        </div>
+        <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">${allTx.length} movimiento${allTx.length!==1?'s':''} disponibles</div>`,
       actions: [
         { label: 'Cancelar' },
         { label: '➕ Añadir', primary: true, cb: () => {
@@ -572,6 +587,14 @@ const Registro = {
     });
   },
 
+  _toggleCollapse(id) {
+    const body = document.getElementById(id);
+    const arrow = document.getElementById('arr-' + id);
+    if (!body) return;
+    const collapsed = body.classList.toggle('collapsed');
+    if (arrow) arrow.textContent = collapsed ? '▸' : '▾';
+  },
+
   // Delegate to the shared suggestSavings helper in App so it works from FAB too
   _suggestSavings(incomeAmount) { App.suggestSavings(incomeAmount); },
 
@@ -706,24 +729,34 @@ const Registro = {
           return renderTxRow(t);
         }).join('');
 
+        const dayId = `day-${dateStr}`;
         return `<div class="week-day-block">
-          <div class="week-day-header">
+          <div class="week-day-header" onclick="Registro._toggleCollapse('${dayId}')" style="cursor:pointer">
             <span class="week-day-label">${dayLabel}</span>
-            <span class="week-day-totals">
-              ${dayIncome > 0 ? `<span class="income">+${dayIncome.toFixed(2)}€</span>` : ''}
-              ${dayExpense > 0 ? `<span class="expense">-${dayExpense.toFixed(2)}€</span>` : ''}
+            <span style="display:flex;align-items:center;gap:8px">
+              <span class="week-day-totals">
+                ${dayIncome > 0 ? `<span class="income">+${dayIncome.toFixed(2)}€</span>` : ''}
+                ${dayExpense > 0 ? `<span class="expense">-${dayExpense.toFixed(2)}€</span>` : ''}
+              </span>
+              <span class="collapse-arrow" id="arr-${dayId}">▾</span>
             </span>
           </div>
-          ${txRows}
+          <div id="${dayId}" class="collapsible-body">
+            ${txRows}
+          </div>
         </div>`;
       }).join('');
 
+      const weekId = `week-${idx}`;
       return `<div class="week-card">
-        <div class="week-header">
+        <div class="week-header" onclick="Registro._toggleCollapse('${weekId}')" style="cursor:pointer">
           <span>Semana ${idx + 1}: ${fmt(week.startDisplay)} – ${fmt(week.endDisplay)}</span>
-          <span style="font-weight:600;font-size:13px">${weekTx.length} mov.</span>
+          <span style="display:flex;align-items:center;gap:8px">
+            <span style="font-weight:600;font-size:13px">${weekTx.length} mov.</span>
+            <span class="collapse-arrow" id="arr-${weekId}">▾</span>
+          </span>
         </div>
-        <div class="week-body">
+        <div id="${weekId}" class="collapsible-body">
           <div class="week-stats">
             <div class="week-stat"><div class="week-stat-label">Ingresos</div><div class="week-stat-value income">+${income.toFixed(2)} €</div></div>
             <div class="week-stat"><div class="week-stat-label">Gastos</div><div class="week-stat-value expense">-${expense.toFixed(2)} €</div></div>
