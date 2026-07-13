@@ -2,8 +2,18 @@ const Calendario = {
   _viewYear: null,
   _viewMonth: null,
 
+  _subscribed: false,
+
   render() {
     const el = document.getElementById('tab-calendario');
+    // Subscribe once so any Store._save() refreshes the calendar if it's the active tab
+    if (!this._subscribed) {
+      this._subscribed = true;
+      Store.onChange(() => {
+        const activeTab = document.querySelector('.tab-btn.active')?.dataset?.tab;
+        if (activeTab === 'calendario') this.render();
+      });
+    }
     const [cy, cm] = App.getCurrentViewMonth().split('-').map(Number);
     if (this._viewYear === null) {
       this._viewYear = cy;
