@@ -4,6 +4,36 @@ const App = {
 
   async init() {
     await Store.init();
+    // PIN lock: if a PIN is set, show the lock screen before anything else
+    const pin = Store.getPinCode();
+    if (pin) {
+      const pinScreen = document.getElementById('pinScreen');
+      if (pinScreen) {
+        pinScreen.style.display = 'flex';
+        document.getElementById('pinInput')?.focus();
+        return; // _checkPin() will call _initAfterPin() to continue
+      }
+    }
+    this._initAfterPin();
+  },
+
+  _checkPin() {
+    const pin = Store.getPinCode();
+    const val = document.getElementById('pinInput')?.value;
+    if (val === pin) {
+      document.getElementById('pinScreen').style.display = 'none';
+      document.getElementById('pinInput').value = '';
+      this._initAfterPin();
+    } else {
+      const err = document.getElementById('pinError');
+      if (err) { err.textContent = '❌ PIN incorrecto'; setTimeout(() => { err.textContent = ''; }, 2000); }
+      const inp = document.getElementById('pinInput');
+      if (inp) { inp.value = ''; inp.focus(); }
+    }
+  },
+
+  async _initAfterPin() {
+    if (!Store._ready) await Store.init();
     Store.processRecurringTransactions();
     const err = Store.validateData();
     if (err) { alert('Error: ' + err); return; }
