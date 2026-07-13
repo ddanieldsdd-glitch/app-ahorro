@@ -355,39 +355,6 @@ const Registro = {
     });
   },
 
-  _suggestSavings(incomeAmount) {
-    const goals = Store.getSavingGoals();
-    const goalsWeekly = Store.getRecommendedWeeklySaving(goals);
-    const peWeekly = Store.getPlannedExpensesWeeklyNeed();
-    const totalWeekly = goalsWeekly + peWeekly;
-    if (totalWeekly <= 0) return;
-    const suggestAmount = Math.min(incomeAmount, Math.round(totalWeekly));
-    if (suggestAmount <= 1) return;
-    const detail = [];
-    if (goalsWeekly > 0) detail.push(`🎯 Metas: ${goalsWeekly.toFixed(2)} €/sem`);
-    if (peWeekly > 0) detail.push(`📋 Gastos planif.: ${peWeekly.toFixed(2)} €/sem`);
-    App.showCustom('💰 ¿Apartar para ahorro?',
-      `<p style="font-size:14px;margin-bottom:8px">Has recibido <strong>${incomeAmount.toFixed(2)} €</strong>. Necesitas <strong>${totalWeekly.toFixed(2)} €/sem</strong> para tus objetivos:</p>
-      ${detail.map(d => `<div style="font-size:13px;padding:2px 0">${d}</div>`).join('')}
-      <div style="margin-top:10px;padding:10px;background:var(--bg);border-radius:8px">
-        <label style="font-size:13px;font-weight:600">Transferir a cuenta de ahorro:</label>
-        <input type="number" id="suggestSavingsAmount" value="${suggestAmount}" step="1" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);margin-top:4px;font-size:16px">
-      </div>`,
-      '✅ Transferir', () => {
-        const val = parseFloat(document.getElementById('suggestSavingsAmount').value);
-        if (val > 0) {
-          Store.setSavingsBalance((Store.getSavingsBalance() || 0) + val);
-          Store.setCheckingBalance(Math.max(0, (Store.getCheckingBalance() || 0) - val));
-          Store.addTransfer(val, 'Ahorro automático');
-          Store.addTransaction({
-            date: new Date().toISOString().split('T')[0],
-            type: 'Gasto', category: 'Ahorro',
-            amount: val,
-            description: 'Ahorro automático desde ingreso',
-            paymentMethod: 'Transferencia',
-          });
-        }
-      }
-    );
-  },
+  // Delegate to the shared suggestSavings helper in App so it works from FAB too
+  _suggestSavings(incomeAmount) { App.suggestSavings(incomeAmount); },
 };

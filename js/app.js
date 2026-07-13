@@ -253,7 +253,7 @@ const App = {
       if (diff > 0) Store.addRoundUp(diff);
     }
     if (type === 'Ingreso') {
-      Registro._suggestSavings(amount);
+      App.suggestSavings(amount);
     }
 
     this._closeQuickAdd();
@@ -359,6 +359,58 @@ const App = {
 
   _getModal() {
     return { overlay: document.getElementById('modalOverlay') };
+  },
+
+  /** Shared saving-suggestion logic. Safe to call even if Registro tab was never visited. */
+  suggestSavings(incomeAmount) {
+    const goals = Store.getSavingGoals();
+    const goalsWeekly = Store.getRecommendedWeeklySaving(goals);
+    const peWeekly = Store.getPlannedExpensesWeeklyNeed();
+    const totalWeekly = goalsWeekly + peWeekly;
+    if (totalWeekly <= 0) return;
+    const suggestAmount = Math.min(incomeAmount, Math.round(totalWeekly));
+    if (suggestAmount <= 1) return;
+    const detail = [];
+    if (goalsWeekly > 0) detail.push(`🎯 Metas: ${goalsWeekly.toFixed(2)} €/sem`);
+    if (peWeekly > 0) detail.push(`📋 Gastos planif.: ${peWeekly.toFixed(2)} €/sem`);
+    this.openModal({
+      title: '💰 ¿Apartar para ahorro?',
+      body: `<p style="font-size:14px;margin-bottom:8px">Has recibido <strong>${incomeAmount.toFixed(2)} €</strong>. Necesitas <strong>${totalWeekly.toFixed(2)} €/sem</strong> para tus objetivos:</p>
+      ${detail.map(d => `<div style="font-size:13px;padding:2px 0">${d}</div>`).join('')}
+      <div style="margin-top:10px;padding:10px;background:var(--bg);border-radius:8px">
+        <label style="font-size:13px;font-weight:600">Transferir a cuenta de ahorro:</label>
+        <input type="number" id="suggestSavingsAmount" value="${suggestAmount}" step="1" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);margin-top:4px;font-size:16px">
+      </div>`,
+      actions: [
+        { label: 'Ahora no' },
+        { label: '✅ Transferir', primary: true, cb: () => {
+          const val = parseFloat(document.getElementById('suggestSavingsAmount')?.value);
+          if (val > 0) {
+            // addTransfer updates savingsBalance atomically; no separate setSavingsBalance needed
+            Store.addTransfer(val, 'Ahorro automático');
+            // Deduct from checking directly (transfer, not a new transaction to avoid double delta)
+            const ck = Store.getCheckingBalance();
+            if (ck !== null) Store.setCheckingBalance(Math.max(0, ck - val));
+            // Register as a non-auto-balance internal tx for history
+            Store.getTransactions(); // ensure loaded
+            const tx = {
+              id: Date.now().toString(36) + Math.random().toString(36).substr(2, 8),
+              date: new Date().toISOString().split('T')[0],
+              month: Store.getCurrentMonth(),
+              type: 'Gasto', category: 'Ahorro',
+              amount: val,
+              description: 'Ahorro automático desde ingreso',
+              paymentMethod: 'Transferencia',
+              account: 'checking',
+              _noAutoBalance: true,
+            };
+            Store.getData().transactions.push(tx);
+            Store._save();
+            App.showToast(`✅ ${val.toFixed(2)} € transferidos al ahorro`);
+          }
+        }},
+      ],
+    });
   },
 
   showToast(message, duration = 2800) {
