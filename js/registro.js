@@ -1,3 +1,24 @@
+/** Normalizes multiple date formats to YYYY-MM-DD.
+ *  Accepts: DD/MM/YYYY, DD/MM/YY, YYYY-MM-DD, ISO strings, DD-MM-YYYY */
+function parseISODate(str) {
+  if (!str) return '';
+  str = String(str).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) return str.substring(0, 10);
+  if (/^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}$/.test(str)) {
+    const p = str.split(/[\/\-\.]/);
+    return `${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
+  }
+  if (/^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2}$/.test(str)) {
+    const p = str.split(/[\/\-\.]/);
+    return `20${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
+  }
+  if (/^\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}$/.test(str)) {
+    const p = str.split(/[\/\-\.]/);
+    return `${p[0]}-${p[1].padStart(2,'0')}-${p[2].padStart(2,'0')}`;
+  }
+  return str.substring(0, 10);
+}
+
 const Registro = {
   _editingId: null,
 
@@ -327,12 +348,7 @@ const Registro = {
         const rawAmount = (row[mapping.amount] || '').replace(/[^0-9,\-\.]/g, '').replace(',', '.');
         const amount = parseFloat(rawAmount);
         if (!rawDate || isNaN(amount) || amount <= 0) { errors.push(`Fila ${idx+2}: inválida`); return; }
-        let date = rawDate;
-        if (date.includes('/')) {
-          const p = date.split('/');
-          if (p[2] && p[2].length === 4) date = `${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
-          else if (p[2] && p[2].length === 2) date = `20${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
-        }
+        const date = parseISODate(rawDate);
         const description = mapping.description !== undefined ? (row[mapping.description] || '') : '';
         let category = mapping.category !== undefined ? (row[mapping.category] || 'Otros') : 'Otros';
         if (!Store.getCategories().includes(category)) category = 'Otros';

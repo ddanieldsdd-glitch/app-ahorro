@@ -8,7 +8,8 @@
       "category": "Comida",
       "paymentMethod": "Tarjeta",
       "id": "mr6s0qqhbjbbnjn1",
-      "month": "2026-07"
+      "month": "2026-07",
+      "account": "checking"
     },
     {
       "id": "mr6s5fbqj5knsmfo",
@@ -18,7 +19,8 @@
       "category": "Ahorro programado",
       "amount": 9.62728264933013,
       "description": "Reserva semanal para gastos planificados",
-      "paymentMethod": "Transferencia"
+      "paymentMethod": "Transferencia",
+      "account": "checking"
     },
     {
       "date": "2026-07-12",
@@ -28,7 +30,8 @@
       "category": "Comida",
       "paymentMethod": "Tarjeta",
       "id": "mrj65n1dvs20p0xc",
-      "month": "2026-07"
+      "month": "2026-07",
+      "account": "checking"
     },
     {
       "date": "2026-07-01",
@@ -38,7 +41,8 @@
       "category": "__add__",
       "paymentMethod": "Tarjeta",
       "id": "mrj68nx5gp26qv0c",
-      "month": "2026-07"
+      "month": "2026-07",
+      "account": "checking"
     },
     {
       "date": "2026-07-01",
@@ -48,7 +52,8 @@
       "category": "Bebida",
       "paymentMethod": "Tarjeta",
       "id": "mrj6ao9zni3i6ie3",
-      "month": "2026-07"
+      "month": "2026-07",
+      "account": "checking"
     },
     {
       "date": "2026-07-02",
@@ -58,7 +63,8 @@
       "category": "Comida",
       "paymentMethod": "Tarjeta",
       "id": "mrj6f9dmbcnr2odm",
-      "month": "2026-07"
+      "month": "2026-07",
+      "account": "checking"
     },
     {
       "date": "2026-07-02",
@@ -68,7 +74,8 @@
       "category": "Comida",
       "paymentMethod": "Tarjeta",
       "id": "mrj6gddd49aryjmv",
-      "month": "2026-07"
+      "month": "2026-07",
+      "account": "checking"
     },
     {
       "date": "2026-07-03",
@@ -78,7 +85,8 @@
       "category": "Otros",
       "paymentMethod": "Tarjeta",
       "id": "mrj6h2z216y2s2ys",
-      "month": "2026-07"
+      "month": "2026-07",
+      "account": "checking"
     },
     {
       "date": "2026-07-03",
@@ -88,7 +96,8 @@
       "category": "Otros",
       "paymentMethod": "Tarjeta",
       "id": "mrj6i4owi3q8x6cm",
-      "month": "2026-07"
+      "month": "2026-07",
+      "account": "checking"
     },
     {
       "date": "2026-07-03",
@@ -98,7 +107,8 @@
       "category": "Comida",
       "paymentMethod": "Tarjeta",
       "id": "mrj6jlrmm768y240",
-      "month": "2026-07"
+      "month": "2026-07",
+      "account": "checking"
     }
   ],
   "categories": [
@@ -163,17 +173,8 @@
     }
   ],
   "pinCode": null,
-  "_lastModified": 1783944647950,
-  "plannedExpenses": [
-    {
-      "id": "mr6jc1gyceqa1g",
-      "name": "pelicula ophenhaimer",
-      "amount": 18,
-      "targetDate": "2026-07-17",
-      "savedSoFar": 9.62728264933013,
-      "createdAt": "2026-07-04T15:46:44.722Z"
-    }
-  ],
+  "_lastModified": 1783947015417,
+  "plannedExpenses": [],
   "imprevistosBudget": 20,
   "checkingBaseBalance": 60,
   "imprevistosSavings": 0,
@@ -182,5 +183,8 @@
   "lastPEReserveWeek": "2026-06-28",
   "savingsDay": 1,
   "debts": [],
-  "recurringTransactions": []
+  "recurringTransactions": [],
+  "initialCheckingBalance": 39.78,
+  "initialSavingsBalance": 42.43,
+  "_balanceMigrated": true
 }

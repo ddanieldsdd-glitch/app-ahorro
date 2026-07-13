@@ -53,6 +53,7 @@ const Store = {
   _data: null,
   _ready: false,
   _callbacks: [],
+  _saveCallbacks: [],
   _syncTimer: null,
 
   async init() {
@@ -154,11 +155,16 @@ const Store = {
     this._data._lastModified = Date.now();
     const data = this._data;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    this._saveCallbacks.forEach(cb => cb());
     fetch('/api/data', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
-    }).catch(() => {});
+    }).catch(() => {
+      if (typeof App !== 'undefined' && App.showToast) {
+        App.showToast('⚡ Cambios guardados solo localmente — sin conexión', 3500);
+      }
+    });
   },
 
   _startSync() {
@@ -178,6 +184,8 @@ const Store = {
   },
 
   onChange(callback) { this._callbacks.push(callback); },
+  /** Called on every local save (localStorage). Use for lightweight UI updates like calendar refresh. */
+  onSave(callback) { this._saveCallbacks.push(callback); },
 
   getData() { return this._data; },
   getTransactions() { return this._data.transactions; },
@@ -791,8 +799,9 @@ const Store = {
       let next = r.nextDate || today;
       let guard = 0;
       while (next <= today && guard++ < 24) {
+        const nextDay = next.split('T')[0];
         const exists = this._data.transactions.some(t =>
-          t.recurringId === r.id && t.date === next
+          t.recurringId === r.id && (t.date || '').split('T')[0] === nextDay
         );
         if (!exists) {
           this.addTransaction({
