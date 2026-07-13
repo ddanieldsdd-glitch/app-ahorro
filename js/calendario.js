@@ -213,21 +213,64 @@ const Calendario = {
     const label = d.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' });
 
     const isArchived = App.isViewingArchived();
+    const allGroups = Store.getTxGroups();
+    const renderedGroups = new Set();
+
+    const renderCalTxRow = (t) => {
+      const isTrsp    = Store.isTraspaso(t);
+      const isIncome  = t.type === 'Ingreso';
+      const cls = isTrsp ? 'traspaso' : isIncome ? 'income' : 'expense';
+      const icon = isTrsp ? '⇄' : isIncome ? '↑' : '↓';
+      const pfx  = isIncome ? '+' : isTrsp ? '⇄ ' : '-';
+      return `<div class="cal-tx-row" id="cal-tx-${t.id}">
+        <span class="cal-tx-icon ${cls}">${icon}</span>
+        <div class="cal-tx-info">
+          <div class="cal-tx-desc">${esc(t.description || t.category)}</div>
+          <div class="cal-tx-meta">${esc(t.category)}${t.paymentMethod && !isTrsp ? ' · ' + esc(t.paymentMethod) : ''}</div>
+        </div>
+        <span class="cal-tx-amt ${cls}">${pfx}${t.amount.toFixed(2)}€</span>
+        ${!isArchived ? `<div class="cal-tx-actions">
+          <button title="Editar" onclick="Calendario._editFromCalendar('${t.id}','${dateStr}')">✏️</button>
+          <button title="Eliminar" onclick="Calendario._deleteFromCalendar('${t.id}','${dateStr}')">🗑️</button>
+        </div>` : ''}
+      </div>`;
+    };
+
+    const renderCalGroup = (groupId, group) => {
+      // All members in any date (group may span days), but only show here since this day has at least one member
+      const members = Store.getTransactions().filter(t => t.groupId === groupId);
+      const expense  = members.filter(t => Store.isExpense(t)).reduce((s,t) => s + t.amount, 0);
+      const income   = members.filter(t => t.type === 'Ingreso').reduce((s,t) => s + t.amount, 0);
+      const net      = expense - income;
+      return `<div class="cal-group-card">
+        <div class="cal-group-header" onclick="this.nextElementSibling.classList.toggle('hidden')">
+          <span class="cal-tx-icon expense">🔗</span>
+          <div class="cal-tx-info">
+            <div class="cal-tx-desc">${esc(group.name)} <span class="tx-adj-badge" style="background:#E0E7FF;color:#4F46E5">grupo</span></div>
+            <div class="cal-tx-meta">${members.length} movimientos · neto: <strong style="color:${net<=0?'var(--income)':'var(--expense)'}">${net>=0?'-':'+'}${Math.abs(net).toFixed(2)}€</strong></div>
+          </div>
+          <div style="text-align:right;flex-shrink:0">
+            <div style="font-size:12px;color:var(--expense)">-${expense.toFixed(2)}€</div>
+            ${income>0?`<div style="font-size:12px;color:var(--income)">+${income.toFixed(2)}€</div>`:''}
+            <div style="font-size:14px;font-weight:800;color:${net<=0?'var(--income)':'var(--expense)'}">= ${net>=0?'-':'+'}${Math.abs(net).toFixed(2)}€</div>
+          </div>
+        </div>
+        <div class="cal-group-members hidden">
+          ${members.sort((a,b)=>a.date.localeCompare(b.date)).map(m => renderCalTxRow(m)).join('')}
+        </div>
+      </div>`;
+    };
+
     const txHtml = txs.length === 0
       ? '<p style="font-size:13px;color:var(--text-secondary);text-align:center;padding:12px">Sin movimientos este día</p>'
-      : txs.sort((a, b) => (a.type === 'Ingreso' ? -1 : 1)).map(t => `
-        <div class="cal-tx-row" id="cal-tx-${t.id}">
-          <span class="cal-tx-icon ${t.type === 'Ingreso' ? 'income' : 'expense'}">${t.type === 'Ingreso' ? '↑' : '↓'}</span>
-          <div class="cal-tx-info">
-            <div class="cal-tx-desc">${esc(t.description || t.category)}</div>
-            <div class="cal-tx-meta">${esc(t.category)}${t.paymentMethod ? ' · ' + esc(t.paymentMethod) : ''}</div>
-          </div>
-          <span class="cal-tx-amt ${t.type === 'Ingreso' ? 'income' : 'expense'}">${t.type === 'Ingreso' ? '+' : '-'}${t.amount.toFixed(2)}€</span>
-          ${!isArchived ? `<div class="cal-tx-actions">
-            <button title="Editar" onclick="Calendario._editFromCalendar('${t.id}','${dateStr}')">✏️</button>
-            <button title="Eliminar" onclick="Calendario._deleteFromCalendar('${t.id}','${dateStr}')">🗑️</button>
-          </div>` : ''}
-        </div>`).join('');
+      : txs.sort((a, b) => a.date.localeCompare(b.date) || (a.type === 'Ingreso' ? -1 : 1)).map(t => {
+          if (t.groupId && allGroups[t.groupId]) {
+            if (renderedGroups.has(t.groupId)) return '';
+            renderedGroups.add(t.groupId);
+            return renderCalGroup(t.groupId, allGroups[t.groupId]);
+          }
+          return renderCalTxRow(t);
+        }).join('');
 
     const plannedHtml = planned.length > 0 ? `
       <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">

@@ -239,7 +239,10 @@ const Registro = {
       container.innerHTML = '<div class="empty-state">' + (filterText ? 'Sin resultados' : 'Aún no hay movimientos') + '</div>';
       return;
     }
+
     const isArchived = App.isViewingArchived();
+    const allTx = App.getCurrentTransactions(); // full list for group members (even if filtered)
+    const groups = Store.getTxGroups();
     const sorted = [...filtered].sort((a, b) => {
       const m = this._sortMode;
       if (m === 'date_asc')    return a.date.localeCompare(b.date) || a.id.localeCompare(b.id);
@@ -247,30 +250,186 @@ const Registro = {
       if (m === 'added_asc')   return a.id.localeCompare(b.id);
       if (m === 'amount_desc') return b.amount - a.amount;
       if (m === 'amount_asc')  return a.amount - b.amount;
-      return b.date.localeCompare(a.date) || b.id.localeCompare(a.id); // date_desc (default)
+      return b.date.localeCompare(a.date) || b.id.localeCompare(a.id);
     });
+
+    // Collect which groupIds have already been rendered
+    const renderedGroups = new Set();
+
     container.innerHTML = sorted.map(t => {
-      const isIncome    = t.type === 'Ingreso';
-      const isTraspaso  = Store.isTraspaso(t);
-      const isAdjust    = Store.isAdjustment(t);
-      const accountLabel = { checking: '💳', savings: '🐷', cash: '💵' }[t.account] || '';
-      const iconClass = isTraspaso ? 'traspaso' : isIncome ? 'income' : 'expense';
-      const icon      = isAdjust ? '⚖' : isTraspaso ? '⇄' : isIncome ? '↑' : '↓';
-      const amtClass  = isTraspaso ? 'traspaso' : isIncome ? 'income' : 'expense';
-      const amtPrefix = isIncome ? '+' : isTraspaso ? '⇄ ' : '-';
-      return `<div class="transaction-item ${isAdjust ? 'tx-adjustment' : isTraspaso ? 'tx-traspaso' : ''}" data-id="${t.id}">
-        <div class="transaction-icon ${iconClass}">${icon}</div>
-        <div class="transaction-info">
-          <div class="transaction-desc">${esc(t.description || t.category)}${isAdjust ? ' <span class="tx-adj-badge">ajuste</span>' : ''}${isTraspaso ? ' <span class="tx-adj-badge" style="background:#E0E7FF;color:#4F46E5">traspaso</span>' : ''}</div>
-          <div class="transaction-meta">${t.date.split('-').reverse().join('/')} · ${esc(isAdjust ? 'Ajuste bancario' : t.category)}${t.paymentMethod && !isAdjust && !isTraspaso ? ` · ${esc(t.paymentMethod)}` : ''} ${isTraspaso ? '💳→🐷' : accountLabel}</div>
-        </div>
-        <div class="transaction-amount ${amtClass}">${amtPrefix}${t.amount.toFixed(2)}€</div>
-        ${isArchived ? '' : `<div class="transaction-actions">
-          <button onclick="Registro._edit('${t.id}')" title="Editar">✏️</button>
-          <button onclick="Registro._delete('${t.id}')" title="Eliminar">🗑️</button>
-        </div>`}
-      </div>`;
+      // If this tx belongs to a group, render the group card once
+      if (t.groupId && groups[t.groupId]) {
+        if (renderedGroups.has(t.groupId)) return '';
+        renderedGroups.add(t.groupId);
+        return this._renderGroupCard(t.groupId, groups[t.groupId], allTx, isArchived);
+      }
+      return this._renderTxRow(t, isArchived, true);
     }).join('');
+  },
+
+  _renderTxRow(t, isArchived, showGroupBtn = false) {
+    const isIncome    = t.type === 'Ingreso';
+    const isTraspaso  = Store.isTraspaso(t);
+    const isAdjust    = Store.isAdjustment(t);
+    const accountLabel = { checking: '💳', savings: '🐷', cash: '💵' }[t.account] || '';
+    const iconClass = isTraspaso ? 'traspaso' : isIncome ? 'income' : 'expense';
+    const icon      = isAdjust ? '⚖' : isTraspaso ? '⇄' : isIncome ? '↑' : '↓';
+    const amtClass  = isTraspaso ? 'traspaso' : isIncome ? 'income' : 'expense';
+    const amtPrefix = isIncome ? '+' : isTraspaso ? '⇄ ' : '-';
+    return `<div class="transaction-item ${isAdjust ? 'tx-adjustment' : isTraspaso ? 'tx-traspaso' : ''}" data-id="${t.id}">
+      <div class="transaction-icon ${iconClass}">${icon}</div>
+      <div class="transaction-info">
+        <div class="transaction-desc">${esc(t.description || t.category)}${isAdjust ? ' <span class="tx-adj-badge">ajuste</span>' : ''}${isTraspaso ? ' <span class="tx-adj-badge" style="background:#E0E7FF;color:#4F46E5">traspaso</span>' : ''}</div>
+        <div class="transaction-meta">${t.date.split('-').reverse().join('/')} · ${esc(isAdjust ? 'Ajuste bancario' : t.category)}${t.paymentMethod && !isAdjust && !isTraspaso ? ` · ${esc(t.paymentMethod)}` : ''} ${isTraspaso ? '💳→🐷' : accountLabel}</div>
+      </div>
+      <div class="transaction-amount ${amtClass}">${amtPrefix}${t.amount.toFixed(2)}€</div>
+      ${isArchived ? '' : `<div class="transaction-actions">
+        ${showGroupBtn && !isAdjust ? `<button onclick="Registro._openGroupModal('${t.id}')" title="Agrupar con otros movimientos">🔗</button>` : ''}
+        <button onclick="Registro._edit('${t.id}')" title="Editar">✏️</button>
+        <button onclick="Registro._delete('${t.id}')" title="Eliminar">🗑️</button>
+      </div>`}
+    </div>`;
+  },
+
+  _renderGroupCard(groupId, group, allTx, isArchived) {
+    const members = allTx.filter(t => t.groupId === groupId);
+    const expense  = members.filter(t => Store.isExpense(t)).reduce((s, t) => s + t.amount, 0);
+    const income   = members.filter(t => t.type === 'Ingreso').reduce((s, t) => s + t.amount, 0);
+    const net      = expense - income;
+    const dateRange = members.length > 0
+      ? members[0].date.split('-').reverse().join('/')
+      : '';
+    return `<div class="tx-group-card">
+      <div class="tx-group-header" onclick="this.nextElementSibling.classList.toggle('hidden')">
+        <div class="transaction-icon expense">🔗</div>
+        <div class="transaction-info">
+          <div class="transaction-desc">${esc(group.name)}</div>
+          <div class="transaction-meta">${dateRange} · ${members.length} movimiento${members.length !== 1 ? 's' : ''} · Neto: <strong style="color:${net <= 0 ? 'var(--income)' : 'var(--expense)'}">${net >= 0 ? '' : '+'}${(-net).toFixed(2)}€</strong></div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-size:13px;color:var(--expense)">-${expense.toFixed(2)}€</div>
+          ${income > 0 ? `<div style="font-size:12px;color:var(--income)">+${income.toFixed(2)}€</div>` : ''}
+          <div style="font-size:14px;font-weight:800;color:${net <= 0 ? 'var(--income)' : 'var(--expense)'}">= ${net >= 0 ? '-' : '+'}${Math.abs(net).toFixed(2)}€</div>
+        </div>
+        ${isArchived ? '' : `<div class="transaction-actions" onclick="event.stopPropagation()">
+          <button onclick="Registro._renameGroup('${groupId}')" title="Renombrar grupo">✏️</button>
+          <button onclick="Registro._dissolveGroup('${groupId}')" title="Disolver grupo">🗑️</button>
+        </div>`}
+      </div>
+      <div class="tx-group-members">
+        ${members.sort((a,b)=>a.date.localeCompare(b.date)).map(m => {
+          const isMemberIncome = m.type === 'Ingreso';
+          const isMemberTrsp   = Store.isTraspaso(m);
+          const cls = isMemberTrsp ? 'traspaso' : isMemberIncome ? 'income' : 'expense';
+          const pfx = isMemberIncome ? '+' : isMemberTrsp ? '⇄ ' : '-';
+          return `<div class="tx-group-member-row">
+            <div class="transaction-icon ${cls}" style="width:22px;height:22px;font-size:11px;flex-shrink:0">${isMemberTrsp?'⇄':isMemberIncome?'↑':'↓'}</div>
+            <div class="transaction-info">
+              <div style="font-size:13px;font-weight:600">${esc(m.description || m.category)}</div>
+              <div style="font-size:11px;color:var(--text-secondary)">${m.date.split('-').reverse().join('/')} · ${esc(m.category)}</div>
+            </div>
+            <div class="transaction-amount ${cls}" style="font-size:13px">${pfx}${m.amount.toFixed(2)}€</div>
+            ${isArchived ? '' : `<div class="transaction-actions">
+              <button onclick="Registro._removeFromGroup('${m.id}')" title="Sacar del grupo">✂️</button>
+              <button onclick="Registro._edit('${m.id}')" title="Editar">✏️</button>
+              <button onclick="Registro._delete('${m.id}')" title="Eliminar">🗑️</button>
+            </div>`}
+          </div>`;
+        }).join('')}
+        ${isArchived ? '' : `<button class="btn btn-secondary btn-sm" style="margin-top:6px;width:100%" onclick="Registro._addToExistingGroup('${groupId}')">➕ Añadir movimiento al grupo</button>`}
+      </div>
+    </div>`;
+  },
+
+  _openGroupModal(txId) {
+    const t = Store.getTransactions().find(x => x.id === txId);
+    if (!t) return;
+    const groups = Store.getTxGroups();
+    const otherGroups = Object.entries(groups);
+    const allTx = App.getCurrentTransactions().filter(x => x.id !== txId && !x.groupId && !Store.isAdjustment(x));
+
+    const nearTx = allTx.sort((a,b) => Math.abs(new Date(a.date) - new Date(t.date)) - Math.abs(new Date(b.date) - new Date(t.date))).slice(0, 15);
+
+    App.openModal({
+      title: '🔗 Agrupar movimiento',
+      body: `
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">Crea un grupo para ver el coste neto (p.ej. pagaste tú y luego te devolvieron por Bizum).</p>
+        <div class="form-group">
+          <label>Nombre del grupo</label>
+          <input type="text" id="grpName" value="${esc(t.description || t.category)}" placeholder="Ej: Cena bar amigos" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)">
+        </div>
+        <div class="form-group">
+          <label>Añadir también estos movimientos al grupo</label>
+          <div id="grpTxList" style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:4px">
+            ${nearTx.length === 0 ? '<div style="font-size:13px;color:var(--text-secondary);padding:8px">No hay otros movimientos disponibles</div>' :
+              nearTx.map(x => `<label style="display:flex;align-items:center;gap:8px;padding:6px;cursor:pointer;border-radius:6px">
+                <input type="checkbox" value="${x.id}" style="flex-shrink:0">
+                <span style="flex:1;font-size:13px">${esc(x.description || x.category)}</span>
+                <span style="font-size:13px;font-weight:600;color:${x.type==='Ingreso'?'var(--income)':'var(--expense)'}">${x.type==='Ingreso'?'+':'-'}${x.amount.toFixed(2)}€</span>
+                <span style="font-size:11px;color:var(--text-secondary)">${x.date.split('-').reverse().join('/')}</span>
+              </label>`).join('')}
+          </div>
+        </div>`,
+      actions: [
+        { label: 'Cancelar' },
+        { label: '🔗 Crear grupo', primary: true, cb: () => {
+          const name = document.getElementById('grpName')?.value.trim();
+          if (!name) { App.showToast('Escribe un nombre'); return; }
+          const checked = [...document.querySelectorAll('#grpTxList input:checked')].map(el => el.value);
+          const gid = Store.createTxGroup(name);
+          Store.setTxGroup(txId, gid);
+          checked.forEach(id => Store.setTxGroup(id, gid));
+          Registro.render();
+          App.showToast('Grupo creado');
+        }},
+      ],
+    });
+  },
+
+  _addToExistingGroup(groupId) {
+    const allTx = App.getCurrentTransactions().filter(t => !t.groupId && !Store.isAdjustment(t));
+    if (allTx.length === 0) { App.showToast('No hay movimientos sin grupo'); return; }
+    App.openModal({
+      title: '➕ Añadir al grupo',
+      body: `<div id="addGrpList" style="max-height:250px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:4px">
+        ${allTx.sort((a,b)=>b.date.localeCompare(a.date)).map(x => `<label style="display:flex;align-items:center;gap:8px;padding:6px;cursor:pointer;border-radius:6px">
+          <input type="checkbox" value="${x.id}" style="flex-shrink:0">
+          <span style="flex:1;font-size:13px">${esc(x.description || x.category)}</span>
+          <span style="font-size:13px;font-weight:600;color:${x.type==='Ingreso'?'var(--income)':'var(--expense)'}">${x.type==='Ingreso'?'+':'-'}${x.amount.toFixed(2)}€</span>
+          <span style="font-size:11px;color:var(--text-secondary)">${x.date.split('-').reverse().join('/')}</span>
+        </label>`).join('')}
+      </div>`,
+      actions: [
+        { label: 'Cancelar' },
+        { label: '➕ Añadir', primary: true, cb: () => {
+          const checked = [...document.querySelectorAll('#addGrpList input:checked')].map(el => el.value);
+          if (checked.length === 0) { App.showToast('Selecciona al menos uno'); return; }
+          checked.forEach(id => Store.setTxGroup(id, groupId));
+          Registro.render();
+          App.showToast('Movimientos añadidos al grupo');
+        }},
+      ],
+    });
+  },
+
+  _removeFromGroup(txId) {
+    Store.setTxGroup(txId, null);
+    Registro.render();
+  },
+
+  _renameGroup(groupId) {
+    const group = Store.getTxGroups()[groupId];
+    if (!group) return;
+    App.showPrompt('Renombrar grupo', 'Nuevo nombre:', group.name, (name) => {
+      if (name) { Store.renameTxGroup(groupId, name); Registro.render(); }
+    });
+  },
+
+  _dissolveGroup(groupId) {
+    App.showConfirm('Disolver grupo', '¿Disolver el grupo? Los movimientos quedarán sueltos.', () => {
+      Store.deleteTxGroup(groupId);
+      Registro.render();
+    });
   },
 
   _edit(id) {
@@ -466,7 +625,6 @@ const Registro = {
 
     const fmt = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
 
-    const isArchived = App.isViewingArchived();
     grid.innerHTML = weeks.map((week, idx) => {
       const weekTx = transactions.filter(t => {
         const d = new Date(t.date + 'T00:00:00');
@@ -480,33 +638,10 @@ const Registro = {
       weekTx.forEach(t => { if (Store.isExpense(t)) catTotals[t.category] = (catTotals[t.category] || 0) + t.amount; });
       const catEntries = Object.entries(catTotals).sort((a, b) => b[1] - a[1]);
 
-      const txListHtml = weekTx.length === 0
-        ? '<div style="font-size:13px;color:var(--text-secondary);padding:6px 0">Sin movimientos</div>'
-        : weekTx.sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id)).map(t => {
-            const isIncome   = t.type === 'Ingreso';
-            const isTrsp     = Store.isTraspaso(t);
-            const iconClass  = isTrsp ? 'traspaso' : isIncome ? 'income' : 'expense';
-            const icon       = isTrsp ? '⇄' : isIncome ? '↑' : '↓';
-            const amtClass   = isTrsp ? 'traspaso' : isIncome ? 'income' : 'expense';
-            const amtPrefix  = isIncome ? '+' : isTrsp ? '⇄ ' : '-';
-            return `<div class="week-tx-row">
-              <div class="transaction-icon ${iconClass}" style="width:24px;height:24px;font-size:12px;flex-shrink:0">${icon}</div>
-              <div class="week-tx-info">
-                <div class="week-tx-desc">${esc(t.description || t.category)}</div>
-                <div class="week-tx-meta">${t.date.split('-').reverse().join('/')} · ${esc(t.category)}</div>
-              </div>
-              <span class="transaction-amount ${amtClass}" style="font-size:13px">${amtPrefix}${t.amount.toFixed(2)}€</span>
-              ${!isArchived ? `<div class="cal-tx-actions">
-                <button title="Editar" onclick="Registro._edit('${t.id}');document.getElementById('tab-registro').scrollIntoView({behavior:'smooth'})">✏️</button>
-                <button title="Eliminar" onclick="Registro._delete('${t.id}')">🗑️</button>
-              </div>` : ''}
-            </div>`;
-          }).join('');
-
       return `<div class="week-card">
-        <div class="week-header" onclick="this.nextElementSibling.classList.toggle('collapsed')" style="cursor:pointer">
+        <div class="week-header">
           <span>Semana ${idx + 1}: ${fmt(week.startDisplay)} – ${fmt(week.endDisplay)}</span>
-          <span style="font-weight:600;font-size:13px">${weekTx.length} movimiento${weekTx.length !== 1 ? 's' : ''} ▾</span>
+          <span style="font-weight:600;font-size:13px">${weekTx.length} movimiento${weekTx.length !== 1 ? 's' : ''}</span>
         </div>
         <div class="week-body">
           <div class="week-stats">
@@ -518,11 +653,7 @@ const Registro = {
           ${catEntries.length > 0 ? `<details style="margin-top:8px"><summary style="font-size:13px;font-weight:600;cursor:pointer;color:var(--text-secondary)">Desglose por categoría</summary>
           <div class="week-categories" style="margin-top:6px">${catEntries.map(([cat, amt]) =>
             `<div class="week-cat-item"><span class="cat-name">${esc(cat)}</span><span class="cat-amount">${amt.toFixed(2)} €</span></div>`
-          ).join('')}</div></details>` : ''}
-          <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">
-            <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">MOVIMIENTOS</div>
-            ${txListHtml}
-          </div>
+          ).join('')}</div></details>` : '<div style="font-size:13px;color:var(--text-secondary)">Sin gastos esta semana</div>'}
         </div>
       </div>`;
     }).join('');

@@ -880,6 +880,22 @@ body {
 .week-tx-info { flex: 1; min-width: 0; }
 .week-tx-desc { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .week-tx-meta { font-size: 11px; color: var(--text-secondary); }
+
+/* Transaction groups */
+.tx-group-card { border: 1.5px solid #E0E7FF; border-radius: 12px; margin-bottom: 8px; overflow: hidden; background: var(--card); }
+.tx-group-header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; cursor: pointer; }
+.tx-group-header:hover { background: var(--bg); }
+.tx-group-members { padding: 0 12px 10px; border-top: 1px solid var(--border); }
+.tx-group-members.hidden { display: none; }
+.tx-group-member-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--border); }
+.tx-group-member-row:last-of-type { border-bottom: none; }
+
+/* Calendar groups */
+.cal-group-card { border: 1.5px solid #E0E7FF; border-radius: 10px; margin-bottom: 6px; overflow: hidden; background: var(--card); }
+.cal-group-header { display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer; }
+.cal-group-header:hover { background: var(--bg); }
+.cal-group-members { padding: 0 10px 8px; border-top: 1px solid var(--border); }
+.cal-group-members.hidden { display: none; }
 .cal-type-btn { flex: 1; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); font-weight: 700; cursor: pointer; font-size: 13px; }
 .cal-type-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 .cal-cat-chips { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; margin-top: 6px; }

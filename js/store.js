@@ -38,6 +38,7 @@ const defaultData = {
   transfers: [],
   pinCode: null,
   plannedExpenses: [],
+  txGroups: {},
   lastSavingsWeek: null,
   lastPEReserveWeek: null,
   savingsDay: 1,
@@ -960,6 +961,34 @@ const Store = {
   isAdjustment(t) { return t.category === '__ajuste__'; },
   isTraspaso(t)   { return t.type === 'Traspaso'; },
   isExpense(t)    { return t.type !== 'Ingreso' && t.type !== 'Traspaso' && !this.isAdjustment(t); },
+
+  // ── Transaction groups ──────────────────────────────────────────────────────
+  getTxGroups() { return this._data.txGroups || {}; },
+
+  createTxGroup(name) {
+    const id = 'grp_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 4);
+    if (!this._data.txGroups) this._data.txGroups = {};
+    this._data.txGroups[id] = { name };
+    this._save();
+    return id;
+  },
+
+  renameTxGroup(id, name) {
+    if (this._data.txGroups?.[id]) { this._data.txGroups[id].name = name; this._save(); }
+  },
+
+  deleteTxGroup(id) {
+    this._data.transactions.forEach(t => { if (t.groupId === id) delete t.groupId; });
+    delete this._data.txGroups?.[id];
+    this._save();
+  },
+
+  setTxGroup(txId, groupId) {
+    const t = this._data.transactions.find(x => x.id === txId);
+    if (!t) return;
+    if (groupId) t.groupId = groupId; else delete t.groupId;
+    this._save();
+  },
 
   /** Transactions visible in financial reports (excludes adjustments and internal system ops). */
   getReportableTransactions() {
