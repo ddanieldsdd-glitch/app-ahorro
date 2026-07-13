@@ -42,6 +42,10 @@ const defaultData = {
   savingsDay: 1,
   plannedExpensesReserved: 0,
   debts: [],
+  recurringTransactions: [],
+  initialCheckingBalance: 0,
+  initialSavingsBalance: 0,
+  _balanceMigrated: false,
   _lastModified: 0,
 };
 
@@ -106,6 +110,39 @@ const Store = {
     if (d.lastPEReserveWeek === undefined) d.lastPEReserveWeek = null;
     if (d.savingsDay === undefined) d.savingsDay = 1;
     if (!d.debts) d.debts = [];
+    if (!d.recurringTransactions) d.recurringTransactions = [];
+    if (d.initialCheckingBalance === undefined) d.initialCheckingBalance = 0;
+    if (d.initialSavingsBalance === undefined) d.initialSavingsBalance = 0;
+
+    // One-time migration: assign `account` to existing transactions and compute initialCheckingBalance
+    if (!d._balanceMigrated) {
+      for (const t of d.transactions) {
+        if (!t.account) {
+          t.account = t.paymentMethod === 'Efectivo' ? 'cash' : 'checking';
+        }
+      }
+      // Compute what checkingBalance should be from all tracked transactions
+      const computedChecking = d.transactions.reduce((sum, t) => {
+        if (t._noAutoBalance) return sum;
+        if ((t.account || 'checking') !== 'checking') return sum;
+        return sum + (t.type === 'Ingreso' ? t.amount : -t.amount);
+      }, 0);
+      const computedSavings = d.transactions.reduce((sum, t) => {
+        if (t._noAutoBalance) return sum;
+        if (t.account !== 'savings') return sum;
+        return sum + (t.type === 'Ingreso' ? t.amount : -t.amount);
+      }, 0);
+      // initialBalance = currentBalance - what transactions already account for
+      if (d.checkingBalance !== null && d.checkingBalance !== undefined) {
+        d.initialCheckingBalance = Math.round((d.checkingBalance - computedChecking) * 100) / 100;
+      } else {
+        d.checkingBalance = 0;
+        d.initialCheckingBalance = 0;
+      }
+      d.initialSavingsBalance = Math.round(((d.savingsBalance || 0) - computedSavings) * 100) / 100;
+      d._balanceMigrated = true;
+    }
+
     d.savingGoals = d.savingGoals.map(g => {
       if (!g.targetDate) g.targetDate = '';
       if (!g.priority && g.priority !== 0) g.priority = 0;
@@ -148,9 +185,37 @@ const Store = {
 
   setCurrentMonth(month) { this._data.currentMonth = month; this._save(); },
 
+  // ── Balance helpers ───────────────────────────────────────────────────────
+  /** Returns which account bucket a transaction belongs to.
+   *  Explicit `t.account` wins; falls back to paymentMethod heuristic. */
+  _resolveAccount(t) {
+    if (t.account) return t.account;
+    if (t.paymentMethod === 'Efectivo') return 'cash';
+    return 'checking';
+  },
+
+  /** Apply the balance effect of transaction `t` multiplied by `sign` (+1 or -1).
+   *  Skips transactions flagged `_noAutoBalance` (internal system transfers). */
+  _applyBalanceDelta(t, sign) {
+    if (t._noAutoBalance) return;
+    const account = this._resolveAccount(t);
+    if (account === 'cash') return;
+    const delta = (t.type === 'Ingreso' ? t.amount : -t.amount) * sign;
+    if (account === 'checking') {
+      if (this._data.checkingBalance === null) this._data.checkingBalance = this._data.initialCheckingBalance || 0;
+      this._data.checkingBalance = Math.round((this._data.checkingBalance + delta) * 100) / 100;
+    } else if (account === 'savings') {
+      this._data.savingsBalance = Math.round(((this._data.savingsBalance || 0) + delta) * 100) / 100;
+    }
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+
   addTransaction(t) {
     t.id = Date.now().toString(36) + Math.random().toString(36).substr(2, 8);
     t.month = t.date.substring(0, 7);
+    if (!t.account) t.account = this._resolveAccount(t);
+    this._applyBalanceDelta(t, 1);
     this._data.transactions.push(t);
     this._save();
     return t;
@@ -159,26 +224,83 @@ const Store = {
   updateTransaction(id, updates) {
     const idx = this._data.transactions.findIndex(t => t.id === id);
     if (idx === -1) return null;
-    this._data.transactions[idx] = { ...this._data.transactions[idx], ...updates };
+    const old = { ...this._data.transactions[idx] };
+    this._applyBalanceDelta(old, -1);              // revert old effect
+    const updated = { ...old, ...updates };
+    if (!updated.account) updated.account = this._resolveAccount(updated);
+    if (updates.date) updated.month = updated.date.substring(0, 7);
+    this._applyBalanceDelta(updated, 1);           // apply new effect
+    this._data.transactions[idx] = updated;
     this._save();
-    return this._data.transactions[idx];
+    return updated;
   },
 
   deleteTransaction(id) {
-    this._data.transactions = this._data.transactions.filter(t => t.id !== id);
+    const t = this._data.transactions.find(x => x.id === id);
+    if (!t) return;
+    this._applyBalanceDelta(t, -1);
+    this._data.transactions = this._data.transactions.filter(x => x.id !== id);
     this._save();
   },
 
-  addTransactions(batch) {
+  /** Batch import. `applyBalance` controls whether balance is updated for each tx. */
+  addTransactions(batch, applyBalance = true) {
     const added = [];
     for (const t of batch) {
       t.id = Date.now().toString(36) + Math.random().toString(36).substr(2, 8) + added.length;
       t.month = t.date.substring(0, 7);
+      if (!t.account) t.account = this._resolveAccount(t);
+      if (applyBalance) this._applyBalanceDelta(t, 1);
       this._data.transactions.push(t);
       added.push(t);
     }
     this._save();
     return added;
+  },
+
+  /** Creates a balance-adjustment transaction (excluded from budget/stats).
+   *  Use to sync the computed balance with the real bank balance. */
+  addAdjustmentTransaction(account, targetBalance, note) {
+    const current = account === 'checking'
+      ? (this._data.checkingBalance ?? 0)
+      : (this._data.savingsBalance || 0);
+    const diff = Math.round((targetBalance - current) * 100) / 100;
+    if (diff === 0) return null;
+    const t = {
+      id: Date.now().toString(36) + Math.random().toString(36).substr(2, 8),
+      date: new Date().toISOString().split('T')[0],
+      month: Store.getCurrentMonth(),
+      type: diff > 0 ? 'Ingreso' : 'Gasto',
+      amount: Math.abs(diff),
+      category: '__ajuste__',
+      description: note || (diff > 0 ? 'Ajuste bancario (+)' : 'Ajuste bancario (-)'),
+      paymentMethod: 'Ajuste',
+      account,
+      _noAutoBalance: false,   // this IS the balance-effect transaction
+    };
+    this._applyBalanceDelta(t, 1);
+    this._data.transactions.push(t);
+    this._save();
+    return t;
+  },
+
+  getInitialCheckingBalance() { return this._data.initialCheckingBalance ?? 0; },
+  setInitialCheckingBalance(v) {
+    const old = this._data.initialCheckingBalance ?? 0;
+    this._data.initialCheckingBalance = v;
+    const delta = v - old;
+    if (this._data.checkingBalance !== null) {
+      this._data.checkingBalance = Math.round((this._data.checkingBalance + delta) * 100) / 100;
+    }
+    this._save();
+  },
+  getInitialSavingsBalance() { return this._data.initialSavingsBalance ?? 0; },
+  setInitialSavingsBalance(v) {
+    const old = this._data.initialSavingsBalance ?? 0;
+    this._data.initialSavingsBalance = v;
+    const delta = v - old;
+    this._data.savingsBalance = Math.round(((this._data.savingsBalance || 0) + delta) * 100) / 100;
+    this._save();
   },
 
   getCategories() { return [...this._data.categories]; },
@@ -271,6 +393,8 @@ const Store = {
       amount: actual,
       description: 'Imprevistos → base cuenta corriente',
       paymentMethod: 'Transferencia',
+      account: 'checking',
+      _noAutoBalance: true,
     };
     this._data.transactions.push(tx);
     this._save();
@@ -306,6 +430,8 @@ const Store = {
       amount: actual,
       description: 'Ahorro desde reserva imprevistos',
       paymentMethod: 'Transferencia',
+      account: 'savings',
+      _noAutoBalance: true,
     };
     this._data.transactions.push(tx);
     this._save();
@@ -431,6 +557,8 @@ const Store = {
       amount: totalWeekly,
       description: 'Ahorro semanal distribuido a metas',
       paymentMethod: 'Transferencia',
+      account: 'checking',
+      _noAutoBalance: true,   // balance already updated above directly
     };
     this._data.transactions.push(tx);
     this._save();
@@ -517,6 +645,8 @@ const Store = {
       amount: totalWeekly,
       description: 'Reserva semanal para gastos planificados',
       paymentMethod: 'Transferencia',
+      account: 'checking',
+      _noAutoBalance: true,
     };
     this._data.transactions.push(tx);
     this._save();
@@ -570,6 +700,8 @@ const Store = {
       type: 'Ingreso', category: 'Deuda cobrada',
       amount, description: `Cobrado a ${debt.person}${debt.description ? ': ' + debt.description : ''}`,
       paymentMethod: 'Transferencia',
+      account: destination === 'savings' ? 'savings' : 'checking',
+      _noAutoBalance: true,   // balance updated above directly
     };
     this._data.transactions.push(tx);
     this._save();
@@ -590,6 +722,116 @@ const Store = {
     this._migrate();
     this._save();
     return true;
+  },
+
+  getRecurringTransactions() { return [...(this._data.recurringTransactions || [])]; },
+
+  addRecurringTransaction(data) {
+    const today = new Date().toISOString().split('T')[0];
+    const r = {
+      id: Date.now().toString(36) + Math.random().toString(36).substr(2, 6),
+      name: data.name || '',
+      amount: data.amount,
+      type: data.type || 'Gasto',
+      category: data.category || 'Otros',
+      paymentMethod: data.paymentMethod || 'Tarjeta',
+      frequency: data.frequency || 'monthly',
+      dayOfMonth: data.dayOfMonth ?? new Date().getDate(),
+      dayOfWeek: data.dayOfWeek ?? 1,
+      nextDate: data.nextDate || today,
+      active: data.active !== false,
+      createdAt: new Date().toISOString(),
+    };
+    this._data.recurringTransactions.push(r);
+    this._save();
+    return r;
+  },
+
+  updateRecurringTransaction(id, updates) {
+    const idx = this._data.recurringTransactions.findIndex(r => r.id === id);
+    if (idx === -1) return null;
+    this._data.recurringTransactions[idx] = { ...this._data.recurringTransactions[idx], ...updates };
+    this._save();
+    return this._data.recurringTransactions[idx];
+  },
+
+  deleteRecurringTransaction(id) {
+    this._data.recurringTransactions = this._data.recurringTransactions.filter(r => r.id !== id);
+    this._save();
+  },
+
+  toggleRecurringTransaction(id) {
+    const r = this._data.recurringTransactions.find(x => x.id === id);
+    if (!r) return false;
+    r.active = !r.active;
+    this._save();
+    return r.active;
+  },
+
+  _advanceRecurringDate(r, fromDate) {
+    const d = new Date(fromDate + 'T12:00:00');
+    if (r.frequency === 'weekly') {
+      d.setDate(d.getDate() + 7);
+    } else if (r.frequency === 'yearly') {
+      d.setFullYear(d.getFullYear() + 1);
+    } else {
+      d.setMonth(d.getMonth() + 1);
+      const dom = r.dayOfMonth || d.getDate();
+      const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+      d.setDate(Math.min(dom, lastDay));
+    }
+    return d.toISOString().split('T')[0];
+  },
+
+  processRecurringTransactions() {
+    const today = new Date().toISOString().split('T')[0];
+    let generated = 0;
+    for (const r of (this._data.recurringTransactions || [])) {
+      if (!r.active) continue;
+      let next = r.nextDate || today;
+      let guard = 0;
+      while (next <= today && guard++ < 24) {
+        const exists = this._data.transactions.some(t =>
+          t.recurringId === r.id && t.date === next
+        );
+        if (!exists) {
+          this.addTransaction({
+            date: next,
+            amount: r.amount,
+            description: r.name || r.category,
+            type: r.type,
+            category: r.category,
+            paymentMethod: r.paymentMethod,
+            recurringId: r.id,
+          });
+          generated++;
+        }
+        next = this._advanceRecurringDate(r, next);
+      }
+      r.nextDate = next;
+    }
+    if (generated > 0) this._save();
+    return generated;
+  },
+
+  getFrequentCategories(limit = 5) {
+    const counts = {};
+    for (const t of this._data.transactions) {
+      if (t.type === 'Ingreso') continue;
+      counts[t.category] = (counts[t.category] || 0) + 1;
+    }
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, limit)
+      .map(([cat]) => cat);
+  },
+
+  /** Returns true if a transaction is a balance-sync adjustment (not a real income/expense). */
+  isAdjustment(t) { return t.category === '__ajuste__'; },
+
+  /** Transactions visible in financial reports (excludes adjustments and internal system ops). */
+  getReportableTransactions() {
+    return this._data.transactions.filter(t => !this.isAdjustment(t));
   },
 
   validateData() {

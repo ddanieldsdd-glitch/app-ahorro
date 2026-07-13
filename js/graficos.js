@@ -111,7 +111,7 @@ const Graficos = {
 
     document.getElementById('gcBudgetWrap').style.display = group === 'category' ? '' : 'none';
 
-    const allTx = Store.getTransactions();
+    const allTx = Store.getTransactions().filter(t => !Store.isAdjustment(t));
     const filtered = allTx.filter(t => {
       const d = new Date(t.date + 'T00:00:00');
       return d >= range.start && d <= range.end;

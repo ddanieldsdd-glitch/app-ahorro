@@ -36,6 +36,14 @@ const Registro = {
             <label>Pago</label>
             <select id="txMethod"></select>
           </div>
+          <div class="form-group">
+            <label>Cuenta</label>
+            <select id="txAccount">
+              <option value="checking">💳 Corriente</option>
+              <option value="savings">🐷 Ahorro</option>
+              <option value="cash">💵 Efectivo (no computa)</option>
+            </select>
+          </div>
         </form>
         <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
           <button type="submit" class="btn btn-primary" id="txSubmit" form="txForm">➕ Añadir</button>
@@ -70,6 +78,12 @@ const Registro = {
     this._setupInlineAdd();
     document.getElementById('txDate').valueAsDate = new Date();
     document.getElementById('txRoundUp').checked = Store.isRoundUpEnabled();
+    document.getElementById('txMethod').addEventListener('change', () => {
+      const method = document.getElementById('txMethod').value;
+      const acc = document.getElementById('txAccount');
+      if (acc && method === 'Efectivo') acc.value = 'cash';
+      else if (acc && acc.value === 'cash') acc.value = 'checking';
+    });
 
     form.addEventListener('submit', (e) => {
       e.preventDefault();
@@ -116,10 +130,11 @@ const Registro = {
     const type = document.getElementById('txType').value;
     const category = document.getElementById('txCategory').value;
     const method = document.getElementById('txMethod').value;
+    const account = document.getElementById('txAccount')?.value || 'checking';
     const roundUp = document.getElementById('txRoundUp')?.checked;
     if (!date || !amount || amount <= 0) return;
 
-    const data = { date, amount, description: desc, type, category, paymentMethod: method };
+    const data = { date, amount, description: desc, type, category, paymentMethod: method, account };
     if (this._editingId) {
       Store.updateTransaction(this._editingId, data);
       this._editingId = null;
@@ -168,11 +183,13 @@ const Registro = {
     const sorted = [...filtered].sort((a, b) => b.date.localeCompare(a.date) || (b.id > a.id ? 1 : -1));
     container.innerHTML = sorted.map(t => {
       const isIncome = t.type === 'Ingreso';
-      return `<div class="transaction-item" data-id="${t.id}">
-        <div class="transaction-icon ${isIncome ? 'income' : 'expense'}">${isIncome ? '↑' : '↓'}</div>
+      const isAdjust = Store.isAdjustment(t);
+      const accountLabel = { checking: '💳', savings: '🐷', cash: '💵' }[t.account] || '';
+      return `<div class="transaction-item ${isAdjust ? 'tx-adjustment' : ''}" data-id="${t.id}">
+        <div class="transaction-icon ${isIncome ? 'income' : 'expense'}">${isAdjust ? '⚖' : isIncome ? '↑' : '↓'}</div>
         <div class="transaction-info">
-          <div class="transaction-desc">${esc(t.description || t.category)}</div>
-          <div class="transaction-meta">${t.date.split('-').reverse().join('/')} · ${esc(t.category)}${t.paymentMethod ? ` · ${esc(t.paymentMethod)}` : ''}</div>
+          <div class="transaction-desc">${esc(t.description || t.category)}${isAdjust ? ' <span class="tx-adj-badge">ajuste</span>' : ''}</div>
+          <div class="transaction-meta">${t.date.split('-').reverse().join('/')} · ${esc(isAdjust ? 'Ajuste bancario' : t.category)}${t.paymentMethod && !isAdjust ? ` · ${esc(t.paymentMethod)}` : ''} ${accountLabel}</div>
         </div>
         <div class="transaction-amount ${isIncome ? 'income' : 'expense'}">${isIncome ? '+' : '-'}${t.amount.toFixed(2)}€</div>
         ${isArchived ? '' : `<div class="transaction-actions">
@@ -195,6 +212,8 @@ const Registro = {
     document.getElementById('txCategory').value = t.category;
     this._populateSelect('txMethod', Store.getPaymentMethods(), t.paymentMethod || '');
     document.getElementById('txMethod').value = t.paymentMethod || '';
+    const accEl = document.getElementById('txAccount');
+    if (accEl) accEl.value = t.account || (t.paymentMethod === 'Efectivo' ? 'cash' : 'checking');
     document.getElementById('txSubmit').textContent = '💾 Guardar';
   },
 

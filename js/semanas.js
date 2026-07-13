@@ -1,7 +1,7 @@
 const Semanas = {
   render() {
     const el = document.getElementById('tab-semanas');
-    const transactions = App.getCurrentTransactions();
+    const transactions = App.getCurrentTransactions().filter(t => !Store.isAdjustment(t));
     const month = App.getCurrentViewMonth();
     const [year, m] = month.split('-').map(Number);
     const weeks = this._getWeeks(year, m - 1);

@@ -4,6 +4,7 @@ const App = {
 
   async init() {
     await Store.init();
+    Store.processRecurringTransactions();
     const err = Store.validateData();
     if (err) { alert('Error: ' + err); return; }
     this._currentViewMonth = Store.getCurrentMonth();
@@ -50,6 +51,7 @@ const App = {
       this._currentViewMonth = sel.value;
       this._isArchived = sel.value !== Store.getCurrentMonth();
       document.getElementById('archiveBtn').style.display = this._isArchived ? 'none' : '';
+      if (typeof Calendario !== 'undefined') Calendario.resetView();
       this._refreshAll();
     };
   },
@@ -69,6 +71,7 @@ const App = {
     if (tc) tc.classList.add('active');
     if (tab === 'dashboard') Dashboard.render();
     else if (tab === 'registro') Registro.render();
+    else if (tab === 'calendario') Calendario.render();
     else if (tab === 'semanas') Semanas.render();
     else if (tab === 'graficos') Graficos.render();
     else if (tab === 'categorias') Categorias.render();
@@ -122,14 +125,14 @@ const App = {
     overlay.addEventListener('click', (e) => { if (e.target === overlay) this._closeQuickAdd(); });
   },
 
-  _openQuickAdd() {
+  _openQuickAdd(presetDate) {
     const overlay = document.getElementById('quickOverlay');
     const backdrop = document.getElementById('quickBackdrop');
     const form = document.getElementById('quickForm');
     backdrop.classList.add('open');
     overlay.classList.add('open');
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = presetDate || new Date().toISOString().split('T')[0];
     const cats = Store.getCategories();
     const methods = Store.getPaymentMethods();
 
@@ -162,6 +165,14 @@ const App = {
           <label>Pago</label>
           <select id="qaMethod">${methods.map(m => `<option value="${m}">${m}</option>`).join('')}</select>
         </div>
+        <div class="form-group">
+          <label>Cuenta</label>
+          <select id="qaAccount">
+            <option value="checking">💳 Corriente</option>
+            <option value="savings">🐷 Ahorro</option>
+            <option value="cash">💵 Efectivo (no computa)</option>
+          </select>
+        </div>
       </div>
       <div id="qaBudgetHint" style="display:none;margin-top:6px;padding:6px 8px;border-radius:4px;font-size:12px"></div>
       <div style="display:flex;gap:8px;margin-top:10px">
@@ -190,6 +201,12 @@ const App = {
 
     document.getElementById('qaCategory').addEventListener('change', () => this._checkQuickBudget());
     document.getElementById('qaAmount').addEventListener('input', () => this._checkQuickBudget());
+    document.getElementById('qaMethod').addEventListener('change', () => {
+      const method = document.getElementById('qaMethod').value;
+      const accountSel = document.getElementById('qaAccount');
+      if (accountSel && method === 'Efectivo') accountSel.value = 'cash';
+      else if (accountSel && accountSel.value === 'cash') accountSel.value = 'checking';
+    });
 
     document.getElementById('qaSubmit').addEventListener('click', () => this._submitQuickAdd());
     document.getElementById('qaAmount').addEventListener('keydown', (e) => {
@@ -223,12 +240,13 @@ const App = {
     const desc = document.getElementById('qaDesc').value.trim();
     const category = document.getElementById('qaCategory').value;
     const method = document.getElementById('qaMethod').value;
+    const account = document.getElementById('qaAccount')?.value || 'checking';
     const type = document.querySelector('.qa-type-btn.active')?.dataset?.qaType || 'Gasto';
     const roundUp = document.getElementById('qaRoundUp')?.checked;
 
     if (!amount || amount <= 0 || !date) return;
 
-    Store.addTransaction({ date, amount, description: desc, type, category, paymentMethod: method });
+    Store.addTransaction({ date, amount, description: desc, type, category, paymentMethod: method, account });
 
     if (type !== 'Ingreso' && roundUp) {
       const diff = Presupuesto.getRoundUp(amount);
@@ -328,6 +346,20 @@ const App = {
       confirm: document.getElementById('modalConfirm'),
       cancel: document.getElementById('modalCancel'),
     };
+  },
+
+  showToast(message, duration = 2800) {
+    let toast = document.getElementById('appToast');
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = 'appToast';
+      toast.className = 'app-toast';
+      document.body.appendChild(toast);
+    }
+    toast.textContent = message;
+    toast.classList.add('show');
+    clearTimeout(this._toastTimer);
+    this._toastTimer = setTimeout(() => toast.classList.remove('show'), duration);
   },
 };
 

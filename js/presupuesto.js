@@ -6,7 +6,7 @@ const Presupuesto = {
     const categories = Store.getCategories();
     const weekTx = this._getWeekTransactions();
     const weekExpenses = weekTx.filter(t => t.type !== 'Ingreso');
-    const allTx = Store.getTransactions();
+    const allTx = Store.getTransactions().filter(t => !Store.isAdjustment(t));
     const allExpenses = allTx.filter(t => t.type !== 'Ingreso');
     const allIncome = allTx.filter(t => t.type === 'Ingreso');
     const goals = Store.getSavingGoals();
@@ -265,6 +265,7 @@ const Presupuesto = {
       </div>
 
       ${this._renderDebts()}
+      ${this._renderRecurring()}
       ${this._renderRoundUps()}
       ${this._render503020(budget, allIncome, allExpenses)}
 
@@ -460,6 +461,106 @@ const Presupuesto = {
         </div>
       </details>` : ''}
     </div>`;
+  },
+
+  _renderRecurring() {
+    const items = Store.getRecurringTransactions();
+    const cats = Store.getCategories();
+    const methods = Store.getPaymentMethods();
+    const freqLabels = { weekly: 'Semanal', monthly: 'Mensual', yearly: 'Anual' };
+    return `<div class="card" style="border-left:3px solid #06B6D4">
+      <div class="card-header">
+        <span class="card-title">🔁 Movimientos recurrentes</span>
+        <span class="tip-hint" data-tip="Suscripciones, nóminas y pagos fijos. Se generan automáticamente en la fecha indicada.">ℹ️</span>
+      </div>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:10px">Configura pagos que se repiten (Netflix, alquiler, nómina...) y se registrarán solos.</p>
+      <div class="rec-form">
+        <input type="text" id="recName" placeholder="Nombre (ej: Netflix)" class="rec-input rec-input-wide">
+        <input type="number" id="recAmount" placeholder="€" step="1" class="rec-input rec-input-narrow">
+        <select id="recType" class="rec-input"><option value="Gasto">Gasto</option><option value="Ingreso">Ingreso</option></select>
+        <select id="recCategory" class="rec-input">${cats.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}</select>
+        <select id="recFreq" class="rec-input" onchange="Presupuesto._toggleRecDay()">
+          <option value="monthly">Mensual</option>
+          <option value="weekly">Semanal</option>
+          <option value="yearly">Anual</option>
+        </select>
+        <input type="number" id="recDay" placeholder="Día" min="1" max="31" value="${new Date().getDate()}" class="rec-input rec-input-narrow" title="Día del mes">
+        <select id="recMethod" class="rec-input">${methods.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('')}</select>
+        <button class="btn btn-primary btn-sm" onclick="Presupuesto._addRecurring()">+</button>
+      </div>
+      ${items.length === 0 ? '<p style="font-size:13px;color:var(--text-secondary);text-align:center;padding:12px">Sin movimientos recurrentes</p>' : items.map(r => {
+        const freqDetail = r.frequency === 'weekly'
+          ? `Cada ${['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][r.dayOfWeek ?? 1]}`
+          : r.frequency === 'yearly' ? 'Cada año' : `Día ${r.dayOfMonth || 1} de cada mes`;
+        return `<div class="rec-item ${r.active ? '' : 'rec-item-paused'}">
+          <div class="rec-item-main">
+            <span class="rec-item-icon">${r.type === 'Ingreso' ? '💰' : '💸'}</span>
+            <div>
+              <div class="rec-item-name">${esc(r.name || r.category)}</div>
+              <div class="rec-item-meta">${freqLabels[r.frequency] || r.frequency} · ${freqDetail} · ${esc(r.category)} · Próximo: ${r.nextDate?.split('-').reverse().join('/') || '—'}</div>
+            </div>
+          </div>
+          <div class="rec-item-right">
+            <strong class="${r.type === 'Ingreso' ? 'income' : 'expense'}">${r.type === 'Ingreso' ? '+' : '-'}${r.amount.toFixed(2)} €</strong>
+            <div class="rec-item-actions">
+              <button class="btn-sm" title="${r.active ? 'Pausar' : 'Activar'}" onclick="Presupuesto._toggleRecurring('${r.id}')">${r.active ? '⏸' : '▶'}</button>
+              <button class="btn-sm" onclick="Presupuesto._deleteRecurring('${r.id}')">✕</button>
+            </div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+  },
+
+  _toggleRecDay() {
+    const freq = document.getElementById('recFreq')?.value;
+    const dayEl = document.getElementById('recDay');
+    if (!dayEl) return;
+    if (freq === 'weekly') {
+      dayEl.min = 0; dayEl.max = 6; dayEl.value = 1;
+      dayEl.title = '0=Dom, 1=Lun... 6=Sáb';
+    } else if (freq === 'monthly') {
+      dayEl.min = 1; dayEl.max = 31; dayEl.value = new Date().getDate();
+      dayEl.title = 'Día del mes';
+    } else {
+      dayEl.min = 1; dayEl.max = 31; dayEl.value = new Date().getDate();
+      dayEl.title = 'Día del mes (anual)';
+    }
+  },
+
+  _addRecurring() {
+    const name = document.getElementById('recName').value.trim();
+    const amount = parseFloat(document.getElementById('recAmount').value);
+    const type = document.getElementById('recType').value;
+    const category = document.getElementById('recCategory').value;
+    const frequency = document.getElementById('recFreq').value;
+    const dayVal = parseInt(document.getElementById('recDay').value, 10);
+    const paymentMethod = document.getElementById('recMethod').value;
+    if (!name || !amount || amount <= 0) return;
+    const today = new Date();
+    let nextDate = today.toISOString().split('T')[0];
+    const data = { name, amount, type, category, paymentMethod, frequency, active: true, nextDate };
+    if (frequency === 'weekly') {
+      data.dayOfWeek = isNaN(dayVal) ? 1 : dayVal;
+    } else {
+      data.dayOfMonth = isNaN(dayVal) ? today.getDate() : dayVal;
+    }
+    Store.addRecurringTransaction(data);
+    document.getElementById('recName').value = '';
+    document.getElementById('recAmount').value = '';
+    this.render();
+  },
+
+  _toggleRecurring(id) {
+    Store.toggleRecurringTransaction(id);
+    this.render();
+  },
+
+  _deleteRecurring(id) {
+    App.showConfirm('Eliminar recurrente', '¿Eliminar este movimiento recurrente?', () => {
+      Store.deleteRecurringTransaction(id);
+      this.render();
+    });
   },
 
   _renderRoundUps() {
@@ -666,7 +767,7 @@ const Presupuesto = {
     const monthlyExtra = Store.getBudgetMonthlyExtra();
     const totalWeekly = weeklyIncome + (monthlyExtra / 4.33);
     const week = this._getCurrentWeek();
-    const allTx = Store.getTransactions();
+    const allTx = Store.getTransactions().filter(t => !Store.isAdjustment(t));
     const weekTx = allTx.filter(t => {
       const d = new Date(t.date + 'T00:00:00');
       return d >= week.start && d <= week.end;
@@ -695,6 +796,7 @@ const Presupuesto = {
   _getWeekTransactions() {
     const week = this._getCurrentWeek();
     return Store.getTransactions().filter(t => {
+      if (Store.isAdjustment(t)) return false;
       const d = new Date(t.date + 'T00:00:00');
       return d >= week.start && d <= week.end;
     });

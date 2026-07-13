@@ -1,5 +1,106 @@
 {
-  "transactions": [],
+  "transactions": [
+    {
+      "date": "2026-07-04",
+      "amount": 8,
+      "description": "Cena - Kebabro",
+      "type": "Gasto",
+      "category": "Comida",
+      "paymentMethod": "Tarjeta",
+      "id": "mr6s0qqhbjbbnjn1",
+      "month": "2026-07"
+    },
+    {
+      "id": "mr6s5fbqj5knsmfo",
+      "date": "2026-07-04",
+      "month": "2026-07",
+      "type": "Gasto",
+      "category": "Ahorro programado",
+      "amount": 9.62728264933013,
+      "description": "Reserva semanal para gastos planificados",
+      "paymentMethod": "Transferencia"
+    },
+    {
+      "date": "2026-07-12",
+      "amount": 32,
+      "description": "Comida invito a Sere y Ana en Centelles",
+      "type": "Gasto",
+      "category": "Comida",
+      "paymentMethod": "Tarjeta",
+      "id": "mrj65n1dvs20p0xc",
+      "month": "2026-07"
+    },
+    {
+      "date": "2026-07-01",
+      "amount": 110,
+      "description": "Ingreso mensual papa y mama",
+      "type": "Ingreso",
+      "category": "__add__",
+      "paymentMethod": "Tarjeta",
+      "id": "mrj68nx5gp26qv0c",
+      "month": "2026-07"
+    },
+    {
+      "date": "2026-07-01",
+      "amount": 2.15,
+      "description": "Cafe en Aprils",
+      "type": "Gasto",
+      "category": "Bebida",
+      "paymentMethod": "Tarjeta",
+      "id": "mrj6ao9zni3i6ie3",
+      "month": "2026-07"
+    },
+    {
+      "date": "2026-07-02",
+      "amount": 7.4,
+      "description": "gasto en chadhar  terrassa (comida creo)",
+      "type": "Gasto",
+      "category": "Comida",
+      "paymentMethod": "Tarjeta",
+      "id": "mrj6f9dmbcnr2odm",
+      "month": "2026-07"
+    },
+    {
+      "date": "2026-07-02",
+      "amount": 16,
+      "description": "Italiano pizza terrassa",
+      "type": "Gasto",
+      "category": "Comida",
+      "paymentMethod": "Tarjeta",
+      "id": "mrj6gddd49aryjmv",
+      "month": "2026-07"
+    },
+    {
+      "date": "2026-07-03",
+      "amount": 1.25,
+      "description": "no recuerdo punto de encuentro valles",
+      "type": "Gasto",
+      "category": "Otros",
+      "paymentMethod": "Tarjeta",
+      "id": "mrj6h2z216y2s2ys",
+      "month": "2026-07"
+    },
+    {
+      "date": "2026-07-03",
+      "amount": 6.5,
+      "description": "miscuta supreme",
+      "type": "Gasto",
+      "category": "Otros",
+      "paymentMethod": "Tarjeta",
+      "id": "mrj6i4owi3q8x6cm",
+      "month": "2026-07"
+    },
+    {
+      "date": "2026-07-03",
+      "amount": 8.5,
+      "description": "kebab normal",
+      "type": "Gasto",
+      "category": "Comida",
+      "paymentMethod": "Tarjeta",
+      "id": "mrj6jlrmm768y240",
+      "month": "2026-07"
+    }
+  ],
   "categories": [
     "Comida",
     "Bebida",
@@ -11,7 +112,8 @@
     "Educación",
     "Otros",
     "Cine",
-    "Imprevisto"
+    "Imprevisto",
+    "Mensualidad"
   ],
   "types": [
     "Ingreso",
@@ -47,9 +149,9 @@
   ],
   "roundUpEnabled": true,
   "roundUpGoalId": null,
-  "totalRoundUpSavings": 0,
+  "totalRoundUpSavings": 3.1999999999999997,
   "foodBudget": 200,
-  "checkingBalance": 67.98,
+  "checkingBalance": 58.35271735066988,
   "savingsBalance": 42.43173089636078,
   "transfers": [
     {
@@ -61,18 +163,24 @@
     }
   ],
   "pinCode": null,
-  "_lastModified": 1783180004731,
+  "_lastModified": 1783944647950,
   "plannedExpenses": [
     {
       "id": "mr6jc1gyceqa1g",
       "name": "pelicula ophenhaimer",
       "amount": 18,
       "targetDate": "2026-07-17",
-      "savedSoFar": 0,
+      "savedSoFar": 9.62728264933013,
       "createdAt": "2026-07-04T15:46:44.722Z"
     }
   ],
   "imprevistosBudget": 20,
   "checkingBaseBalance": 60,
-  "imprevistosSavings": 0
+  "imprevistosSavings": 0,
+  "plannedExpensesReserved": 9.62728264933013,
+  "lastSavingsWeek": null,
+  "lastPEReserveWeek": "2026-06-28",
+  "savingsDay": 1,
+  "debts": [],
+  "recurringTransactions": []
 }

@@ -3,7 +3,7 @@ const Dashboard = {
 
   render() {
     const budget = Presupuesto._calc();
-    const transactions = App.getCurrentTransactions();
+    const transactions = App.getCurrentTransactions().filter(t => !Store.isAdjustment(t));
     const income = transactions.filter(t => t.type === 'Ingreso').reduce((s, t) => s + t.amount, 0);
     const expense = transactions.filter(t => t.type !== 'Ingreso').reduce((s, t) => s + t.amount, 0);
     const balance = income - expense;

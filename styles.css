@@ -252,6 +252,8 @@ body {
   font-size: 11px;
 }
 .transaction-actions button:hover { background: var(--bg); }
+.tx-adjustment { border-left: 3px solid #F59E0B; opacity: 0.8; }
+.tx-adj-badge { display: inline-block; font-size: 9px; font-weight: 700; background: #FEF3C7; color: #92400E; padding: 1px 5px; border-radius: 6px; vertical-align: middle; text-transform: uppercase; letter-spacing: 0.3px; }
 
 .empty-state { text-align: center; padding: 30px 20px; color: var(--text-secondary); font-size: 14px; }
 
@@ -669,6 +671,158 @@ body {
 
 /* ============================================== */
 
+/* Tooltips */
+.tip-hint {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: help;
+  border: 1px solid var(--border);
+}
+.tip-hint::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  min-width: 180px;
+  max-width: 260px;
+  padding: 8px 10px;
+  background: var(--text);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  border-radius: 8px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity .15s, transform .15s;
+  z-index: 200;
+  white-space: normal;
+}
+.tip-hint:hover::after, .tip-hint:focus::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Toast */
+.app-toast {
+  position: fixed;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--text);
+  color: #fff;
+  padding: 10px 18px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  z-index: 1000;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .25s, transform .25s;
+  max-width: calc(100vw - 32px);
+  text-align: center;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+}
+.app-toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* Calendar */
+.cal-card { padding: 14px; }
+.cal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 8px; }
+.cal-title-wrap { display: flex; align-items: center; gap: 8px; flex: 1; justify-content: center; }
+.cal-title { font-size: 17px; font-weight: 800; }
+.cal-today-btn { border: 1px solid var(--border); background: var(--bg); border-radius: 6px; padding: 2px 8px; font-size: 11px; cursor: pointer; }
+.cal-nav { min-width: 36px; }
+.cal-summary { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.cal-sum-item { flex: 1; min-width: 80px; background: var(--bg); border-radius: 8px; padding: 8px 10px; text-align: center; }
+.cal-sum-label { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.3px; color: var(--text-secondary); font-weight: 600; margin-bottom: 2px; }
+.cal-sum-label.income { color: var(--income); }
+.cal-sum-label.expense { color: var(--expense); }
+.cal-weekdays { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; margin-bottom: 4px; }
+.cal-weekdays span { text-align: center; font-size: 10px; font-weight: 700; color: var(--text-secondary); padding: 4px 0; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.cal-day {
+  position: relative;
+  min-height: 58px;
+  padding: 4px 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  cursor: pointer;
+  text-align: center;
+  transition: background .12s, border-color .12s, transform .1s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.cal-day:hover { background: var(--primary-light); border-color: var(--primary); }
+.cal-day:active { transform: scale(0.97); }
+.cal-day-empty { border: none; background: transparent; cursor: default; min-height: 0; }
+.cal-day-today { border-color: var(--primary); background: var(--primary-light); box-shadow: 0 0 0 2px rgba(79,70,229,0.15); }
+.cal-day-future { border-style: dashed; }
+.cal-day-has-tx { background: var(--bg); }
+.cal-day-num { font-size: 13px; font-weight: 700; line-height: 1.2; }
+.cal-day-totals { display: flex; flex-direction: column; gap: 1px; margin-top: 2px; width: 100%; }
+.cal-inc { font-size: 9px; font-weight: 700; color: var(--income); line-height: 1.1; }
+.cal-exp { font-size: 9px; font-weight: 700; color: var(--expense); line-height: 1.1; }
+.cal-bal-bar { position: absolute; bottom: 3px; left: 20%; right: 20%; height: 3px; border-radius: 2px; }
+.cal-bal-pos { background: var(--income); }
+.cal-bal-neg { background: var(--expense); }
+.cal-bal-neutral { background: var(--border); }
+.cal-rem-dot { position: absolute; top: 3px; right: 4px; width: 6px; height: 6px; border-radius: 50%; background: #F59E0B; }
+.cal-legend { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px; font-size: 11px; color: var(--text-secondary); align-items: center; }
+.cal-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+.cal-dot-pos { background: var(--income); }
+.cal-dot-neg { background: var(--expense); }
+.cal-dot-rem { background: #F59E0B; }
+.cal-reminder { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 13px; }
+.cal-reminder:last-child { border-bottom: none; }
+.cal-rem-date { font-size: 11px; color: var(--text-secondary); min-width: 70px; }
+.cal-rem-name { flex: 1; font-weight: 600; }
+.cal-rem-amt { font-weight: 700; color: var(--primary); }
+.cal-day-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; padding: 10px; background: var(--bg); border-radius: 8px; text-align: center; font-size: 12px; }
+.cal-day-summary strong { display: block; font-size: 15px; margin-top: 2px; }
+.cal-tx-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.cal-tx-row:last-child { border-bottom: none; }
+.cal-tx-icon { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
+.cal-tx-icon.income { background: var(--income-bg); color: var(--income); }
+.cal-tx-icon.expense { background: var(--expense-bg); color: var(--expense); }
+.cal-tx-info { flex: 1; min-width: 0; }
+.cal-tx-desc { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-tx-meta { font-size: 11px; color: var(--text-secondary); }
+.cal-tx-amt { font-weight: 700; white-space: nowrap; }
+.cal-type-btn { flex: 1; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); font-weight: 700; cursor: pointer; font-size: 13px; }
+.cal-type-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+.cal-cat-chips { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
+.cal-cat-chip { padding: 3px 8px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg); font-size: 11px; cursor: pointer; }
+.cal-cat-chip:hover { background: var(--primary-light); border-color: var(--primary); }
+
+/* Recurring */
+.rec-form { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; padding: 10px; background: var(--bg); border-radius: 8px; align-items: center; }
+.rec-input { padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; background: var(--card); }
+.rec-input-wide { flex: 2; min-width: 100px; }
+.rec-input-narrow { width: 60px; }
+.rec-item { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.rec-item:last-child { border-bottom: none; }
+.rec-item-paused { opacity: 0.55; }
+.rec-item-main { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.rec-item-icon { font-size: 18px; flex-shrink: 0; }
+.rec-item-name { font-weight: 700; font-size: 14px; }
+.rec-item-meta { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+.rec-item-right { text-align: right; flex-shrink: 0; }
+.rec-item-actions { display: flex; gap: 3px; justify-content: flex-end; margin-top: 4px; }
+
 /* Sidebar for desktop */
 @media (min-width: 900px) {
   .dashboard { flex-wrap: nowrap; }
@@ -681,11 +835,31 @@ body {
   .dash-card { min-width: 80px; padding: 10px 8px; }
   .dash-card .dash-value { font-size: 20px; }
   .card { padding: 14px; }
-  .form-grid { grid-template-columns: 1fr 1fr; }
+  .form-grid { grid-template-columns: 1fr; }
   .grid-2 { grid-template-columns: 1fr; }
   .grid-3 { grid-template-columns: 1fr 1fr; }
-  .tabs { gap: 2px; }
-  .tab-btn { padding: 8px 10px; font-size: 12px; }
+  .tabs { gap: 2px; padding: 2px; }
+  .tab-btn { padding: 8px 6px; font-size: 11px; min-width: 0; }
   .fab { width: 48px; height: 48px; font-size: 24px; bottom: 16px; right: 16px; }
   .goal-card { flex-direction: column; text-align: center; }
+  .week-stat { padding: 6px 4px; }
+  .week-stats { grid-template-columns: 1fr 1fr !important; }
+  .sa-plan-bar-labels { font-size: 9px; flex-wrap: wrap; gap: 4px; }
+  .sa-plan-row { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .sa-food-progress { flex-direction: column; align-items: center; }
+  .rec-form { flex-direction: column; align-items: stretch; }
+  .rec-input, .rec-input-wide, .rec-input-narrow { width: 100%; }
+  .rec-item { flex-direction: column; align-items: flex-start; }
+  .rec-item-right { text-align: left; width: 100%; display: flex; justify-content: space-between; align-items: center; }
+  .cal-day { min-height: 48px; padding: 3px 2px 5px; }
+  .cal-day-num { font-size: 12px; }
+  .cal-inc, .cal-exp { font-size: 8px; }
+  .cal-summary { flex-direction: column; }
+  .cal-day-summary { grid-template-columns: 1fr; }
+  .card-header .card-title { font-size: 14px; }
+  .header-controls select { max-width: 120px; font-size: 12px; }
+  .modal { margin: 12px; max-height: calc(100vh - 24px); overflow-y: auto; }
+  .dh-hero-value { font-size: 36px !important; }
+  .tip-hint::after { right: auto; left: 50%; transform: translateX(-50%) translateY(4px); }
+  .tip-hint:hover::after, .tip-hint:focus::after { transform: translateX(-50%) translateY(0); }
 }

@@ -171,18 +171,48 @@ const Categorias = {
   },
 
   _setBalance(type) {
-    const current = type === 'checking' ? Store.getCheckingBalance() : Store.getSavingsBalance();
+    const computed = type === 'checking' ? (Store.getCheckingBalance() ?? 0) : (Store.getSavingsBalance() || 0);
+    const initialKey = type === 'checking' ? 'Saldo inicial (corriente)' : 'Saldo inicial (ahorro)';
+    const initialVal = type === 'checking' ? Store.getInitialCheckingBalance() : Store.getInitialSavingsBalance();
     const label = type === 'checking' ? 'Cuenta corriente' : 'Cuenta ahorro';
-    App.showCustom(`💳 ${label}`, `
-      <div class="form-group"><label>Saldo actual (€)</label>
-        <input type="number" id="balanceInput" value="${current || 0}" step="0.01" style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:18px;font-weight:700;width:100%">
+    const icon = type === 'checking' ? '💳' : '🐷';
+
+    App.showCustom(`${icon} Sincronizar ${label}`, `
+      <div style="background:var(--bg);border-radius:8px;padding:10px 14px;margin-bottom:14px">
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px">Saldo calculado por la app (automático)</div>
+        <div style="font-size:22px;font-weight:800;color:var(--primary)">${computed.toFixed(2)} €</div>
       </div>
-      <p style="font-size:12px;color:var(--text-secondary);margin-top:8px">Actualiza tu saldo para que la app sepa cuánto dinero tienes.</p>
+      <div class="form-group" style="margin-bottom:10px">
+        <label>${initialKey} (punto de partida)</label>
+        <input type="number" id="balInitial" value="${initialVal.toFixed(2)}" step="0.01"
+          style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:15px;font-weight:700;width:100%">
+        <div style="font-size:11px;color:var(--text-secondary);margin-top:3px">El saldo que tenías antes de empezar a usar la app.</div>
+      </div>
+      <div style="border-top:1px solid var(--border);padding-top:12px">
+        <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">— O ajustar para cuadrar con el banco —</div>
+        <div class="form-group">
+          <label>Saldo real en el banco ahora (€)</label>
+          <input type="number" id="balAdjust" placeholder="${computed.toFixed(2)}" step="0.01"
+            style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:16px;font-weight:700;width:100%">
+        </div>
+        <input type="text" id="balAdjustNote" placeholder="Nota del ajuste (opcional)"
+          style="width:100%;margin-top:6px;padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px">
+        <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">Se creará un movimiento de ajuste para cuadrar la diferencia.</div>
+      </div>
     `, 'Guardar', () => {
-      const v = parseFloat(document.getElementById('balanceInput').value);
-      if (isNaN(v)) return;
-      if (type === 'checking') Store.setCheckingBalance(v);
-      else Store.setSavingsBalance(v);
+      const initVal = parseFloat(document.getElementById('balInitial').value);
+      const adjustVal = parseFloat(document.getElementById('balAdjust').value);
+      const note = document.getElementById('balAdjustNote').value.trim();
+
+      if (!isNaN(initVal)) {
+        if (type === 'checking') Store.setInitialCheckingBalance(initVal);
+        else Store.setInitialSavingsBalance(initVal);
+      }
+
+      if (!isNaN(adjustVal) && adjustVal !== computed) {
+        Store.addAdjustmentTransaction(type, adjustVal, note || undefined);
+      }
+
       Categorias.render();
     });
   },
