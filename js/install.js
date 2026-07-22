@@ -42,9 +42,16 @@ const Install = {
   // ── Update detection ──────────────────────────────────────────────────────
 
   _setupUpdateDetection() {
-    if (!('serviceWorker' in navigator)) return;
+    if (!('serviceWorker' in navigator)) {
+      this._checkRemoteVersion(false);
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') this._onAppForeground();
+      });
+      window.addEventListener('pageshow', (e) => { if (e.persisted) this._onAppForeground(); });
+      setInterval(() => this._checkRemoteVersion(false), 5 * 60 * 1000);
+      return;
+    }
 
-    // 1. Detect new SW version (CACHE bump in sw.js)
     navigator.serviceWorker.ready.then(reg => {
       this._swRegistration = reg;
       reg.addEventListener('updatefound', () => {
@@ -56,30 +63,45 @@ const Install = {
           }
         });
       });
-      // Proactively check for SW updates
       reg.update().catch(() => {});
     });
 
-    // 2. When new SW takes control, reload the page
     let refreshing = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if (!refreshing) { refreshing = true; window.location.reload(); }
     });
 
-    // 3. Detect new deployment via version.json (Vercel static — no /api/version)
     this._checkRemoteVersion(false);
-    setInterval(() => this._checkRemoteVersion(false), 5 * 60 * 1000);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') this._onAppForeground();
+    });
+    window.addEventListener('pageshow', (e) => { if (e.persisted) this._onAppForeground(); });
+    window.addEventListener('focus', () => this._onAppForeground());
+    setInterval(() => this._onAppForeground(), 5 * 60 * 1000);
+  },
+
+  _onAppForeground() {
+    this._checkRemoteVersion(false);
+    if (this._swRegistration) this._swRegistration.update().catch(() => {});
+    else if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistration().then((reg) => {
+        if (reg) { this._swRegistration = reg; reg.update().catch(() => {}); }
+      });
+    }
   },
 
   async _fetchRemoteVersion() {
-    try {
-      const res = await fetch(`/version.json?_=${Date.now()}`, { cache: 'no-store' });
-      if (!res.ok) return null;
-      const data = await res.json();
-      return data.cache || data.version || null;
-    } catch {
-      return null;
+    const paths = ['/version-check.json', '/version.json'];
+    for (const path of paths) {
+      try {
+        const res = await fetch(`${path}?_=${Date.now()}`, { cache: 'no-store' });
+        if (!res.ok) continue;
+        const data = await res.json();
+        const v = data.cache || data.version || null;
+        if (v) return v;
+      } catch { /* try next path */ }
     }
+    return null;
   },
 
   _getRunningVersion() {
@@ -99,11 +121,13 @@ const Install = {
     const remote = await this._fetchRemoteVersion();
     if (!remote) return false;
     const running = this._getRunningVersion();
-    if (!running) {
+    const stored = this._getLocalVersion();
+    const baseline = running || stored;
+    if (!baseline) {
       this._setLocalVersion(remote);
       return false;
     }
-    if (running !== remote) {
+    if (baseline !== remote) {
       this._showUpdateBanner('version');
       return true;
     }
@@ -175,23 +199,22 @@ const Install = {
       </div>`;
     document.body.appendChild(banner);
 
-    document.getElementById('updateBannerBtn').addEventListener('click', () => {
-      const reg = this._swRegistration;
+    document.getElementById('updateBannerBtn').addEventListener('click', async () => {
+      const reg = this._swRegistration || await navigator.serviceWorker.getRegistration();
       if (reg?.waiting) {
         reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-        return;
+      } else if (reg?.installing) {
+        reg.installing.postMessage({ type: 'SKIP_WAITING' });
       }
-      this._fetchRemoteVersion().then((v) => {
-        if (v) this._setLocalVersion(v);
-      }).finally(() => {
-        if (reg) {
-          caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k)))).finally(() => {
-            window.location.reload();
-          });
-        } else {
-          window.location.reload();
-        }
-      });
+      try {
+        const remote = await this._fetchRemoteVersion();
+        if (remote) this._setLocalVersion(remote);
+      } catch { /* ignore */ }
+      try {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      } catch { /* ignore */ }
+      window.location.reload();
     });
     document.getElementById('updateBannerDismiss').addEventListener('click', () => {
       banner.remove();

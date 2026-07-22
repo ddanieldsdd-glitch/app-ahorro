@@ -85,6 +85,8 @@ try {
   };
   fs.writeFileSync(path.join(SRC, 'version.json'), JSON.stringify(version, null, 2) + '\n');
   fs.writeFileSync(path.join(DST, 'version.json'), JSON.stringify(version, null, 2) + '\n');
+  fs.writeFileSync(path.join(SRC, 'version-check.json'), JSON.stringify(version, null, 2) + '\n');
+  fs.writeFileSync(path.join(DST, 'version-check.json'), JSON.stringify(version, null, 2) + '\n');
   const indexPath = path.join(SRC, 'index.html');
   let html = fs.readFileSync(indexPath, 'utf8');
   if (html.includes('name="app-cache-version"')) {

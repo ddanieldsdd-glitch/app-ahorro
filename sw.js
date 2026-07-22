@@ -1,7 +1,7 @@
-const CACHE = 'presupuesto-v27';
+const CACHE = 'presupuesto-v28';
 
 const ASSETS = [
-  '/', '/index.html', '/styles.css', '/manifest.json', '/icon.svg', '/version.json',
+  '/', '/index.html', '/styles.css', '/manifest.json', '/icon.svg',
   '/icons/icon-192.png', '/icons/icon-512.png',
   '/js/crypto-e2e.js', '/js/store.js', '/js/emoji-utils.js', '/js/budget-engine.js', '/js/install.js',
   '/js/presupuesto.js', '/js/dashboard.js', '/js/registro.js', '/js/calendario.js',
@@ -9,7 +9,10 @@ const ASSETS = [
   '/js/deudas.js', '/js/excel-io.js', '/js/backup-io.js', '/js/tutorial.js', '/js/vercel-analytics.js', '/js/app.js',
 ];
 
+const NETWORK_ONLY = ['/sw.js', '/version.json', '/version-check.json'];
+
 self.addEventListener('install', (e) => {
+  self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)));
 });
 
@@ -28,11 +31,18 @@ self.addEventListener('message', (e) => {
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
+  if (url.origin !== self.location.origin) return;
   // Never intercept Vercel platform routes (Analytics, Firewall, etc.)
   if (url.pathname.startsWith('/_vercel/')) return;
+  if (NETWORK_ONLY.includes(url.pathname)) {
+    e.respondWith(fetch(e.request));
+    return;
+  }
   if (url.pathname.startsWith('/api/')) {
     e.respondWith(networkFirst(e.request));
-  } else if (e.request.mode === 'navigate' || ASSETS.some((a) => url.pathname === a || url.pathname + '/' === a)) {
+  } else if (e.request.mode === 'navigate') {
+    e.respondWith(networkFirst(e.request));
+  } else if (ASSETS.some((a) => url.pathname === a || url.pathname + '/' === a)) {
     e.respondWith(cacheFirst(e.request));
   }
 });

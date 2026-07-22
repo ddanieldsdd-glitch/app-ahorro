@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#4F46E5">
-  <meta name="app-cache-version" content="presupuesto-v27">
+  <meta name="app-cache-version" content="presupuesto-v28">
   <!-- iOS PWA -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -134,14 +134,7 @@
   <script>
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').then((reg) => {
-        reg.addEventListener('updatefound', () => {
-          const worker = reg.installing;
-          worker?.addEventListener('statechange', () => {
-            if (worker.state === 'installed' && navigator.serviceWorker.controller) {
-              if (typeof App !== 'undefined') App.showToast('🔄 Nueva versión disponible — recarga la app', 5000);
-            }
-          });
-        });
+        if (typeof Install !== 'undefined') Install._swRegistration = reg;
       });
     }
   </script>
