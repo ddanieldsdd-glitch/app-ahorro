@@ -2,13 +2,58 @@
 
 ## ¿Qué conseguirás?
 
-- La app disponible en una URL HTTPS pública (ej: `https://app-ahorro.fly.dev`)
-- Acceso desde móvil y ordenador sin necesidad de tener el PC encendido
-- Datos cifrados con AES-256 en tu dispositivo antes de subirse — el hosting no puede leerlos
+- Datos sincronizados entre móvil, PC e iPhone en tiempo real
+- Cifrado AES-256 en el dispositivo — la nube nunca ve tus datos en claro
+- Instalable como PWA en iOS/Android o como app nativa en Windows/macOS
 
 ---
 
-## Opción A: Fly.io (recomendado, gratis hasta ~3 apps pequeñas)
+## ⭐ Opción RECOMENDADA: Supabase (gratis, sin servidor)
+
+Supabase es la opción más fácil: no necesitas servidor propio, no caducas, y el plan gratuito es suficiente para uso personal.
+
+### Pasos (10 minutos)
+
+**1. Crear cuenta y proyecto**
+- Ve a [supabase.com](https://supabase.com) → Sign Up (gratis)
+- New project → elige nombre, contraseña de base de datos y región (Europa West)
+- Espera ~2 minutos a que se cree
+
+**2. Crear la tabla de sincronización**
+
+En Supabase → **SQL Editor** → New query → pega esto y haz clic en **Run**:
+
+```sql
+CREATE TABLE IF NOT EXISTS sync_data (
+  id TEXT PRIMARY KEY,
+  payload JSONB NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE sync_data ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "allow_all" ON sync_data
+  FOR ALL USING (true) WITH CHECK (true);
+```
+
+**3. Copiar las credenciales**
+
+En Supabase → **Settings → API**:
+- Copia la **Project URL** (ej: `https://abcdefghij.supabase.co`)
+- Copia la clave **anon / public** (empieza por `eyJ…`)
+
+**4. Configurar la app**
+
+En cada dispositivo → **⚙️ → Sincronización**:
+- Selecciona **Supabase**
+- Pega la Project URL y la anon key
+- Pon un ID de fila (ej: `mi-ahorro`) — el mismo en todos los dispositivos
+- Añade una **frase de cifrado** (AES-256, no sale del dispositivo)
+- Pulsa **Guardar y sincronizar**
+
+¡Listo! Tus datos se sincronizan automáticamente entre todos los dispositivos.
+
+---
+
+## Opción B: Fly.io (si prefieres tu propio servidor, gratis hasta ~3 apps pequeñas)
 
 ### Requisitos
 - Cuenta gratuita en [fly.io](https://fly.io)

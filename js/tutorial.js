@@ -122,26 +122,22 @@ const Tutorial = {
         </div>`,
     },
     {
-      title: '☁️ Sincronización en la nube',
+      title: '☁️ Sincronización con Supabase (gratis)',
       body: `
-        <p style="font-size:13px;line-height:1.7;color:var(--text);margin-bottom:12px">
-          Para usar la app en <strong>móvil y ordenador con los mismos datos</strong>,
-          despliega el servidor en la nube.
+        <p style="font-size:13px;line-height:1.7;color:var(--text);margin-bottom:10px">
+          Usa <strong>Supabase</strong> para sincronizar tus datos entre todos los dispositivos —
+          gratis, sin servidor propio y con cifrado AES-256.
         </p>
-        <ol style="font-size:12px;line-height:1.8;padding-left:18px;color:var(--text);margin-bottom:12px">
-          <li>Crea cuenta gratuita en <strong>fly.io</strong> o <strong>railway.app</strong></li>
-          <li>Sigue los pasos de <code>DEPLOY.md</code> en el repositorio de GitHub</li>
-          <li>En todos tus dispositivos ve a <strong>⚙️ → Sincronización</strong> y rellena:
-            <ul style="margin-top:4px">
-              <li><strong>URL del servidor</strong> (ej: <code>https://tu-app.fly.dev</code>)</li>
-              <li><strong>Clave de sincronización</strong> (SYNC_KEY que pusiste en el servidor)</li>
-              <li><strong>Frase de cifrado</strong> — AES-256, nunca sale de tu dispositivo</li>
-            </ul>
-          </li>
+        <ol style="font-size:12px;line-height:1.9;padding-left:18px;color:var(--text);margin-bottom:12px">
+          <li>Ve a <strong>supabase.com</strong> → crea cuenta gratuita y un proyecto nuevo</li>
+          <li>En el proyecto → <em>SQL Editor</em> → pega el SQL de <strong>⚙️ → Sincronización → "Cómo configurar Supabase"</strong></li>
+          <li>En <em>Settings → API</em> copia la <strong>Project URL</strong> y la <strong>anon key</strong></li>
+          <li>En <strong>⚙️ → Sincronización</strong> selecciona <em>Supabase</em>, pega URL y clave, pon un ID único y añade tu frase de cifrado</li>
+          <li>Repite en cada dispositivo con los <em>mismos datos</em></li>
         </ol>
         <div style="background:var(--bg);padding:10px;border-radius:8px;font-size:11px;color:var(--text-secondary);line-height:1.5">
-          🔐 Tus datos se cifran en el dispositivo antes de subirse. El hosting no puede leerlos sin tu frase.
-          Si pierdes la frase, exporta a Excel regularmente como backup.
+          🔐 Supabase nunca ve tus datos en claro — viajan cifrados AES-256 desde tu dispositivo.<br>
+          Exporta a Excel periódicamente como backup adicional.
         </div>`,
     },
     {

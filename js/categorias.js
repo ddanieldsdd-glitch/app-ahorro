@@ -94,74 +94,140 @@ const Categorias = {
 
       <div class="card" style="margin-bottom:10px">
         <div class="card-header">
-          <span class="card-title">🔒 Sincronización cifrada entre dispositivos</span>
+          <span class="card-title">☁️ Sincronización entre dispositivos</span>
         </div>
-        <p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.6">
-          Tus datos se cifran en tu dispositivo con <strong>AES-256</strong> antes de subirse a la nube.
-          El servidor solo almacena datos cifrados — sin la frase, nadie puede leerlos.
+        <p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;line-height:1.6">
+          Tus datos se cifran en tu dispositivo con <strong>AES-256</strong> antes de subirse.
+          La nube solo almacena datos cifrados — nadie puede leerlos sin tu frase.
         </p>
 
-        <details style="margin-bottom:12px">
-          <summary style="font-size:12px;font-weight:600;cursor:pointer;color:var(--primary);padding:4px 0">
-            🌐 Cómo conectar móvil y PC (guía rápida)
-          </summary>
-          <div style="font-size:12px;line-height:1.8;padding:10px 0 4px;color:var(--text-secondary)">
-            <strong style="color:var(--text)">Opción A — Nube propia (recomendado, 24h disponible):</strong><br>
-            1. Despliega el servidor en <strong>Fly.io</strong> o <strong>Railway</strong> (gratis / bajo coste).<br>
-            &nbsp;&nbsp;&nbsp;Ver instrucciones detalladas en el archivo <code>DEPLOY.md</code> del proyecto.<br>
-            2. Configura la URL del servidor y la SYNC_KEY en todos tus dispositivos.<br>
-            3. Activa la <strong>frase de cifrado</strong> — los datos viajan y se almacenan cifrados.<br><br>
-            <strong style="color:var(--text)">Opción B — PC local (WiFi o Tailscale):</strong><br>
-            1. Arranca el servidor en el PC: <code>SYNC_KEY=mi_clave node server.js</code><br>
-            2. En el móvil pon la IP local (<code>http://192.168.x.x:3000</code>) o la IP de Tailscale.<br>
-            3. Instala como PWA → funciona offline y sincroniza cuando hay red.<br><br>
-            <em>Con la frase de cifrado activa, ni el hosting ni nadie más puede leer tus datos.</em>
+        <div class="form-group" style="margin-bottom:12px">
+          <label style="font-size:12px;font-weight:600;margin-bottom:6px;display:block">Proveedor de sincronización</label>
+          <div class="debt-view-toggle">
+            <button type="button" id="providerBtnSupabase"
+              class="cal-type-btn${(Store.getSyncSettings().provider || 'custom') === 'supabase' ? ' active' : ''}"
+              onclick="Categorias._switchSyncProvider('supabase')">
+              🟢 Supabase <span style="font-size:10px;opacity:.7">(gratis)</span>
+            </button>
+            <button type="button" id="providerBtnCustom"
+              class="cal-type-btn${(Store.getSyncSettings().provider || 'custom') !== 'supabase' ? ' active' : ''}"
+              onclick="Categorias._switchSyncProvider('custom')">
+              🖥 Servidor propio
+            </button>
           </div>
-        </details>
+        </div>
 
-        <div class="form-group" style="margin-bottom:8px">
-          <label style="font-size:12px;font-weight:600">Estado de sincronización</label>
+        <!-- Estado de sincronización -->
+        <div class="form-group" style="margin-bottom:10px">
+          <label style="font-size:12px;font-weight:600">Estado</label>
           <div id="syncStatusLine" style="font-size:13px;padding:8px 10px;border-radius:8px;background:var(--bg)">
             ${esc(Store.getSyncStatusDetail() || Store.getSyncStatus())}
           </div>
         </div>
-        <div class="form-group" style="margin-bottom:8px">
-          <label style="font-size:12px;font-weight:600">URL del servidor</label>
-          <input type="url" id="syncServerUrl" placeholder="https://tu-app.fly.dev  o  http://192.168.x.x:3000"
-            value="${esc(Store.getSyncSettings().serverUrl)}"
-            style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px">
-          <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">
-            Déjalo vacío si el servidor corre en este mismo dispositivo.
+
+        <!-- ── SUPABASE FIELDS ─────────────────────────────────────────────── -->
+        <div id="supabaseFields" style="display:${(Store.getSyncSettings().provider || 'custom') === 'supabase' ? '' : 'none'}">
+          <details style="margin-bottom:12px;padding:10px;background:var(--bg);border-radius:8px">
+            <summary style="font-size:12px;font-weight:600;cursor:pointer;color:var(--primary)">
+              📋 Cómo configurar Supabase (3 pasos)
+            </summary>
+            <div style="font-size:12px;line-height:1.9;padding:10px 0 2px;color:var(--text-secondary)">
+              <strong style="color:var(--text)">1. Crear proyecto gratuito</strong><br>
+              Ve a <a href="https://supabase.com" target="_blank" style="color:var(--primary)">supabase.com</a>
+              → New project → elige nombre y contraseña de DB.<br><br>
+              <strong style="color:var(--text)">2. Crear la tabla sync_data</strong><br>
+              En Supabase → <em>SQL Editor</em> → New query → pega y ejecuta:<br>
+              <code style="display:block;margin:6px 0;padding:8px;background:var(--card);border-radius:6px;font-size:11px;white-space:pre;overflow:auto">CREATE TABLE IF NOT EXISTS sync_data (
+  id TEXT PRIMARY KEY,
+  payload JSONB NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE sync_data ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "allow_all" ON sync_data
+  FOR ALL USING (true) WITH CHECK (true);</code>
+              <strong style="color:var(--text)">3. Copiar URL y clave</strong><br>
+              En Supabase → <em>Settings → API</em> → copia:<br>
+              • <strong>Project URL</strong> (ej: <code>https://xxxxx.supabase.co</code>)<br>
+              • <strong>anon / public</strong> key (empieza por <code>eyJ…</code>)
+            </div>
+          </details>
+
+          <div class="form-group" style="margin-bottom:8px">
+            <label style="font-size:12px;font-weight:600">URL del proyecto Supabase</label>
+            <input type="url" id="supabaseUrl" placeholder="https://xxxxxxxx.supabase.co"
+              value="${esc(Store.getSyncSettings().supabaseUrl || '')}"
+              style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px">
           </div>
-        </div>
-        <div class="form-group" style="margin-bottom:8px">
-          <label style="font-size:12px;font-weight:600">Clave de sincronización (SYNC_KEY)</label>
-          <input type="password" id="syncKey" placeholder="La misma SYNC_KEY configurada en el servidor"
-            value="${esc(Store.getSyncSettings().syncKey)}"
-            style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px">
-          <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">
-            Protege el acceso a la API. Debe coincidir con <code>SYNC_KEY</code> en el servidor.
+          <div class="form-group" style="margin-bottom:8px">
+            <label style="font-size:12px;font-weight:600">Clave anon (anon / public key)</label>
+            <div style="position:relative">
+              <input type="password" id="supabaseAnonKey" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9…"
+                value="${esc(Store.getSyncSettings().supabaseAnonKey || '')}"
+                style="width:100%;padding:8px 36px 8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;box-sizing:border-box">
+              <button type="button" onclick="Categorias._toggleFieldVisibility('supabaseAnonKey','supabaseKeyToggle')"
+                id="supabaseKeyToggle"
+                style="position:absolute;right:8px;top:50%;transform:translateY(-50%);border:none;background:none;cursor:pointer;font-size:14px;color:var(--text-secondary)">👁</button>
+            </div>
+            <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">
+              La clave pública (anon) es segura en el cliente porque los datos están cifrados E2E.
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom:8px">
+            <label style="font-size:12px;font-weight:600">ID de usuario / fila <span style="font-weight:400;color:var(--text-secondary)">(identifica tus datos en Supabase)</span></label>
+            <input type="text" id="supabaseRowId" placeholder="mi-ahorro (inventate uno único)"
+              value="${esc(Store.getSyncSettings().supabaseRowId || 'default')}"
+              style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px">
+            <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">
+              Usa el mismo ID en todos tus dispositivos. No es una contraseña, la frase de cifrado protege tus datos.
+            </div>
           </div>
         </div>
 
+        <!-- ── CUSTOM SERVER FIELDS ───────────────────────────────────────── -->
+        <div id="customServerFields" style="display:${(Store.getSyncSettings().provider || 'custom') !== 'supabase' ? '' : 'none'}">
+          <details style="margin-bottom:12px;padding:10px;background:var(--bg);border-radius:8px">
+            <summary style="font-size:12px;font-weight:600;cursor:pointer;color:var(--primary)">
+              🌐 Cómo conectar con servidor propio
+            </summary>
+            <div style="font-size:12px;line-height:1.8;padding:10px 0 4px;color:var(--text-secondary)">
+              Despliega el servidor en <strong>Fly.io</strong> o <strong>Railway</strong> (ver <code>DEPLOY.md</code>).<br>
+              O en LAN: <code>SYNC_KEY=clave node server.js</code> → usa la IP local en el móvil.
+            </div>
+          </details>
+          <div class="form-group" style="margin-bottom:8px">
+            <label style="font-size:12px;font-weight:600">URL del servidor</label>
+            <input type="url" id="syncServerUrl" placeholder="https://tu-app.fly.dev  o  http://192.168.x.x:3000"
+              value="${esc(Store.getSyncSettings().serverUrl)}"
+              style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px">
+            <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">Déjalo vacío si el servidor corre en este dispositivo.</div>
+          </div>
+          <div class="form-group" style="margin-bottom:8px">
+            <label style="font-size:12px;font-weight:600">Clave de sincronización (SYNC_KEY)</label>
+            <input type="password" id="syncKey" placeholder="La misma SYNC_KEY del servidor"
+              value="${esc(Store.getSyncSettings().syncKey)}"
+              style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px">
+          </div>
+        </div>
+
+        <!-- ── E2E PASSPHRASE (siempre visible) ───────────────────────────── -->
         <div class="form-group" style="margin-bottom:10px;padding:10px;border-radius:8px;background:var(--bg);border:1.5px solid ${Store.isEncryptionEnabled() ? 'var(--income)' : 'var(--border)'}">
           <label style="font-size:12px;font-weight:700;display:flex;align-items:center;gap:6px;margin-bottom:6px">
             🔐 Frase de cifrado (E2E)
             <span style="font-size:10px;font-weight:500;padding:2px 7px;border-radius:10px;background:${Store.isEncryptionEnabled() ? 'var(--income)' : 'var(--border)'};color:${Store.isEncryptionEnabled() ? '#fff' : 'var(--text-secondary)'}">
-              ${Store.isEncryptionEnabled() ? 'Activo' : 'Sin cifrado'}
+              ${Store.isEncryptionEnabled() ? 'Activo ✓' : 'Sin cifrado'}
             </span>
           </label>
           <div style="position:relative">
-            <input type="password" id="e2ePassphrase" placeholder="Frase secreta — no se envía al servidor nunca"
+            <input type="password" id="e2ePassphrase" placeholder="Frase secreta — nunca sale de tu dispositivo"
               value="${esc(Store.getPassphrase())}"
               style="width:100%;padding:8px 36px 8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;box-sizing:border-box">
             <button type="button" onclick="Categorias._togglePassphraseVisibility()"
               style="position:absolute;right:8px;top:50%;transform:translateY(-50%);border:none;background:none;cursor:pointer;font-size:14px;color:var(--text-secondary)"
-              id="passphraseToggleBtn" title="Mostrar/ocultar">👁</button>
+              id="passphraseToggleBtn">👁</button>
           </div>
           <div style="font-size:11px;color:var(--text-secondary);margin-top:6px;line-height:1.5">
-            ⚠️ <strong>Guarda esta frase en un lugar seguro.</strong> Sin ella, los datos cifrados en la nube no se pueden recuperar.<br>
-            Usa la misma frase en todos tus dispositivos. Déjala vacía para sincronizar sin cifrar.
+            ⚠️ <strong>Guarda esta frase en un lugar seguro.</strong> Sin ella los datos cifrados no se pueden recuperar.<br>
+            Usa la <em>misma frase</em> en todos tus dispositivos. Vacía = sin cifrar.
           </div>
         </div>
 
@@ -1189,24 +1255,73 @@ const Categorias = {
     if (btn) btn.textContent = inp.type === 'password' ? '👁' : '🙈';
   },
 
+  _switchSyncProvider(provider) {
+    document.getElementById('supabaseFields').style.display    = provider === 'supabase' ? '' : 'none';
+    document.getElementById('customServerFields').style.display = provider !== 'supabase' ? '' : 'none';
+    document.getElementById('providerBtnSupabase').classList.toggle('active', provider === 'supabase');
+    document.getElementById('providerBtnCustom').classList.toggle('active', provider !== 'supabase');
+  },
+
+  _toggleFieldVisibility(inputId, btnId) {
+    const el  = document.getElementById(inputId);
+    const btn = document.getElementById(btnId);
+    if (!el) return;
+    el.type = el.type === 'password' ? 'text' : 'password';
+    if (btn) btn.textContent = el.type === 'password' ? '👁' : '🙈';
+  },
+
+  _readSyncProvider() {
+    const supBtn = document.getElementById('providerBtnSupabase');
+    return (supBtn && supBtn.classList.contains('active')) ? 'supabase' : 'custom';
+  },
+
   _saveSyncSettings() {
-    const url  = document.getElementById('syncServerUrl')?.value.trim() || '';
-    const key  = document.getElementById('syncKey')?.value || '';
     const pass = document.getElementById('e2ePassphrase')?.value || '';
     Store.setPassphrase(pass);
-    Store.setSyncSettings(url, key);
+    const provider = this._readSyncProvider();
+    if (provider === 'supabase') {
+      Store.setSyncSettings({
+        provider: 'supabase',
+        supabaseUrl: document.getElementById('supabaseUrl')?.value.trim() || '',
+        supabaseAnonKey: document.getElementById('supabaseAnonKey')?.value || '',
+        supabaseRowId: document.getElementById('supabaseRowId')?.value.trim() || 'default',
+        serverUrl: Store.getSyncSettings().serverUrl,
+        syncKey: Store.getSyncSettings().syncKey,
+      });
+    } else {
+      Store.setSyncSettings({
+        provider: 'custom',
+        serverUrl: document.getElementById('syncServerUrl')?.value.trim() || '',
+        syncKey: document.getElementById('syncKey')?.value || '',
+        supabaseUrl: Store.getSyncSettings().supabaseUrl,
+        supabaseAnonKey: Store.getSyncSettings().supabaseAnonKey,
+        supabaseRowId: Store.getSyncSettings().supabaseRowId,
+      });
+    }
     const enc = Store.isEncryptionEnabled();
-    App.showToast(enc ? '🔐 Configuración guardada con cifrado E2E activo' : '☁️ Configuración de sincronización guardada');
+    App.showToast(enc ? '🔐 Guardado con cifrado E2E activo' : `☁️ Sincronización con ${provider === 'supabase' ? 'Supabase' : 'servidor'} guardada`);
     this.render();
   },
 
   async _testSync() {
-    const url  = document.getElementById('syncServerUrl')?.value.trim() || '';
-    const key  = document.getElementById('syncKey')?.value || '';
     const pass = document.getElementById('e2ePassphrase')?.value || '';
     Store.setPassphrase(pass);
-    Store.setSyncSettings(url, key);
-    const result = await Store.testSyncConnection();
+    const provider = this._readSyncProvider();
+    if (provider === 'supabase') {
+      Store.setSyncSettings({
+        provider: 'supabase',
+        supabaseUrl: document.getElementById('supabaseUrl')?.value.trim() || '',
+        supabaseAnonKey: document.getElementById('supabaseAnonKey')?.value || '',
+        supabaseRowId: document.getElementById('supabaseRowId')?.value.trim() || 'default',
+        serverUrl: Store.getSyncSettings().serverUrl,
+        syncKey: Store.getSyncSettings().syncKey,
+      });
+    } else {
+      const url = document.getElementById('syncServerUrl')?.value.trim() || '';
+      const key = document.getElementById('syncKey')?.value || '';
+      Store.setSyncSettings({ provider: 'custom', serverUrl: url, syncKey: key, supabaseUrl: Store.getSyncSettings().supabaseUrl, supabaseAnonKey: Store.getSyncSettings().supabaseAnonKey, supabaseRowId: Store.getSyncSettings().supabaseRowId });
+    }
+    const result = await Store.testSyncConnection?.() || { ok: false, message: 'Sin método de prueba' };
     if (result.ok) App.showToast('✅ ' + result.message);
     else App.showToast('❌ ' + result.message, 4000);
     this.render();

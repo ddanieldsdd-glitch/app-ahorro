@@ -75,15 +75,77 @@ const Store = {
       const raw = localStorage.getItem(SYNC_SETTINGS_KEY);
       if (raw) return JSON.parse(raw);
     } catch {}
-    return { serverUrl: '', syncKey: '' };
+    return { provider: 'custom', serverUrl: '', syncKey: '', supabaseUrl: '', supabaseAnonKey: '', supabaseRowId: '' };
   },
 
-  setSyncSettings(serverUrl, syncKey) {
-    const clean = (serverUrl || '').trim().replace(/\/+$/, '');
-    localStorage.setItem(SYNC_SETTINGS_KEY, JSON.stringify({ serverUrl: clean, syncKey: syncKey || '' }));
+  setSyncSettings(settings) {
+    // Accepts either (serverUrl, syncKey) legacy or a settings object
+    let obj;
+    if (typeof settings === 'string') {
+      // Legacy call: setSyncSettings(serverUrl, syncKey)
+      const serverUrl = settings;
+      const syncKey = arguments[1] || '';
+      const prev = this.getSyncSettings();
+      obj = { ...prev, provider: 'custom', serverUrl: serverUrl.trim().replace(/\/+$/, ''), syncKey };
+    } else {
+      const prev = this.getSyncSettings();
+      obj = {
+        provider: settings.provider || prev.provider || 'custom',
+        serverUrl: (settings.serverUrl || '').trim().replace(/\/+$/, ''),
+        syncKey: settings.syncKey || '',
+        supabaseUrl: (settings.supabaseUrl || '').trim().replace(/\/+$/, ''),
+        supabaseAnonKey: settings.supabaseAnonKey || '',
+        supabaseRowId: settings.supabaseRowId || prev.supabaseRowId || 'default',
+      };
+    }
+    localStorage.setItem(SYNC_SETTINGS_KEY, JSON.stringify(obj));
     this._setSyncStatus('syncing', 'Aplicando nueva configuración…');
     this._startSync();
     this._syncNow();
+  },
+
+  // ── Supabase helpers ────────────────────────────────────────────────────────
+  _isSupabase() {
+    const s = this.getSyncSettings();
+    return s.provider === 'supabase' && !!(s.supabaseUrl && s.supabaseAnonKey);
+  },
+
+  _supabaseEndpoint() {
+    const { supabaseUrl } = this.getSyncSettings();
+    return `${supabaseUrl}/rest/v1/sync_data`;
+  },
+
+  _supabaseHeaders(extra = {}) {
+    const { supabaseAnonKey } = this.getSyncSettings();
+    return {
+      'apikey': supabaseAnonKey,
+      'Authorization': `Bearer ${supabaseAnonKey}`,
+      'Content-Type': 'application/json',
+      ...extra,
+    };
+  },
+
+  async _pushToSupabase(blob) {
+    const { supabaseRowId } = this.getSyncSettings();
+    const id = supabaseRowId || 'default';
+    const res = await fetch(this._supabaseEndpoint(), {
+      method: 'POST',
+      headers: this._supabaseHeaders({ 'Prefer': 'resolution=merge-duplicates' }),
+      body: JSON.stringify({ id, payload: blob }),
+    });
+    return res.ok;
+  },
+
+  async _pullFromSupabase() {
+    const { supabaseRowId } = this.getSyncSettings();
+    const id = supabaseRowId || 'default';
+    const res = await fetch(`${this._supabaseEndpoint()}?id=eq.${encodeURIComponent(id)}&select=payload,updated_at`, {
+      headers: this._supabaseHeaders(),
+    });
+    if (!res.ok) throw new Error(`Supabase error ${res.status}`);
+    const rows = await res.json();
+    if (!rows || rows.length === 0) return null;
+    return rows[0].payload;
   },
 
   // ── Frase de cifrado (E2E) ─────────────────────────────────────────────────
@@ -156,23 +218,42 @@ const Store = {
     let loaded = false;
     let serverData = null;
 
-    try {
-      const res = await this._apiFetch('/api/data');
-      if (res.ok) {
-        serverData = await res.json();
-        loaded = true;
-        this._setSyncStatus('synced', 'Conectado al servidor');
-      } else if (res.status === 401) {
-        this._setSyncStatus('local', 'Clave de sincronización incorrecta');
-      }
-    } catch {
-      this._setSyncStatus('offline', 'Sin conexión al servidor');
-    }
-
     const raw = localStorage.getItem(STORAGE_KEY);
     let localData = null;
     if (raw) {
       try { localData = JSON.parse(raw); } catch (e) {}
+    }
+
+    // ── Supabase init ──────────────────────────────────────────────────────
+    if (this._isSupabase()) {
+      try {
+        const rawBlob = await this._pullFromSupabase();
+        if (rawBlob) {
+          serverData = await this._decryptFromServer(rawBlob);
+          loaded = true;
+          const { supabaseUrl } = this.getSyncSettings();
+          const host = new URL(supabaseUrl).hostname.replace('.supabase.co', '');
+          const enc = this.isEncryptionEnabled();
+          this._setSyncStatus('synced', `Conectado${enc ? ' 🔒' : ''} a Supabase (${host})`);
+        }
+      } catch (e) {
+        this._setSyncStatus('offline', `Supabase: ${e.message || 'sin conexión'}`);
+      }
+    } else {
+      // ── Custom server init ───────────────────────────────────────────────
+      try {
+        const res = await this._apiFetch('/api/data');
+        if (res.ok) {
+          const rawBlob = await res.json();
+          serverData = await this._decryptFromServer(rawBlob);
+          loaded = true;
+          this._setSyncStatus('synced', 'Conectado al servidor');
+        } else if (res.status === 401) {
+          this._setSyncStatus('local', 'Clave de sincronización incorrecta');
+        }
+      } catch {
+        this._setSyncStatus('offline', 'Sin conexión al servidor');
+      }
     }
 
     if (loaded && serverData) {
@@ -185,7 +266,7 @@ const Store = {
       }
     } else if (localData) {
       this._data = localData;
-      if (navigator.onLine) this._setSyncStatus('local', 'Datos locales — servidor no disponible');
+      if (navigator.onLine) this._setSyncStatus('local', 'Datos locales — nube no disponible');
       else this._setSyncStatus('offline', 'Modo sin conexión');
     }
 
@@ -226,13 +307,26 @@ const Store = {
     this._setSyncStatus('syncing', 'Enviando cambios…');
     try {
       const blob = await this._encryptForServer(this._data);
+      const enc = this.isEncryptionEnabled();
+
+      if (this._isSupabase()) {
+        const ok = await this._pushToSupabase(blob);
+        if (ok) {
+          const { supabaseUrl } = this.getSyncSettings();
+          const host = new URL(supabaseUrl).hostname.replace('.supabase.co', '');
+          this._setSyncStatus('synced', `Sincronizado${enc ? ' 🔒' : ''} con Supabase (${host})`);
+          return true;
+        }
+        this._setSyncStatus('local', 'No se pudo enviar a Supabase');
+        return false;
+      }
+
       const res = await this._apiFetch('/api/data', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(blob),
       });
       if (res.ok) {
-        const enc = this.isEncryptionEnabled();
         this._setSyncStatus('synced', `Sincronizado${enc ? ' 🔒' : ''} con ${this._apiBase()}`);
         return true;
       }
@@ -251,12 +345,28 @@ const Store = {
 
   async _pullFromServer() {
     try {
-      const res = await this._apiFetch('/api/data');
-      if (!res.ok) {
-        if (res.status === 401) this._setSyncStatus('local', 'Clave de sincronización incorrecta');
-        return false;
+      let rawBlob;
+
+      if (this._isSupabase()) {
+        rawBlob = await this._pullFromSupabase();
+        if (!rawBlob) {
+          // First time — nothing in Supabase yet, push our local data
+          await this._pushToSupabase(await this._encryptForServer(this._data));
+          const enc = this.isEncryptionEnabled();
+          const { supabaseUrl } = this.getSyncSettings();
+          const host = new URL(supabaseUrl).hostname.replace('.supabase.co', '');
+          this._setSyncStatus('synced', `Conectado${enc ? ' 🔒' : ''} a Supabase (${host})`);
+          return true;
+        }
+      } else {
+        const res = await this._apiFetch('/api/data');
+        if (!res.ok) {
+          if (res.status === 401) this._setSyncStatus('local', 'Clave de sincronización incorrecta');
+          return false;
+        }
+        rawBlob = await res.json();
       }
-      const rawBlob = await res.json();
+
       let serverData;
       try {
         serverData = await this._decryptFromServer(rawBlob);
@@ -271,7 +381,13 @@ const Store = {
         this._callbacks.forEach(cb => cb());
       }
       const enc = this.isEncryptionEnabled();
-      this._setSyncStatus('synced', `Sincronizado${enc ? ' 🔒' : ''} con ${this._apiBase()}`);
+      if (this._isSupabase()) {
+        const { supabaseUrl } = this.getSyncSettings();
+        const host = new URL(supabaseUrl).hostname.replace('.supabase.co', '');
+        this._setSyncStatus('synced', `Sincronizado${enc ? ' 🔒' : ''} con Supabase (${host})`);
+      } else {
+        this._setSyncStatus('synced', `Sincronizado${enc ? ' 🔒' : ''} con ${this._apiBase()}`);
+      }
       return true;
     } catch {
       if (!navigator.onLine) this._setSyncStatus('offline', 'Sin conexión');
