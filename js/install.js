@@ -1,4 +1,4 @@
-const WINDOWS_EXE_URL = 'https://github.com/ddanieldsdd-glitch/app-ahorro/releases/download/v2.0.2/Presupuesto.Personal.Setup.2.0.2.exe';
+const WINDOWS_EXE_URL = 'https://github.com/ddanieldsdd-glitch/app-ahorro/releases/download/v2.0.3/Presupuesto.Personal.Setup.2.0.3.exe';
 
 const Install = {
   _deferredPrompt: null,
@@ -195,7 +195,7 @@ const Install = {
               <span style="font-size:22px">⬇️</span>
               <div>
                 <div>Descargar instalador .exe</div>
-                <div style="font-size:11px;font-weight:400;opacity:.85">Instala como app nativa, con acceso directo en el Escritorio y el menú Inicio</div>
+                <div style="font-size:11px;font-weight:400;opacity:.85">Escritorio + menú Inicio · carga siempre la app de Vercel (misma versión que la web)</div>
               </div>
             </a>
             <button onclick="App._closeModal()" style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:10px;background:var(--bg);border:1px solid var(--border);cursor:pointer;font-size:13px;text-align:left">

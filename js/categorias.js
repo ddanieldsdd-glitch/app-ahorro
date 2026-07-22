@@ -103,7 +103,7 @@ const Categorias = {
                   <span style="font-size:22px">⬇️</span>
                   <div>
                     <div>Descargar instalador .exe</div>
-                    <div style="font-size:11px;font-weight:400;opacity:.85">Nativo · Escritorio y menú Inicio · ~75 MB</div>
+                    <div style="font-size:11px;font-weight:400;opacity:.85">App de escritorio · siempre carga la versión de Vercel · ~75 MB</div>
                   </div>
                 </a>
                 <button onclick="Install.promptInstall()"

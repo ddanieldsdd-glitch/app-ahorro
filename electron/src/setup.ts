@@ -84,8 +84,19 @@ export class ElectronCapacitorApp {
   }
 
   // Helper function to load in the app.
+  // Prefer live Vercel URL so the desktop app always matches the PWA.
+  // Fall back to bundled local files if offline.
   private async loadMainWindow(thisRef: any) {
-    await thisRef.loadWebApp(thisRef.MainWindow);
+    const liveUrl =
+      thisRef.CapacitorFileConfig?.electron?.liveUrl ||
+      process.env.AHORRO_LIVE_URL ||
+      'https://app-ahorro.vercel.app';
+    try {
+      await thisRef.MainWindow.loadURL(liveUrl, { extraHeaders: 'pragma: no-cache\n' });
+    } catch (err) {
+      console.warn('Live URL failed, loading bundled app:', err);
+      await thisRef.loadWebApp(thisRef.MainWindow);
+    }
   }
 
   // Expose the mainWindow ref for use outside of the class.
@@ -181,18 +192,27 @@ export class ElectronCapacitorApp {
       this.loadMainWindow(this);
     }
 
-    // Security
+    // Security — allow live Vercel origin + custom scheme; block random popups
+    const allowedHosts = new Set([
+      'app-ahorro.vercel.app',
+      'app-ahorro-ddanieldsdd-glitchs-projects.vercel.app',
+    ]);
+    const isAllowed = (url: string) => {
+      try {
+        if (url.startsWith(`${this.customScheme}://`)) return true;
+        const u = new URL(url);
+        if (u.protocol === 'https:' && (allowedHosts.has(u.hostname) || u.hostname.endsWith('.vercel.app'))) {
+          return true;
+        }
+      } catch { /* ignore */ }
+      return false;
+    };
+
     this.MainWindow.webContents.setWindowOpenHandler((details) => {
-      if (!details.url.includes(this.customScheme)) {
-        return { action: 'deny' };
-      } else {
-        return { action: 'allow' };
-      }
+      return isAllowed(details.url) ? { action: 'allow' } : { action: 'deny' };
     });
-    this.MainWindow.webContents.on('will-navigate', (event, _newURL) => {
-      if (!this.MainWindow.webContents.getURL().includes(this.customScheme)) {
-        event.preventDefault();
-      }
+    this.MainWindow.webContents.on('will-navigate', (event, newURL) => {
+      if (!isAllowed(newURL)) event.preventDefault();
     });
 
     // Link electron plugins into the system.
@@ -216,7 +236,7 @@ export class ElectronCapacitorApp {
   }
 }
 
-// Set a CSP up for our application based on the custom scheme
+// Set a CSP up for our application based on the custom scheme + live Vercel app
 export function setupContentSecurityPolicy(customScheme: string): void {
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
@@ -224,8 +244,8 @@ export function setupContentSecurityPolicy(customScheme: string): void {
         ...details.responseHeaders,
         'Content-Security-Policy': [
           electronIsDev
-            ? `default-src ${customScheme}://* 'unsafe-inline' devtools://* 'unsafe-eval' data:`
-            : `default-src ${customScheme}://* 'unsafe-inline' data:`,
+            ? `default-src ${customScheme}://* https: http: 'unsafe-inline' 'unsafe-eval' data: blob: devtools://*`
+            : `default-src ${customScheme}://* https://app-ahorro.vercel.app https://*.vercel.app https://cdn.jsdelivr.net https://*.supabase.co wss://*.supabase.co 'unsafe-inline' 'unsafe-eval' data: blob:`,
         ],
       },
     });
