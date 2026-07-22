@@ -2235,20 +2235,239 @@ const Store = {
     this._saveShared();
   },
 
-  exportJSON() {
+  exportJSON({ months = null } = {}) {
     const d = JSON.parse(JSON.stringify(this._data));
+    if (months && months.length) {
+      const monthSet = new Set(months);
+      d.transactions = (d.transactions || []).filter(t => {
+        const m = t.month || (t.date && t.date.substring(0, 7));
+        return monthSet.has(m);
+      });
+      const filteredArchives = {};
+      for (const [m, txs] of Object.entries(d.archives || {})) {
+        if (monthSet.has(m)) filteredArchives[m] = txs;
+      }
+      d.archives = filteredArchives;
+      d._exportMonths = months;
+    }
     d._exportedAt = new Date().toISOString();
     return JSON.stringify(d, null, 2);
   },
 
-  importJSON(jsonStr) {
+  getAvailableMonths() {
+    const months = new Set();
+    const d = this._data;
+    if (d.currentMonth) months.add(d.currentMonth);
+    for (const m of Object.keys(d.archives || {})) months.add(m);
+    for (const t of d.transactions || []) {
+      const m = t.month || (t.date && t.date.substring(0, 7));
+      if (m) months.add(m);
+    }
+    return [...months].sort();
+  },
+
+  getMonthsFromPayload(payload) {
+    const months = new Set();
+    if (payload.currentMonth) months.add(payload.currentMonth);
+    for (const m of Object.keys(payload.archives || {})) months.add(m);
+    for (const t of payload.transactions || []) {
+      const m = t.month || (t.date && t.date.substring(0, 7));
+      if (m) months.add(m);
+    }
+    return [...months].sort();
+  },
+
+  _monthHasLocalData(month) {
+    const d = this._data;
+    if ((d.transactions || []).some(t => (t.month || t.date?.substring(0, 7)) === month)) return true;
+    if ((d.archives[month] || []).length > 0) return true;
+    return false;
+  },
+
+  _txExists(id) {
+    const d = this._data;
+    if ((d.transactions || []).some(t => t.id === id)) return true;
+    for (const list of Object.values(d.archives || {})) {
+      if (list.some(t => t.id === id)) return true;
+    }
+    return false;
+  },
+
+  _removeMonthData(month) {
+    const d = this._data;
+    d.transactions = (d.transactions || []).filter(t => (t.month || t.date?.substring(0, 7)) !== month);
+    if (d.archives[month]) delete d.archives[month];
+  },
+
+  _placeTransaction(tx) {
+    const d = this._data;
+    const m = tx.month || tx.date?.substring(0, 7);
+    if (!m) return;
+    tx.month = m;
+    if (m === d.currentMonth) {
+      const idx = (d.transactions || []).findIndex(t => t.id === tx.id);
+      if (idx >= 0) d.transactions[idx] = { ...d.transactions[idx], ...tx };
+      else d.transactions.push(tx);
+    } else {
+      if (!d.archives[m]) d.archives[m] = [];
+      const idx = d.archives[m].findIndex(t => t.id === tx.id);
+      if (idx >= 0) d.archives[m][idx] = { ...d.archives[m][idx], ...tx };
+      else d.archives[m].push(tx);
+    }
+  },
+
+  collectIncomingTransactions(payload, months) {
+    const monthSet = new Set(months);
+    const txs = [];
+    const seen = new Set();
+    for (const t of payload.transactions || []) {
+      const m = t.month || (t.date && t.date.substring(0, 7));
+      if (!monthSet.has(m) || seen.has(t.id)) continue;
+      seen.add(t.id);
+      txs.push({ ...t, month: m });
+    }
+    for (const [m, list] of Object.entries(payload.archives || {})) {
+      if (!monthSet.has(m)) continue;
+      for (const t of list) {
+        if (seen.has(t.id)) continue;
+        seen.add(t.id);
+        txs.push({ ...t, month: t.month || m });
+      }
+    }
+    return txs;
+  },
+
+  analyzeImportOverlap(payload, months) {
+    const overlapMonths = months.filter(m => this._monthHasLocalData(m));
+    const incoming = this.collectIncomingTransactions(payload, months);
+    const incomingIds = new Set(incoming.map(t => t.id));
+    let duplicateIds = 0;
+    for (const t of this._data.transactions || []) {
+      const m = t.month || t.date?.substring(0, 7);
+      if (months.includes(m) && incomingIds.has(t.id)) duplicateIds++;
+    }
+    for (const m of months) {
+      for (const t of this._data.archives[m] || []) {
+        if (incomingIds.has(t.id)) duplicateIds++;
+      }
+    }
+    return {
+      overlapMonths,
+      incomingCount: incoming.length,
+      duplicateIds,
+      hasConflict: overlapMonths.length > 0,
+    };
+  },
+
+  importTransactionSubset(incomingTxs, months, strategy) {
+    this._backup('pre-import');
+    let added = 0, updated = 0, skipped = 0;
+    const overlapMonths = months.filter(m => this._monthHasLocalData(m));
+
+    if (strategy === 'keep') {
+      const skipMonths = new Set(overlapMonths);
+      for (const tx of incomingTxs) {
+        const m = tx.month || tx.date?.substring(0, 7);
+        if (skipMonths.has(m)) { skipped++; continue; }
+        const existed = this._txExists(tx.id);
+        this._placeTransaction(tx);
+        if (existed) updated++; else added++;
+      }
+    } else if (strategy === 'replace') {
+      for (const m of overlapMonths) this._removeMonthData(m);
+      for (const tx of incomingTxs) {
+        const existed = this._txExists(tx.id);
+        this._placeTransaction(tx);
+        if (existed) updated++; else added++;
+      }
+    } else {
+      for (const tx of incomingTxs) {
+        const existed = this._txExists(tx.id);
+        this._placeTransaction(tx);
+        if (existed) updated++; else added++;
+      }
+    }
+    this._save();
+    return { added, updated, skipped };
+  },
+
+  mergeGlobalPayload(from, { replaceLists = false } = {}) {
+    const d = this._data;
+    const mergeById = (arr, items, idKey = 'id') => {
+      if (!items?.length) return arr || [];
+      const map = new Map((arr || []).filter(x => x[idKey]).map(x => [x[idKey], x]));
+      const noId = (arr || []).filter(x => !x[idKey]);
+      for (const item of items) {
+        if (item[idKey]) {
+          map.set(item[idKey], map.has(item[idKey]) ? { ...map.get(item[idKey]), ...item } : item);
+        } else {
+          noId.push(item);
+        }
+      }
+      return [...map.values(), ...noId];
+    };
+
+    if (from.debts?.length) d.debts = mergeById(d.debts || [], from.debts);
+    if (from.people?.length) {
+      for (const p of from.people) {
+        const name = typeof p === 'string' ? p : p.name;
+        if (name) this.rememberPerson(name, false);
+      }
+    }
+    if (from.savingGoals?.length) d.savingGoals = mergeById(d.savingGoals || [], from.savingGoals);
+    if (from.plannedExpenses?.length) d.plannedExpenses = mergeById(d.plannedExpenses || [], from.plannedExpenses);
+    if (from.recurringTransactions?.length) d.recurringTransactions = mergeById(d.recurringTransactions || [], from.recurringTransactions);
+    if (from.transfers?.length) d.transfers = mergeById(d.transfers || [], from.transfers);
+
+    const scalarKeys = [
+      'checkingBalance', 'checkingBaseBalance', 'savingsBalance', 'cashBalance',
+      'imprevistosSavings', 'totalRoundUpSavings', 'foodBudget', 'imprevistosBudget',
+      'roundUpEnabled', 'roundUpGoalId', 'savingsDay', 'plannedExpensesReserved',
+      'initialCheckingBalance', 'initialSavingsBalance',
+    ];
+    for (const k of scalarKeys) {
+      if (from[k] !== undefined && from[k] !== null) d[k] = from[k];
+    }
+    if (from.budgetConfig) d.budgetConfig = { ...d.budgetConfig, ...from.budgetConfig };
+    if (from.expensePriorities) d.expensePriorities = { ...d.expensePriorities, ...from.expensePriorities };
+    if (from.txGroups) d.txGroups = { ...d.txGroups, ...from.txGroups };
+
+    if (replaceLists) {
+      if (from.categories?.length) d.categories = [...from.categories];
+      if (from.incomeCategories?.length) d.incomeCategories = [...from.incomeCategories];
+      if (from.paymentMethods?.length) d.paymentMethods = [...from.paymentMethods];
+      if (from.foodCategories?.length) d.foodCategories = [...from.foodCategories];
+      if (from.categoryGroups?.length) d.categoryGroups = [...from.categoryGroups];
+      if (from.incomeGroups?.length) d.incomeGroups = [...from.incomeGroups];
+      if (from.peopleGroups?.length) d.peopleGroups = [...from.peopleGroups];
+    } else {
+      if (from.categories?.length) d.categories = [...new Set([...(d.categories || []), ...from.categories])];
+      if (from.incomeCategories?.length) d.incomeCategories = [...new Set([...(d.incomeCategories || []), ...from.incomeCategories])];
+      if (from.paymentMethods?.length) d.paymentMethods = [...new Set([...(d.paymentMethods || []), ...from.paymentMethods])];
+      if (from.categoryGroups?.length) d.categoryGroups = mergeById(d.categoryGroups || [], from.categoryGroups);
+      if (from.incomeGroups?.length) d.incomeGroups = mergeById(d.incomeGroups || [], from.incomeGroups);
+      if (from.peopleGroups?.length) d.peopleGroups = mergeById(d.peopleGroups || [], from.peopleGroups);
+    }
+  },
+
+  importJSON(jsonStr, options = {}) {
     const d = JSON.parse(jsonStr);
-    if (!d || !d.transactions) throw new Error('Datos inválidos');
+    if (!d || !Array.isArray(d.transactions)) throw new Error('Datos inválidos');
+    const { months = null, strategy = 'merge', mergeGlobal = true } = options;
+
+    if (months && months.length) {
+      const incoming = this.collectIncomingTransactions(d, months);
+      const stats = this.importTransactionSubset(incoming, months, strategy);
+      if (mergeGlobal) this.mergeGlobalPayload(d);
+      this._save();
+      return stats;
+    }
+
     this._backup('pre-import');
     this._data = d;
     this._migrate();
     this._save();
-    return true;
+    return { added: d.transactions.length, updated: 0, skipped: 0, full: true };
   },
 
   getRecurringTransactions() { return [...(this._data.recurringTransactions || [])]; },

@@ -33,7 +33,7 @@ const Registro = {
           ${isArchived ? '' : '<button class="btn btn-secondary btn-sm" onclick="Registro._showImport()">📥 CSV</button>'}
         </div>
         ${isArchived ? '' : `
-        <form id="txForm" class="form-grid" style="grid-template-columns:1fr 1fr 1fr">
+        <form id="txForm" class="form-grid form-grid-tx">
           <div class="form-group">
             <label>Fecha</label>
             <input type="date" id="txDate" required>

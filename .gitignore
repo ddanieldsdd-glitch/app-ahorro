@@ -14,3 +14,5 @@ www/
 # Variables de entorno
 .env
 .env.local
+.vercel
+.env*

@@ -3,6 +3,7 @@ const App = {
   _isArchived: false,
 
   async init() {
+    this._detectMobileNav();
     await Store.init();
     // PIN lock: if a PIN is set, show the lock screen before anything else
     const pin = Store.getPinCode();
@@ -188,6 +189,11 @@ const App = {
     if (tb) tb.classList.add('active');
     const bnb = document.querySelector(`.bottom-nav-btn[data-tab="${tab}"]`);
     if (bnb) bnb.classList.add('active');
+    else if (['deudas', 'graficos', 'categorias'].includes(tab)) {
+      document.querySelector('.bottom-nav-more')?.classList.add('active');
+    }
+    const menu = document.getElementById('bottomNavMenu');
+    if (menu) menu.style.display = 'none';
     const tc = document.getElementById(`tab-${tab}`);
     if (tc) tc.classList.add('active');
     if (tab === 'dashboard') Dashboard.render();
@@ -197,6 +203,21 @@ const App = {
     else if (tab === 'graficos') Graficos.render();
     else if (tab === 'categorias') Categorias.render();
     else if (tab === 'presupuesto') Presupuesto.render();
+    window.scrollTo(0, 0);
+  },
+
+  _detectMobileNav() {
+    const apply = () => {
+      const portrait = window.matchMedia('(orientation: portrait)').matches;
+      const touch = navigator.maxTouchPoints > 1;
+      const narrow = window.innerWidth <= 768;
+      const tabletPortrait = window.innerWidth <= 1024 && portrait;
+      const mobile = narrow || tabletPortrait || (touch && window.innerWidth < 1100);
+      document.body.classList.toggle('mobile-nav', mobile);
+    };
+    apply();
+    window.addEventListener('resize', apply);
+    window.addEventListener('orientationchange', apply);
   },
 
   _setupArchive() {
@@ -215,21 +236,7 @@ const App = {
 
   _setupRestore() {
     document.getElementById('restoreInput').addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        try {
-          Store.importJSON(ev.target.result);
-          this._currentViewMonth = Store.getCurrentMonth();
-          this._isArchived = false;
-          this._renderMonthSelector();
-          this._refreshAll();
-          alert('Datos restaurados');
-        } catch (err) { alert('Error: ' + err.message); }
-      };
-      reader.readAsText(file);
-      e.target.value = '';
+      BackupIO._openViaInput(e.target, 'json');
     });
   },
 
@@ -478,17 +485,7 @@ const App = {
   },
 
   _exportData() {
-    try {
-      const json = Store.exportJSON();
-      const blob = new Blob([json], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      const n = new Date();
-      a.download = `presupuesto_${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (e) { alert('Error: ' + e.message); }
+    BackupIO.exportFlow('json');
   },
 
   /**

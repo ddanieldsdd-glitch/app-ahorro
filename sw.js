@@ -1,4 +1,4 @@
-const CACHE = 'presupuesto-v21';
+const CACHE = 'presupuesto-v23';
 
 const ASSETS = [
   '/', '/index.html', '/styles.css', '/manifest.json', '/icon.svg',
@@ -6,7 +6,7 @@ const ASSETS = [
   '/js/crypto-e2e.js', '/js/store.js', '/js/budget-engine.js', '/js/install.js',
   '/js/presupuesto.js', '/js/dashboard.js', '/js/registro.js', '/js/calendario.js',
   '/js/semanas.js', '/js/graficos.js', '/js/movement-form.js', '/js/categorias.js',
-  '/js/deudas.js', '/js/excel-io.js', '/js/tutorial.js', '/js/vercel-analytics.js', '/js/app.js',
+  '/js/deudas.js', '/js/excel-io.js', '/js/backup-io.js', '/js/tutorial.js', '/js/vercel-analytics.js', '/js/app.js',
 ];
 
 self.addEventListener('install', (e) => {

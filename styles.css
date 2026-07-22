@@ -97,16 +97,26 @@ body {
   background: var(--bg);
   color: var(--text);
   min-height: 100vh;
+  min-height: 100dvh;
   padding-bottom: 80px;
+  overflow-x: hidden;
+  width: 100%;
+  -webkit-text-size-adjust: 100%;
+}
+
+html {
+  overflow-x: hidden;
+  width: 100%;
 }
 
 .app-header {
   background: var(--card);
   border-bottom: 1px solid var(--border);
   padding: 12px 20px;
+  padding-top: calc(12px + env(safe-area-inset-top, 0px));
   position: sticky;
   top: 0;
-  z-index: 100;
+  z-index: 90;
 }
 
 .header-top {
@@ -153,7 +163,20 @@ body {
 }
 .btn-secondary:hover { background: var(--bg) !important; }
 
-.container { max-width: 1200px; margin: 0 auto; padding: 12px; }
+.container {
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 12px;
+  padding-left: max(12px, env(safe-area-inset-left, 0px));
+  padding-right: max(12px, env(safe-area-inset-right, 0px));
+  overflow-x: hidden;
+}
+
+.tab-content {
+  max-width: 100%;
+  overflow-x: hidden;
+}
 
 /* Chart range buttons */
 .gc-range {
@@ -221,6 +244,10 @@ body {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+}
+
+.form-grid-tx {
+  grid-template-columns: 1fr 1fr 1fr;
 }
 
 .form-group { display: flex; flex-direction: column; gap: 3px; }
@@ -1231,22 +1258,28 @@ body {
   .tabs { flex-direction: row; }
 }
 
-@media (max-width: 640px) {
-  .app-header { padding: 8px 12px; }
-  .container { padding: 10px; }
-  .dash-card { min-width: 80px; padding: 10px 8px; }
+@media (max-width: 768px) {
+  .app-header { padding: 8px 12px; padding-top: calc(8px + env(safe-area-inset-top, 0px)); }
+  .container { padding: 10px; padding-left: max(10px, env(safe-area-inset-left, 0px)); padding-right: max(10px, env(safe-area-inset-right, 0px)); }
+  .dash-card { min-width: 0; padding: 10px 8px; }
   .dash-card .dash-value { font-size: 20px; }
   .card { padding: 14px; }
-  .form-grid { grid-template-columns: 1fr; }
+  .form-grid,
+  .form-grid-tx { grid-template-columns: 1fr !important; }
   .grid-2 { grid-template-columns: 1fr; }
   .grid-3 { grid-template-columns: 1fr 1fr; }
-  .tabs { gap: 2px; padding: 2px; }
-  .tab-btn { padding: 8px 6px; font-size: 11px; min-width: 0; }
-  /* FAB must be above the bottom nav (60px) + safe area */
+  .dh-hero { padding: 16px 14px; overflow: hidden; }
+  .dh-hero-stats { grid-template-columns: repeat(2, 1fr); gap: 6px; }
+  .dh-hero-value { font-size: clamp(32px, 11vw, 48px) !important; }
+  .dh-hero-sub { font-size: 11px; line-height: 1.4; }
+  .dh-budget-row { flex-direction: column; align-items: stretch; }
+  .dh-days-row { flex-wrap: nowrap; -webkit-overflow-scrolling: touch; }
+  .dh-day { min-width: 48px; flex: 0 0 auto; }
   .fab {
     width: 50px; height: 50px; font-size: 24px;
     bottom: calc(68px + env(safe-area-inset-bottom, 0px));
-    right: 14px;
+    right: max(14px, env(safe-area-inset-right, 0px));
+    z-index: 150;
   }
   .goal-card { flex-direction: column; text-align: center; }
   .week-stat { padding: 6px 4px; }
@@ -1255,7 +1288,7 @@ body {
   .sa-plan-row { flex-direction: column; align-items: flex-start; gap: 4px; }
   .sa-food-progress { flex-direction: column; align-items: center; }
   .rec-form { flex-direction: column; align-items: stretch; }
-  .rec-input, .rec-input-wide, .rec-input-narrow { width: 100%; }
+  .rec-input, .rec-input-wide, .rec-input-narrow { width: 100%; max-width: 100%; }
   .rec-item { flex-direction: column; align-items: flex-start; }
   .rec-item-right { text-align: left; width: 100%; display: flex; justify-content: space-between; align-items: center; }
   .cal-day { min-height: 48px; padding: 3px 2px 5px; }
@@ -1264,34 +1297,40 @@ body {
   .cal-summary { flex-direction: column; }
   .cal-day-summary { grid-template-columns: 1fr; }
   .card-header .card-title { font-size: 14px; }
-  .header-controls select { max-width: 120px; font-size: 12px; }
-  .modal { margin: 12px; max-height: calc(100vh - 24px); overflow-y: auto; }
-  .dh-hero-value { font-size: 36px !important; }
+  .header-controls { flex-wrap: wrap; max-width: 100%; }
+  .header-top { flex-wrap: wrap; }
+  .header-controls select { max-width: min(120px, 40vw); font-size: 12px; }
+  .modal { margin: 12px; max-height: calc(100dvh - 24px); overflow-y: auto; }
   .tip-hint::after { right: auto; left: 50%; transform: translateX(-50%) translateY(4px); }
   .tip-hint:hover::after, .tip-hint:focus::after, .tip-hint.tip-open::after { transform: translateX(-50%) translateY(0); }
-  /* On mobile show bottom nav, hide top tab bar */
-  .bottom-nav { display: flex; }
-  .tabs { display: none; }
-  /* Body padding = nav height (60px) + safe area + extra breathing room */
+  .bottom-nav { display: flex !important; }
+  .tabs { display: none !important; }
   body { padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
-  /* Registro form: 2-col layout that works on mobile */
-  #tab-registro .form-grid { grid-template-columns: 1fr 1fr !important; }
+  input, select, textarea { max-width: 100%; }
+  .card input, .card select, .card textarea { width: 100%; box-sizing: border-box; }
+}
+
+@media (max-width: 640px) {
+  .grid-3 { grid-template-columns: 1fr; }
 }
 
 /* ── Bottom navigation ──────────────────────────────────────────────────── */
 .bottom-nav {
-  display: none; /* shown only on mobile via media query above */
+  display: none;
   position: fixed;
-  bottom: 0; left: 0; right: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;
   background: var(--card);
   border-top: 1px solid var(--border);
-  z-index: 100;
+  z-index: 200;
   justify-content: space-around;
   align-items: stretch;
   box-shadow: 0 -2px 12px rgba(0,0,0,0.07);
-  /* Safe area support for iOS notch / home indicator / browser toolbar */
   padding-bottom: env(safe-area-inset-bottom, 0px);
-  min-height: 60px;
+  min-height: calc(56px + env(safe-area-inset-bottom, 0px));
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
 }
 .bottom-nav-btn {
   flex: 1;
@@ -1307,21 +1346,26 @@ body {
   cursor: pointer;
   transition: color 0.15s;
   padding: 6px 4px 8px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  min-height: 56px;
 }
 .bottom-nav-btn span { font-size: 9px; font-weight: 600; letter-spacing: 0.2px; }
 .bottom-nav-btn.active { color: var(--primary); }
-.bottom-nav-btn:active { transform: scale(0.92); }
+.bottom-nav-btn:active { transform: scale(0.92); opacity: 0.85; }
 
 .bottom-nav-menu {
   position: fixed;
-  bottom: calc(60px + env(safe-area-inset-bottom, 0px));
-  right: 0; left: 0;
+  bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+  right: 0;
+  left: 0;
   background: var(--card);
   border-top: 1px solid var(--border);
-  z-index: 99;
+  z-index: 199;
   flex-direction: column;
   padding: 8px 0;
   box-shadow: 0 -4px 20px rgba(0,0,0,0.1);
+  padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
 }
 .bottom-nav-menu-item {
   padding: 14px 20px;
@@ -1336,6 +1380,12 @@ body {
   transition: background 0.1s;
 }
 .bottom-nav-menu-item:hover { background: var(--bg); }
+/* Touch phones — force bottom nav even in desktop mode on iPhone */
+body.mobile-nav .bottom-nav { display: flex !important; }
+body.mobile-nav .tabs { display: none !important; }
+body.mobile-nav {
+  padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+}
 
 /* ── Number formatting ─────────────────────────────────────────────────── */
 .transaction-amount, .sa-cuenta-val, .dh-hero-value {

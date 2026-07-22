@@ -384,21 +384,20 @@ END $$;</code>
 
       <div class="card" style="margin-bottom:10px">
         <div class="card-header">
-          <span class="card-title">📊 Exportar / Importar Excel</span>
+          <span class="card-title">💾 Backup y Excel</span>
         </div>
         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;line-height:1.5">
-          Exporta todos tus datos a un archivo <strong>.xlsx</strong> usable en Excel o Google Sheets (varias hojas organizadas).
-          También puedes importarlo de vuelta o editarlo y reimportarlo.
+          Exporta o importa tus datos eligiendo <strong>dónde guardar</strong> en el dispositivo.
+          Puedes filtrar por meses o años. Si hay datos solapados, eliges: sustituir, conservar o fusionar.
         </p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
-          <button class="btn btn-primary btn-sm" onclick="ExcelIO.export()">⬇ Exportar a Excel</button>
-          <button class="btn btn-secondary btn-sm" onclick="document.getElementById('excelImportInput').click()">⬆ Importar Excel</button>
-          <input type="file" id="excelImportInput" accept=".xlsx" style="display:none"
-            onchange="ExcelIO.importFromInput(this)">
+          <button class="btn btn-primary btn-sm" onclick="BackupIO.exportFlow()">⬇ Exportar</button>
+          <button class="btn btn-secondary btn-sm" onclick="BackupIO.importFlow()">⬆ Importar</button>
         </div>
         <div style="font-size:11px;color:var(--text-secondary);line-height:1.5">
-          El Excel incluye: Movimientos, Archivo, Deudas, Metas, Planificados, Recurrentes, Saldos y Configuración.<br>
-          El backup JSON completo (botón ⬇ en la cabecera) sigue disponible para restauraciones exactas.
+          <strong>JSON</strong> — copia exacta para restaurar al 100%.<br>
+          <strong>Excel</strong> — hojas planas fáciles de editar (Movimientos, Deudas, Metas, Saldos, Config…).<br>
+          En Windows/Electron se abre el selector de carpeta del sistema.
         </div>
       </div>
 
