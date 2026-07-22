@@ -4,36 +4,60 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#4F46E5">
-  <meta name="app-cache-version" content="presupuesto-v48">
-  <script>window.__APP_BUILD_VERSION='presupuesto-v48';</script>
-  <!-- Comprobación temprana de versión (Safari/iOS/macOS cachean JS con fuerza) -->
+  <meta name="app-cache-version" content="presupuesto-v49">
+  <script>window.__APP_BUILD_VERSION='presupuesto-v49';</script>
+  <!-- Comprobación temprana de versión (Safari/iOS/macOS cachean con fuerza — XHR + número de build) -->
   <script>
     (function () {
       var running = window.__APP_BUILD_VERSION;
       if (!running) return;
-      var bust = Date.now() + '-' + Math.random().toString(36).slice(2, 8);
-      function check(text) {
-        var remote = (text || '').trim();
-        if (typeof remote === 'object' && remote && remote.cache) remote = remote.cache;
-        else remote = String(remote || '').trim().split(/\s+/)[0];
-        if (remote && remote !== running) window.__PENDING_APP_VERSION = remote;
+      var ua = navigator.userAgent || '';
+      var isApple = /iPhone|iPad|iPod|Macintosh|Mac OS X/i.test(ua) && !/Chrome|Chromium|Edg|Firefox/i.test(ua)
+        || /iPhone|iPad|iPod/i.test(ua);
+      function parseBuild(v) {
+        var m = String(v || '').match(/v(\d+)/i);
+        return m ? parseInt(m[1], 10) : 0;
       }
-      function checkJson(d) { if (d && d.cache) check(d.cache); }
-      var opts = { cache: 'no-store', credentials: 'same-origin', headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache', 'X-App-Update-Check': '1' } };
-      fetch('/api/version?_=' + bust, opts)
-        .then(function (r) { return r.ok ? r.json() : null; })
-        .then(checkJson)
-        .catch(function () {
-          fetch('/build-id.txt?_=' + bust, opts)
-            .then(function (r) { return r.ok ? r.text() : ''; })
-            .then(check)
-            .catch(function () {
-              fetch('/version-check.json?_=' + bust, opts)
-                .then(function (r) { return r.ok ? r.json() : null; })
-                .then(checkJson)
-                .catch(function () {});
-            });
-        });
+      function isNewer(remote, local) {
+        if (!remote || !local) return remote && remote !== local;
+        var dr = parseBuild(remote), lr = parseBuild(local);
+        if (dr && lr) return dr > lr;
+        return remote !== local;
+      }
+      function applyRemote(remote) {
+        remote = String(remote || '').trim().split(/\s+/)[0];
+        if (remote && isNewer(remote, running)) window.__PENDING_APP_VERSION = remote;
+      }
+      function xhrGet(url, cb) {
+        try {
+          var x = new XMLHttpRequest();
+          x.open('GET', url, true);
+          x.setRequestHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+          x.setRequestHeader('Pragma', 'no-cache');
+          x.setRequestHeader('X-App-Update-Check', '1');
+          x.onload = function () { cb(x.status >= 200 && x.status < 300 ? x.responseText : ''); };
+          x.onerror = function () { cb(''); };
+          x.send();
+        } catch (e) { cb(''); }
+      }
+      function fetchGet(url, cb) {
+        var opts = { cache: 'no-store', credentials: 'same-origin', headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache', 'X-App-Update-Check': '1' } };
+        fetch(url, opts).then(function (r) { return r.ok ? r.text() : ''; }).then(cb).catch(function () { cb(''); });
+      }
+      function get(url, cb) { (isApple ? xhrGet : fetchGet)(url, cb); }
+      var bust = Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+      var pending = 3, best = null;
+      function doneOne(raw) {
+        if (raw) {
+          var v = raw.trim().split(/\s+/)[0];
+          try { var j = JSON.parse(raw); if (j && j.cache) v = j.cache; } catch (e) {}
+          if (v && (!best || parseBuild(v) > parseBuild(best))) best = v;
+        }
+        if (--pending === 0 && best) applyRemote(best);
+      }
+      get('/build-id.txt?_=' + bust, doneOne);
+      get('/api/version?_=' + bust, doneOne);
+      get('/version-check.json?_=' + bust, doneOne);
     })();
   </script>
   <!-- iOS PWA -->
@@ -144,25 +168,25 @@
     </div>
   </div>
 
-  <script src="js/crypto-e2e.js?v=presupuesto-v48"></script>
-  <script src="js/store.js?v=presupuesto-v48"></script>
-  <script src="js/emoji-utils.js?v=presupuesto-v48"></script>
-  <script src="js/budget-engine.js?v=presupuesto-v48"></script>
-  <script src="js/install.js?v=presupuesto-v48"></script>
-  <script src="js/storage-prefs.js?v=presupuesto-v48"></script>
-  <script src="js/movement-form.js?v=presupuesto-v48"></script>
-  <script src="js/presupuesto.js?v=presupuesto-v48"></script>
-  <script src="js/dashboard.js?v=presupuesto-v48"></script>
-  <script src="js/registro.js?v=presupuesto-v48"></script>
-  <script src="js/calendario.js?v=presupuesto-v48"></script>
-  <script src="js/deudas.js?v=presupuesto-v48"></script>
-  <script src="js/graficos.js?v=presupuesto-v48"></script>
-  <script src="js/categorias.js?v=presupuesto-v48"></script>
-  <script src="js/backup-io.js?v=presupuesto-v48"></script>
-  <script src="js/excel-io.js?v=presupuesto-v48"></script>
-  <script src="js/tutorial.js?v=presupuesto-v48"></script>
-  <script src="js/vercel-analytics.js?v=presupuesto-v48"></script>
-  <script src="js/app.js?v=presupuesto-v48"></script>
+  <script src="js/crypto-e2e.js?v=presupuesto-v49"></script>
+  <script src="js/store.js?v=presupuesto-v49"></script>
+  <script src="js/emoji-utils.js?v=presupuesto-v49"></script>
+  <script src="js/budget-engine.js?v=presupuesto-v49"></script>
+  <script src="js/install.js?v=presupuesto-v49"></script>
+  <script src="js/storage-prefs.js?v=presupuesto-v49"></script>
+  <script src="js/movement-form.js?v=presupuesto-v49"></script>
+  <script src="js/presupuesto.js?v=presupuesto-v49"></script>
+  <script src="js/dashboard.js?v=presupuesto-v49"></script>
+  <script src="js/registro.js?v=presupuesto-v49"></script>
+  <script src="js/calendario.js?v=presupuesto-v49"></script>
+  <script src="js/deudas.js?v=presupuesto-v49"></script>
+  <script src="js/graficos.js?v=presupuesto-v49"></script>
+  <script src="js/categorias.js?v=presupuesto-v49"></script>
+  <script src="js/backup-io.js?v=presupuesto-v49"></script>
+  <script src="js/excel-io.js?v=presupuesto-v49"></script>
+  <script src="js/tutorial.js?v=presupuesto-v49"></script>
+  <script src="js/vercel-analytics.js?v=presupuesto-v49"></script>
+  <script src="js/app.js?v=presupuesto-v49"></script>
   <script>
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).then((reg) => {

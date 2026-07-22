@@ -30,7 +30,7 @@
       ]
     },
     {
-      "source": "/version.json",
+      "source": "/version-check.json",
       "headers": [
         { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
       ]

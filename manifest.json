@@ -3,7 +3,7 @@
   "name": "Presupuesto Personal",
   "short_name": "Presupuesto",
   "description": "Controla tus ingresos y gastos, ahorra de forma inteligente",
-  "start_url": "/",
+  "start_url": "/index.html",
   "scope": "/",
   "display": "standalone",
   "display_override": ["standalone", "window-controls-overlay"],

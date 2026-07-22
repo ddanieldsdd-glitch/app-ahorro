@@ -1,4 +1,4 @@
-const APP_BUILD_ID = 'presupuesto-v48';
+const APP_BUILD_ID = 'presupuesto-v49';
 const WINDOWS_EXE_URL = 'https://github.com/ddanieldsdd-glitch/app-ahorro/releases/download/v2.0.4/Presupuesto.Personal.Setup.2.0.4.exe';
 const PWA_INSTALLED_KEY = 'ahorro_pwa_installed';
 
@@ -125,6 +125,28 @@ const Install = {
     return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   },
 
+  _parseBuildVersion(v) {
+    if (!v) return 0;
+    const m = String(v).match(/v(\d+)/i);
+    return m ? parseInt(m[1], 10) : 0;
+  },
+
+  _isBuildNewer(remote, running) {
+    if (!remote) return false;
+    if (!running) return true;
+    const dr = this._parseBuildVersion(remote);
+    const lr = this._parseBuildVersion(running);
+    if (dr && lr) return dr > lr;
+    return remote !== running;
+  },
+
+  _pickNewestVersion(candidates) {
+    const unique = [...new Set((candidates || []).filter(Boolean))];
+    if (!unique.length) return null;
+    unique.sort((a, b) => this._parseBuildVersion(b) - this._parseBuildVersion(a));
+    return unique[0];
+  },
+
   _xhrText(url) {
     return new Promise((resolve, reject) => {
       try {
@@ -145,28 +167,38 @@ const Install = {
   async _bypassCacheFetch(url) {
     const bust = this._versionBust();
     const full = `${url}${url.includes('?') ? '&' : '?'}_=${encodeURIComponent(bust)}`;
+    const wrap = (text) => ({
+      ok: true,
+      text: async () => text,
+      json: async () => JSON.parse(text),
+    });
+    if (this._isApplePlatform()) {
+      try {
+        const text = await this._xhrText(full);
+        if (text) return wrap(text);
+      } catch { /* fetch fallback */ }
+    }
     const opts = this._fetchOpts();
     try {
       const res = await fetch(full, opts);
       if (res.ok) return res;
-    } catch { /* Safari fallback below */ }
-    if (this._isApplePlatform()) {
-      const text = await this._xhrText(full);
-      return {
-        ok: true,
-        text: async () => text,
-        json: async () => JSON.parse(text),
-      };
+    } catch { /* ignore */ }
+    if (!this._isApplePlatform()) {
+      try {
+        const text = await this._xhrText(full);
+        if (text) return wrap(text);
+      } catch { /* ignore */ }
     }
     return { ok: false, text: async () => '', json: async () => null };
   },
 
   _setupUpdateDetection() {
+    const pollMs = this._isApplePlatform() ? 30 * 1000 : 5 * 60 * 1000;
+
     if (!('serviceWorker' in navigator)) {
       this._checkRemoteVersion(false);
       this._bindUpdateListeners();
-      const intervalMs = this._isApplePlatform() ? 45 * 1000 : 5 * 60 * 1000;
-      setInterval(() => this._onAppForeground(), intervalMs);
+      setInterval(() => this._onAppForeground(), pollMs);
       return;
     }
 
@@ -187,6 +219,7 @@ const Install = {
 
     let refreshing = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (sessionStorage.getItem('_appUpdateReload')) return;
       if (!refreshing) {
         refreshing = true;
         if (typeof Store !== 'undefined' && Store._hasSubstantialData?.(Store.getData())) {
@@ -198,16 +231,19 @@ const Install = {
 
     this._checkRemoteVersion(false);
     this._bindUpdateListeners();
-    const intervalMs = this._isApplePlatform() ? 45 * 1000 : 5 * 60 * 1000;
-    setInterval(() => this._onAppForeground(), intervalMs);
+    setInterval(() => this._onAppForeground(), pollMs);
   },
 
   _bindUpdateListeners() {
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') this._onAppForeground();
     });
-    window.addEventListener('pageshow', (e) => { if (e.persisted) this._onAppForeground(); });
+    window.addEventListener('pageshow', (e) => {
+      this._onAppForeground();
+      if (e.persisted && this._isApplePlatform()) this._checkRemoteVersion(false);
+    });
     window.addEventListener('focus', () => this._onAppForeground());
+    window.addEventListener('online', () => this._onAppForeground());
   },
 
   _onAppForeground() {
@@ -222,8 +258,6 @@ const Install = {
 
   async _fetchRemoteVersion() {
     const origin = window.location.origin;
-    const fetchOpts = this._fetchOpts();
-    const bust = this._versionBust();
 
     const tasks = [
       (async () => {
@@ -252,7 +286,7 @@ const Install = {
       })(),
       (async () => {
         try {
-          const res = await fetch(`${origin}/version.json?_=${bust}`, fetchOpts);
+          const res = await this._bypassCacheFetch(`${origin}/version.json`);
           if (!res.ok) return null;
           const data = await res.json();
           return data?.cache || data?.version || null;
@@ -261,16 +295,8 @@ const Install = {
       this._fetchVersionFromIndexHtml(),
     ];
 
-    const results = await Promise.all(tasks);
-    const unique = [...new Set(results.filter(Boolean))];
-    if (!unique.length) return null;
-
-    const running = this._getRunningVersion();
-    if (running) {
-      const newer = unique.find((v) => v !== running);
-      if (newer) return newer;
-    }
-    return unique[0];
+    const remote = this._pickNewestVersion(await Promise.all(tasks));
+    return remote || null;
   },
 
   async _fetchVersionFromIndexHtml() {
@@ -322,14 +348,10 @@ const Install = {
     const pending = window.__PENDING_APP_VERSION;
     const networkBuild = remote ? null : await this._fetchNetworkBuildId();
     const indexVersion = remote ? null : await this._fetchVersionFromIndexHtml();
-    const remotes = [...new Set([remote, pending, networkBuild, indexVersion].filter(Boolean))];
+    const remotes = this._pickNewestVersion([remote, pending, networkBuild, indexVersion]);
 
-    if (!running) return remotes.length > 0;
-
-    for (const r of remotes) {
-      if (r && r !== running) return true;
-    }
-    return false;
+    if (!running) return !!remotes;
+    return remotes ? this._isBuildNewer(remotes, running) : false;
   },
 
   _getLocalVersion() {
@@ -403,11 +425,12 @@ const Install = {
     const versionUpdate = await this._needsVersionUpdate(remote);
     const bannerVisible = !!document.getElementById('updateBanner');
 
-    if (swUpdate || versionUpdate) {
+    if (swUpdate || versionUpdate || window.__PENDING_APP_VERSION) {
       if (!bannerVisible) this._showUpdateBanner(swUpdate ? 'sw' : 'version');
       if (typeof App !== 'undefined') {
-        const msg = remote && running && remote !== running
-          ? `🔄 Nueva versión: ${remote} (tienes ${running})`
+        const newest = this._pickNewestVersion([remote, window.__PENDING_APP_VERSION, running]);
+        const msg = newest && running && this._isBuildNewer(newest, running)
+          ? `🔄 Nueva versión: ${newest} (tienes ${running})`
           : '🔄 Hay una actualización disponible';
         App.showToast(msg, 4500);
       }

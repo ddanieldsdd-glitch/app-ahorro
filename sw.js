@@ -1,7 +1,7 @@
-const CACHE = 'presupuesto-v48';
+const CACHE = 'presupuesto-v49';
 
 const ASSETS = [
-  '/', '/index.html', '/styles.css', '/manifest.json', '/icon.svg',
+  '/styles.css', '/manifest.json', '/icon.svg',
   '/icons/icon-192.png', '/icons/icon-512.png',
   '/js/crypto-e2e.js', '/js/store.js', '/js/emoji-utils.js', '/js/budget-engine.js', '/js/install.js',
   '/js/storage-prefs.js', '/js/presupuesto.js', '/js/dashboard.js', '/js/registro.js', '/js/calendario.js',
@@ -9,7 +9,7 @@ const ASSETS = [
   '/js/deudas.js', '/js/excel-io.js', '/js/backup-io.js', '/js/tutorial.js', '/js/vercel-analytics.js', '/js/app.js',
 ];
 
-const NETWORK_ONLY = ['/sw.js', '/version.json', '/version-check.json', '/build-id.txt', '/api/version'];
+const NETWORK_ONLY = ['/sw.js', '/version.json', '/version-check.json', '/build-id.txt', '/api/version', '/index.html', '/'];
 
 self.addEventListener('install', (e) => {
   self.skipWaiting();
@@ -42,6 +42,10 @@ self.addEventListener('fetch', (e) => {
     e.respondWith(fetch(new Request(e.request, { cache: 'no-store' })));
     return;
   }
+  if (url.pathname === '/index.html' || url.pathname === '/') {
+    e.respondWith(networkOnly(e.request));
+    return;
+  }
   if (url.pathname.startsWith('/api/')) {
     e.respondWith(networkFirst(e.request));
   } else if (url.pathname.startsWith('/js/')) {
@@ -52,6 +56,16 @@ self.addEventListener('fetch', (e) => {
     e.respondWith(cacheFirst(e.request));
   }
 });
+
+async function networkOnly(req) {
+  try {
+    return await fetch(new Request(req, { cache: 'no-store' }));
+  } catch {
+    const hit = await caches.match(req);
+    if (hit) return hit;
+    return new Response('Sin conexión', { status: 503 });
+  }
+}
 
 async function cacheFirst(req) {
   const hit = await caches.match(req);
