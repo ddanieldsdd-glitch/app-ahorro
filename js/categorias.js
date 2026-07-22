@@ -77,19 +77,90 @@ const Categorias = {
         <div class="card-header">
           <span class="card-title">📲 App e instalación</span>
         </div>
-        <p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">
-          Instala la app en tu móvil u ordenador para usarla sin navegador. Funciona también sin conexión y sincroniza cuando vuelve a estar online.
-        </p>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
-          <button class="btn btn-primary btn-sm" onclick="Install.promptInstall()">
-            ${typeof Install !== 'undefined' && Install.isInstalled() ? '✅ App instalada' : '⬇ Instalar app'}
-          </button>
-        </div>
-        <div style="font-size:11px;color:var(--text-secondary);line-height:1.5">
-          <strong>Móvil Android:</strong> pulsa "Instalar" o el menú del navegador → "Instalar app".<br>
-          <strong>iPhone:</strong> Safari → Compartir → Añadir a pantalla de inicio.<br>
-          <strong>PC:</strong> Chrome/Edge → icono ⊕ en la barra de direcciones.
-        </div>
+        ${(() => {
+          const installed = typeof Install !== 'undefined' && Install.isInstalled();
+          const isWin = typeof Install !== 'undefined' && Install._isWindows();
+          const isIos = typeof Install !== 'undefined' && Install._isIos();
+          const isAndroid = typeof Install !== 'undefined' && Install._isAndroid();
+
+          if (installed) {
+            return `<div style="display:flex;align-items:center;gap:10px;padding:12px;border-radius:10px;background:var(--bg);border:1.5px solid var(--income)">
+              <span style="font-size:24px">✅</span>
+              <div>
+                <div style="font-size:13px;font-weight:700;color:var(--income)">App instalada correctamente</div>
+                <div style="font-size:11px;color:var(--text-secondary)">La estás usando como app independiente.</div>
+              </div>
+            </div>`;
+          }
+
+          if (isWin) {
+            return `<p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;line-height:1.5">
+                Elige cómo instalarla en Windows:
+              </p>
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <a href="${typeof WINDOWS_EXE_URL !== 'undefined' ? WINDOWS_EXE_URL : '#'}" download
+                  style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:10px;background:var(--primary);color:#fff;text-decoration:none;font-weight:600;font-size:13px">
+                  <span style="font-size:22px">⬇️</span>
+                  <div>
+                    <div>Descargar instalador .exe</div>
+                    <div style="font-size:11px;font-weight:400;opacity:.85">Nativo · Escritorio y menú Inicio · ~75 MB</div>
+                  </div>
+                </a>
+                <button onclick="Install.promptInstall()"
+                  style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:10px;background:var(--bg);border:1px solid var(--border);cursor:pointer;font-size:13px;text-align:left;width:100%">
+                  <span style="font-size:22px">🌐</span>
+                  <div>
+                    <div style="font-weight:600">Instalar como PWA (Chrome / Edge)</div>
+                    <div style="font-size:11px;color:var(--text-secondary)">Icono ⊕ en la barra de direcciones → Instalar</div>
+                  </div>
+                </button>
+              </div>`;
+          }
+
+          if (isIos) {
+            return `<p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">
+                En iPhone e iPad la instalación es gratuita desde Safari — no necesitas la App Store.
+              </p>
+              <ol style="font-size:12px;line-height:1.9;padding-left:18px;color:var(--text);margin-bottom:12px">
+                <li>Abre esta página en <strong>Safari</strong> (no en Chrome)</li>
+                <li>Pulsa el botón <strong>Compartir</strong> <span style="font-size:14px">⬆</span> (parte inferior de la pantalla)</li>
+                <li>Desplázate y elige <strong>"Añadir a pantalla de inicio"</strong></li>
+                <li>Pulsa <strong>Añadir</strong> — aparece un icono como cualquier app</li>
+              </ol>
+              <div style="font-size:11px;color:var(--text-secondary);background:var(--bg);padding:8px 10px;border-radius:8px">
+                La app se abre a pantalla completa, sin barra de Safari, igual que una app nativa. Sin coste de Apple Developer.
+              </div>`;
+          }
+
+          if (isAndroid) {
+            return `<p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;line-height:1.5">
+                En Android se instala desde Chrome como una app normal.
+              </p>
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <button onclick="Install.promptInstall()"
+                  style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:10px;background:var(--primary);border:none;color:#fff;cursor:pointer;font-size:13px;text-align:left;width:100%">
+                  <span style="font-size:22px">⬇️</span>
+                  <div>
+                    <div style="font-weight:600">Instalar app</div>
+                    <div style="font-size:11px;opacity:.85">Chrome muestra el diálogo de instalación</div>
+                  </div>
+                </button>
+                <div style="font-size:11px;color:var(--text-secondary);padding:8px 10px;background:var(--bg);border-radius:8px">
+                  Si no aparece el botón: menú ⋮ de Chrome → "Instalar app" o "Añadir a pantalla de inicio".
+                </div>
+              </div>`;
+          }
+
+          // macOS / other
+          return `<p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">
+              Instala la app desde el navegador — funciona sin conexión y se actualiza automáticamente.
+            </p>
+            <button class="btn btn-primary btn-sm" onclick="Install.promptInstall()" style="margin-bottom:8px">⬇ Instalar app</button>
+            <div style="font-size:11px;color:var(--text-secondary);line-height:1.5">
+              En <strong>Chrome / Edge</strong>: icono ⊕ en la barra de direcciones.<br>
+              En <strong>Safari (macOS)</strong>: Archivo → Añadir al Dock.
+            </div>`;
+        })()}
       </div>
 
       <div class="card" style="margin-bottom:10px">

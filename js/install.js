@@ -1,3 +1,5 @@
+const WINDOWS_EXE_URL = 'https://github.com/ddanieldsdd-glitch/app-ahorro/releases/download/v2.0.0/Presupuesto.Personal.Setup.2.0.0.exe';
+
 const Install = {
   _deferredPrompt: null,
   _isStandalone: false,
@@ -139,6 +141,14 @@ const Install = {
     return /iPhone|iPad|iPod/i.test(navigator.userAgent);
   },
 
+  _isAndroid() {
+    return /Android/i.test(navigator.userAgent);
+  },
+
+  _isWindows() {
+    return /Windows/i.test(navigator.userAgent) || /Win/i.test(navigator.platform);
+  },
+
   canInstall() {
     return !!this._deferredPrompt;
   },
@@ -148,6 +158,7 @@ const Install = {
   },
 
   async promptInstall() {
+    // Android / Chrome desktop: native PWA prompt
     if (this._deferredPrompt) {
       this._deferredPrompt.prompt();
       await this._deferredPrompt.userChoice;
@@ -155,6 +166,7 @@ const Install = {
       this._hideBanner();
       return true;
     }
+    // iPhone / iPad — Safari only
     if (this._isIos() && !this._isStandalone) {
       App.openModal({
         title: '📲 Instalar en iPhone/iPad',
@@ -163,16 +175,47 @@ const Install = {
           <li>Pulsa el botón <strong>Compartir</strong> (cuadrado con flecha)</li>
           <li>Elige <strong>"Añadir a pantalla de inicio"</strong></li>
         </ol>
-        <p style="font-size:12px;color:var(--text-secondary);margin-top:8px">Así podrás abrirla como una app independiente del navegador.</p>`,
+        <p style="font-size:12px;color:var(--text-secondary);margin-top:8px">Se crea un icono como cualquier app nativa, sin pagar nada a Apple.</p>`,
         actions: [{ label: 'Entendido', primary: true }],
       });
       return true;
     }
+    // Windows: offer native installer download OR browser PWA
+    if (this._isWindows() && !this._isStandalone) {
+      App.openModal({
+        title: '💻 Instalar en Windows',
+        body: `
+          <p style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:14px">
+            Elige cómo quieres instalar la app:
+          </p>
+          <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">
+            <a href="${WINDOWS_EXE_URL}" download
+              style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:10px;background:var(--primary);color:#fff;text-decoration:none;font-weight:600;font-size:13px">
+              <span style="font-size:22px">⬇️</span>
+              <div>
+                <div>Descargar instalador .exe</div>
+                <div style="font-size:11px;font-weight:400;opacity:.85">Instala como app nativa, con acceso directo en el Escritorio y el menú Inicio</div>
+              </div>
+            </a>
+            <button onclick="App._closeModal()" style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:10px;background:var(--bg);border:1px solid var(--border);cursor:pointer;font-size:13px;text-align:left">
+              <span style="font-size:22px">🌐</span>
+              <div>
+                <div style="font-weight:600">Instalar desde Chrome / Edge</div>
+                <div style="font-size:11px;color:var(--text-secondary)">Busca el icono ⊕ en la barra de direcciones o menú ⋮ → Instalar</div>
+              </div>
+            </button>
+          </div>`,
+        actions: [],
+      });
+      return true;
+    }
+    // macOS / other
     App.openModal({
-      title: '💻 Instalar en el ordenador',
+      title: '💻 Instalar la app',
       body: `<p style="font-size:14px;color:var(--text-secondary);line-height:1.6">
         En <strong>Chrome</strong> o <strong>Edge</strong>, busca el icono de instalación (⊕) en la barra de direcciones
-        o abre el menú ⋮ y elige <strong>"Instalar Presupuesto"</strong>.
+        o abre el menú y elige <strong>"Instalar Presupuesto"</strong>.<br><br>
+        En <strong>Safari (macOS)</strong>: Archivo → Añadir al Dock.
       </p>`,
       actions: [{ label: 'Entendido', primary: true }],
     });
@@ -186,13 +229,15 @@ const Install = {
       banner = document.createElement('div');
       banner.id = 'installBanner';
       banner.className = 'install-banner';
+      const isWin = this._isWindows();
       banner.innerHTML = `
         <div class="install-banner-text">
-          <strong>📲 Instala la app</strong>
-          <span>Úsala sin navegador y con acceso rápido</span>
+          <strong>${isWin ? '⬇️ Instala la app' : '📲 Instala la app'}</strong>
+          <span>${isWin ? 'Descarga el instalador .exe o instala desde Chrome' : 'Úsala sin navegador y con acceso rápido'}</span>
         </div>
         <div class="install-banner-actions">
-          <button class="btn btn-primary btn-sm" id="installBannerBtn">Instalar</button>
+          ${isWin ? `<a href="${WINDOWS_EXE_URL}" download class="btn btn-primary btn-sm" style="text-decoration:none">⬇ .exe</a>` : ''}
+          <button class="btn ${isWin ? 'btn-secondary' : 'btn-primary'} btn-sm" id="installBannerBtn">${isWin ? '🌐 PWA' : 'Instalar'}</button>
           <button class="btn btn-secondary btn-sm" id="installBannerDismiss">✕</button>
         </div>`;
       document.body.appendChild(banner);
