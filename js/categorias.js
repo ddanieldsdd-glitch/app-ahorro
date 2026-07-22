@@ -238,6 +238,55 @@ CREATE POLICY "allow_all" ON sync_data
         </div>
       </div>
 
+      <!-- ══ Espacio compartido con tu pareja ══════════════════════════════════ -->
+      <div class="card" style="margin-bottom:10px">
+        <div class="card-header">
+          <span class="card-title">🤝 Espacio compartido con tu pareja</span>
+        </div>
+        <p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;line-height:1.6">
+          Mismo proyecto Supabase, <strong>fila y frase distintas a las tuyas</strong>.<br>
+          Ninguno puede ver los gastos privados del otro — solo las deudas compartidas.<br>
+          <span style="color:var(--income)">🔒 Cifrado AES-256 independiente del cifrado personal.</span>
+        </p>
+
+        <div class="form-group" style="margin-bottom:8px">
+          <label style="font-size:12px;font-weight:600">ID de fila compartida</label>
+          <input type="text" id="sharedRowId" placeholder="compartido (el mismo en ambos dispositivos)"
+            value="${esc(Store.getSharedSyncSettings().rowId || '')}"
+            style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px">
+          <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">
+            Inventaos un nombre único (ej: <em>ahorro-compartido-2025</em>). <strong>No es la contraseña</strong>.
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom:8px">
+          <label style="font-size:12px;font-weight:600">Frase compartida <span style="font-weight:400">(misma en ambos dispositivos)</span></label>
+          <div style="position:relative">
+            <input type="password" id="sharedPassphrase" placeholder="Frase que os acordéis juntos — nunca se sube a la nube"
+              value="${esc(Store.getSharedSyncSettings().passphrase || '')}"
+              style="width:100%;padding:8px 36px 8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;box-sizing:border-box">
+            <button type="button" onclick="Categorias._toggleFieldVisibility('sharedPassphrase','sharedPassphraseToggle')"
+              id="sharedPassphraseToggle"
+              style="position:absolute;right:8px;top:50%;transform:translateY(-50%);border:none;background:none;cursor:pointer;font-size:14px;color:var(--text-secondary)">👁</button>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom:10px">
+          <label style="font-size:12px;font-weight:600">Estado</label>
+          <div id="sharedSyncStatus" style="font-size:13px;padding:8px 10px;border-radius:8px;background:var(--bg)">
+            ${Store.isSharedEnabled() ? '🟢 Espacio compartido activo' : '⚫ No configurado'}
+          </div>
+        </div>
+
+        <div style="font-size:11px;padding:10px;border-radius:8px;background:var(--bg);margin-bottom:12px;line-height:1.7;color:var(--text-secondary)">
+          <strong style="color:var(--text)">Tú:</strong> rowId: <code>yo</code>, frase: <em>tu-frase-privada</em><br>
+          <strong style="color:var(--text)">Tu pareja:</strong> rowId: <code>pareja</code>, frase: <em>su-frase-privada</em><br>
+          <strong style="color:var(--text)">Compartido (ambos):</strong> rowId: <code>compartido</code>, frase: <em>frase-que-acordéis</em>
+        </div>
+
+        <button class="btn btn-primary btn-sm" onclick="Categorias._saveSharedSettings()">💾 Guardar espacio compartido</button>
+      </div>
+
       <div class="card" style="margin-bottom:10px">
         <div class="card-header">
           <span class="card-title">🔄 Actualizaciones</span>
@@ -1300,6 +1349,25 @@ CREATE POLICY "allow_all" ON sync_data
     }
     const enc = Store.isEncryptionEnabled();
     App.showToast(enc ? '🔐 Guardado con cifrado E2E activo' : `☁️ Sincronización con ${provider === 'supabase' ? 'Supabase' : 'servidor'} guardada`);
+    this.render();
+  },
+
+  _saveSharedSettings() {
+    const rowId      = document.getElementById('sharedRowId')?.value.trim() || 'compartido';
+    const passphrase = document.getElementById('sharedPassphrase')?.value || '';
+    // Inherit Supabase URL/key from personal sync settings
+    const personal = Store.getSyncSettings();
+    Store.setSharedSyncSettings({
+      supabaseUrl:      personal.supabaseUrl || '',
+      supabaseAnonKey:  personal.supabaseAnonKey || '',
+      rowId,
+      passphrase,
+    });
+    if (rowId && passphrase) {
+      App.showToast('🤝 Espacio compartido guardado y activado');
+    } else {
+      App.showToast('⚠️ Introduce el ID de fila y la frase para activar el espacio compartido');
+    }
     this.render();
   },
 

@@ -1,5 +1,6 @@
 const Deudas = {
   viewMode: { owed: 'debt', iowe: 'debt', main: 'net' },
+  scope: 'personal',          // 'personal' | 'shared'
   _collapsedGroups: new Set(),
   _collapsedPersons: new Set(),
   _collapsedNetPersons: new Set(),
@@ -8,6 +9,51 @@ const Deudas = {
     this.viewMode[section] = mode;
     this.render();
   },
+
+  // ── Scope helpers — route operations to personal or shared store ──────────
+  _setScope(s) { this.scope = s; this.render(); },
+
+  _getPendingDebts()  { return this.scope === 'shared' ? Store.getPendingSharedDebts()  : Store.getPendingDebts(); },
+  _getSettledDebts()  { return this.scope === 'shared' ? Store.getSettledSharedDebts()  : Store.getSettledDebts(); },
+  _getDebts()         { return this.scope === 'shared' ? Store.getSharedDebts()         : Store.getDebts(); },
+
+  _scopeAddDebtsForPeople(opts) {
+    return this.scope === 'shared'
+      ? Store.addSharedDebtsForPeople(opts)
+      : Store.addDebtsForPeople(opts);
+  },
+
+  _scopeDeleteDebt(id) {
+    if (this.scope === 'shared') Store.deleteSharedDebt(id);
+    else Store.deleteDebt(id);
+  },
+
+  _scopeSettleDebt(id) {
+    if (this.scope === 'shared') { Store.settleSharedDebt(id); return null; }
+    return Store.settleDebt(id);
+  },
+
+  _scopeReopenDebt(id) {
+    if (this.scope === 'shared') Store.reopenSharedDebt(id);
+    else Store.updateDebt(id, { isPaid: false, paidDate: null, paidTxId: null });
+  },
+
+  _scopeUpdateDebt(id, patch) {
+    if (this.scope === 'shared') Store.updateSharedDebt(id, patch);
+    else Store.updateDebt(id, patch);
+  },
+
+  _scopeGetNetBalance(person)   { return this.scope === 'shared' ? Store.getSharedNetBalance(person) : Store.getNetBalance(person); },
+  _scopeSettlePersonNet(person) {
+    if (this.scope === 'shared') { Store.settleSharedPersonNet(person); return null; }
+    return Store.settlePersonNet(person);
+  },
+
+  _scopeSave() {
+    if (this.scope !== 'shared') Store._save();
+  },
+
+  _scopeGetPeople() { return Store.getPeople(); },
 
   _setMainView(mode) {
     this.viewMode.main = mode;
@@ -24,9 +70,10 @@ const Deudas = {
   /**
    * Calcula el balance neto por persona, combinando Me deben + Debo yo.
    * Devuelve array ordenado por |net| desc.
+   * Usa _getPendingDebts() para respetar el scope actual (personal / compartido).
    */
   _buildNetBalances() {
-    const pending = Store.getPendingDebts();
+    const pending = this._getPendingDebts();
     const map = new Map();
     for (const d of pending) {
       if (!map.has(d.person)) map.set(d.person, { person: d.person, owedToMe: [], iOwe: [] });
@@ -204,22 +251,24 @@ const Deudas = {
   },
 
   _settlePersonNetAction(person) {
-    const net = Store.getNetBalance(person);
+    const net = this._scopeGetNetBalance(person);
+    const isShared = this.scope === 'shared';
     if (Math.abs(net) < 0.01) {
-      const pending = Store.getPendingDebts().filter(d => d.person === person);
+      const pending = this._getPendingDebts().filter(d => d.person === person);
       App.showConfirm('Estáis a mano', `¿Marcar las ${pending.length} deuda(s) con ${esc(person)} como liquidadas? El saldo neto es cero, no se creará ningún movimiento.`, () => {
-        Store.settlePersonNet(person);
+        this._scopeSettlePersonNet(person);
         this._refreshAll();
         App.showToast(`${person}: todas las deudas liquidadas`);
       });
       return;
     }
     const isPositive = net > 0;
+    const sharedNote = isShared ? ' (espacio compartido — no afecta a tu saldo personal)' : '';
     const msg = isPositive
-      ? `${esc(person)} te paga ${net.toFixed(2)} € (neto). Se creará un ingreso y todas las deudas con ${esc(person)} quedarán saldadas.`
-      : `Pagas ${Math.abs(net).toFixed(2)} € a ${esc(person)} (neto). Se creará un gasto y todas las deudas con ${esc(person)} quedarán saldadas.`;
+      ? `${esc(person)} te paga ${net.toFixed(2)} € (neto)${sharedNote}. Todas las deudas con ${esc(person)} quedarán saldadas.`
+      : `Pagas ${Math.abs(net).toFixed(2)} € a ${esc(person)} (neto)${sharedNote}. Todas las deudas con ${esc(person)} quedarán saldadas.`;
     App.showConfirm(`⚖️ Saldar con ${esc(person)}`, msg, () => {
-      const tx = Store.settlePersonNet(person);
+      const tx = this._scopeSettlePersonNet(person);
       this._refreshAll();
       App.showToast(tx
         ? `${person} saldado · ${isPositive ? 'cobrado' : 'pagado'} ${Math.abs(net).toFixed(2)}€`
@@ -684,22 +733,32 @@ const Deudas = {
     const { persons, amount, totalAmount, splitCount, amountsByPerson, splitLines } = this._readDebtForm(prefix);
     if (persons.length === 0) { App.showToast('Indica al menos una persona'); return null; }
     if (!amountsByPerson && (!amount || amount <= 0)) { App.showToast('Importe inválido'); return null; }
-    const payload = {
-      ...extra, totalAmount, splitCount, amount, amountsByPerson, splitLines,
-      type: extra.type || document.getElementById(prefix + 'Type')?.value || 'owed_to_me',
-    };
+    const type = extra.type || document.getElementById(prefix + 'Type')?.value || 'owed_to_me';
     let created;
-    if (extra.linkedTxId) {
-      const existing = Store.getDebtsByLinkedTx(extra.linkedTxId);
-      existing.forEach(d => Store.deleteDebt(d.id));
-      created = Store.addDebtsForPeople({
-        persons, ...payload, linkedTxId: extra.linkedTxId, skipAutoTx: true,
-      });
+
+    if (this.scope === 'shared') {
+      // Shared debts: simple per-person entries, no balance transactions
+      const perPerson = amountsByPerson
+        ? Object.entries(amountsByPerson).map(([p, a]) => ({ person: p, amount: a }))
+        : persons.map(p => ({ person: p, amount: amount }));
+      created = perPerson.map(({ person, amount: amt }) =>
+        Store.addSharedDebt({ person, amount: amt, type, description: extra.description || '', category: extra.category || 'Otros', date: extra.date })
+      );
+      persons.forEach(p => Store.rememberPerson(p, false));
     } else {
-      created = Store.addDebtsForPeople({ persons, ...payload, skipAutoTx: extra.skipAutoTx });
+      const payload = {
+        ...extra, totalAmount, splitCount, amount, amountsByPerson, splitLines, type,
+      };
+      if (extra.linkedTxId) {
+        const existing = Store.getDebtsByLinkedTx(extra.linkedTxId);
+        existing.forEach(d => Store.deleteDebt(d.id));
+        created = Store.addDebtsForPeople({ persons, ...payload, linkedTxId: extra.linkedTxId, skipAutoTx: true });
+      } else {
+        created = Store.addDebtsForPeople({ persons, ...payload, skipAutoTx: extra.skipAutoTx });
+      }
+      persons.forEach(p => Store.rememberPerson(p, false));
+      Store._save();
     }
-    persons.forEach(p => Store.rememberPerson(p, false));
-    Store._save();
     if (!created || created.length === 0) { App.showToast('Sin importes: comprueba el desglose'); return null; }
     return created;
   },
@@ -708,10 +767,34 @@ const Deudas = {
     const el = document.getElementById('tab-deudas');
     if (!el) return;
 
-    const pending   = Store.getPendingDebts();
+    // ── Scope: if shared selected but not configured, show notice ────────────
+    const isShared = this.scope === 'shared';
+    if (isShared && !Store.isSharedEnabled()) {
+      el.innerHTML = `
+        <div class="card" style="margin-bottom:10px">
+          <div class="card-header">
+            <span class="card-title">💸 Deudas</span>
+          </div>
+          <div class="debt-view-toggle" style="margin-bottom:12px">
+            <button type="button" class="cal-type-btn" onclick="Deudas._setScope('personal')">👤 Mis deudas</button>
+            <button type="button" class="cal-type-btn active" onclick="Deudas._setScope('shared')">🤝 Compartidas</button>
+          </div>
+          <div class="empty-state" style="padding:24px 16px;text-align:center">
+            <div style="font-size:32px;margin-bottom:10px">🔒</div>
+            <div style="font-weight:700;margin-bottom:6px">Espacio compartido no configurado</div>
+            <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-bottom:14px">
+              Ve a <strong>⚙️ Ajustes → Espacio compartido</strong> e introduce el ID de fila y la frase compartida con tu pareja.
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="App._switchTab('categorias')">Ir a Ajustes</button>
+          </div>
+        </div>`;
+      return;
+    }
+
+    const pending   = this._getPendingDebts();
     const owedToMe  = pending.filter(d => (d.type || 'owed_to_me') === 'owed_to_me');
     const iOwe      = pending.filter(d => d.type === 'i_owe');
-    const settled   = Store.getSettledDebts().sort((a, b) => b.paidDate?.localeCompare(a.paidDate || '') || 0);
+    const settled   = this._getSettledDebts().sort((a, b) => b.paidDate?.localeCompare(a.paidDate || '') || 0);
 
     const totalOwedToMe = owedToMe.reduce((s, d) => s + d.amount, 0);
     const totalIOwe     = iOwe.reduce((s, d) => s + d.amount, 0);
@@ -723,12 +806,20 @@ const Deudas = {
     const netBalances   = this._buildNetBalances();
 
     const isNet = this.viewMode.main === 'net';
+    const scopeLabel = isShared
+      ? `<span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:10px;background:#E0E7FF;color:#4F46E5;margin-left:6px">Compartidas 🔒</span>`
+      : '';
 
     el.innerHTML = `
       <div class="card">
         <div class="card-header">
-          <span class="card-title">💸 Deudas</span>
+          <span class="card-title">💸 Deudas${scopeLabel}</span>
           <button class="btn btn-primary btn-sm" onclick="Deudas._openNew()">+ Nueva deuda</button>
+        </div>
+
+        <div class="debt-view-toggle" style="margin-bottom:12px">
+          <button type="button" class="cal-type-btn${!isShared ? ' active' : ''}" onclick="Deudas._setScope('personal')">👤 Mis deudas</button>
+          <button type="button" class="cal-type-btn${isShared ? ' active' : ''}" onclick="Deudas._setScope('shared')">🤝 Compartidas</button>
         </div>
 
         <div class="debt-summary-row">
@@ -1001,19 +1092,20 @@ const Deudas = {
   },
 
   _findDebtsByGroupKey(key) {
-    const pending = Store.getPendingDebts();
+    const pending = this._getPendingDebts();
     return pending.filter(d => this._debtGroupKey(d) === key);
   },
 
   _settle(id) {
-    const d = Store.getDebts().find(x => x.id === id);
+    const d = this._getDebts().find(x => x.id === id);
     if (!d) return;
     const isOwedToMe = (d.type || 'owed_to_me') === 'owed_to_me';
+    const sharedNote = this.scope === 'shared' ? ' (espacio compartido)' : '';
     const msg = isOwedToMe
-      ? `¿Marcar como cobrado? Se creará un ingreso de ${d.amount.toFixed(2)}€ de ${esc(d.person)}.`
-      : `¿Marcar como pagado? Se creará un gasto de ${d.amount.toFixed(2)}€ a ${esc(d.person)}.`;
+      ? `¿Marcar como cobrado${sharedNote}? ${this.scope === 'shared' ? '' : `Se creará un ingreso de ${d.amount.toFixed(2)}€ de ${esc(d.person)}.`}`
+      : `¿Marcar como pagado${sharedNote}? ${this.scope === 'shared' ? '' : `Se creará un gasto de ${d.amount.toFixed(2)}€ a ${esc(d.person)}.`}`;
     App.showConfirm(isOwedToMe ? '✅ Marcar cobrado' : '✅ Marcar pagado', msg, () => {
-      const tx = Store.settleDebt(id);
+      const tx = this._scopeSettleDebt(id);
       this._refreshAll();
       App.showToast(tx ? `${isOwedToMe ? 'Cobrado' : 'Pagado'} ${d.amount.toFixed(2)}€ · movimiento creado` : 'Liquidado');
     });
@@ -1027,14 +1119,14 @@ const Deudas = {
       ? `¿Marcar como cobradas ${debts.length} deuda(s) por un total de ${total.toFixed(2)}€?`
       : `¿Marcar como pagadas ${debts.length} deuda(s) por un total de ${total.toFixed(2)}€?`;
     App.showConfirm(isOwedToMe ? '✅ Cobrar todo' : '✅ Pagar todo', msg, () => {
-      debts.forEach(d => Store.settleDebt(d.id));
+      debts.forEach(d => this._scopeSettleDebt(d.id));
       this._refreshAll();
       App.showToast(`${debts.length} deuda(s) liquidada(s) · ${total.toFixed(2)}€`);
     });
   },
 
   _settlePerson(person, isOwedToMe) {
-    const debts = Store.getPendingDebts().filter(d =>
+    const debts = this._getPendingDebts().filter(d =>
       d.person === person && ((d.type || 'owed_to_me') === 'owed_to_me') === isOwedToMe
     );
     if (!debts.length) return;
@@ -1043,7 +1135,7 @@ const Deudas = {
       ? `¿Marcar como cobradas todas las deudas de ${esc(person)} (${total.toFixed(2)}€)?`
       : `¿Marcar como pagadas todas las deudas con ${esc(person)} (${total.toFixed(2)}€)?`;
     App.showConfirm(isOwedToMe ? '✅ Cobrar todo' : '✅ Pagar todo', msg, () => {
-      debts.forEach(d => Store.settleDebt(d.id));
+      debts.forEach(d => this._scopeSettleDebt(d.id));
       this._refreshAll();
       App.showToast(`${person}: ${debts.length} deuda(s) liquidada(s)`);
     });
@@ -1052,8 +1144,8 @@ const Deudas = {
   _deleteGroup(key) {
     const debts = this._findDebtsByGroupKey(key);
     if (!debts.length) return;
-    App.showConfirm('Eliminar deudas', `¿Eliminar ${debts.length} deuda(s) de este grupo? Si hay movimientos auto-creados, también se eliminarán.`, () => {
-      debts.forEach(d => Store.deleteDebt(d.id));
+    App.showConfirm('Eliminar deudas', `¿Eliminar ${debts.length} deuda(s) de este grupo?`, () => {
+      debts.forEach(d => this._scopeDeleteDebt(d.id));
       this._refreshAll();
       App.showToast('Deudas eliminadas');
     });
@@ -1108,14 +1200,14 @@ const Deudas = {
   },
 
   _delete(id) {
-    App.showConfirm('Eliminar deuda', '¿Eliminar esta deuda? Si se creó automáticamente, también se eliminará su movimiento.', () => {
-      Store.deleteDebt(id);
+    App.showConfirm('Eliminar deuda', '¿Eliminar esta deuda?', () => {
+      this._scopeDeleteDebt(id);
       this._refreshAll();
     });
   },
 
   _reopen(id) {
-    Store.updateDebt(id, { isPaid: false, paidDate: null, paidTxId: null });
+    this._scopeReopenDebt(id);
     this._refreshAll();
     App.showToast('Deuda reabierta');
   },

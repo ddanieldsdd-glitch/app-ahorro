@@ -61,6 +61,7 @@ const App = {
     this._currentViewMonth = Store.getCurrentMonth();
     this._isArchived = false;
     Store.onChange(() => this._onRemoteUpdate());
+    Store.onSharedChange(() => { if (Deudas.scope === 'shared') Deudas.render(); });
     this._renderMonthSelector();
     this._setupTabs();
     this._setupArchive();

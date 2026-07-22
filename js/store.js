@@ -3,6 +3,8 @@ const BACKUP_KEY = 'ahorro_backup';
 const SYNC_SETTINGS_KEY = 'ahorro_sync_settings';
 const PASSPHRASE_KEY = 'ahorro_passphrase';
 const SYNC_INTERVAL = 4000;
+const SHARED_SYNC_KEY    = 'ahorro_shared_sync';
+const SHARED_STORAGE_KEY = 'ahorro_shared_debts';
 
 // Global utilities (loaded first, available to all modules)
 function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
@@ -69,6 +71,11 @@ const Store = {
   _syncTimer: null,
   _syncStatus: 'offline',
   _syncStatusDetail: 'Iniciando…',
+
+  // ── Shared space (partner debts) ───────────────────────────────────────────
+  _sharedData: { debts: [], _lastModified: 0 },
+  _sharedTimer: null,
+  _sharedCallbacks: [],
 
   getSyncSettings() {
     try {
@@ -269,6 +276,8 @@ const Store = {
     this._ready = true;
     this._startSync();
     this._bindConnectivity();
+    // Init shared space (non-blocking, fires in background)
+    this._initShared();
     return this._data;
   },
 
@@ -1977,6 +1986,207 @@ const Store = {
     }
     this._save();
     return tx;
+  },
+
+  // ── Shared space — settings ────────────────────────────────────────────────
+
+  getSharedSyncSettings() {
+    try {
+      const raw = localStorage.getItem(SHARED_SYNC_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch {}
+    return { supabaseUrl: '', supabaseAnonKey: '', rowId: '', passphrase: '' };
+  },
+
+  setSharedSyncSettings({ supabaseUrl = '', supabaseAnonKey = '', rowId = '', passphrase = '' } = {}) {
+    const obj = {
+      supabaseUrl: supabaseUrl.trim().replace(/\/+$/, ''),
+      supabaseAnonKey: supabaseAnonKey.trim(),
+      rowId: rowId.trim() || 'compartido',
+      passphrase,
+    };
+    localStorage.setItem(SHARED_SYNC_KEY, JSON.stringify(obj));
+    this._initShared();
+  },
+
+  isSharedEnabled() {
+    const s = this.getSharedSyncSettings();
+    return !!(s.rowId && s.passphrase && s.supabaseUrl && s.supabaseAnonKey);
+  },
+
+  onSharedChange(cb) { this._sharedCallbacks.push(cb); },
+
+  // ── Shared space — Supabase client ─────────────────────────────────────────
+
+  _getSharedClient() {
+    const s = this.getSharedSyncSettings();
+    // Use personal Supabase project if not overridden in shared settings
+    const url = s.supabaseUrl || this.getSyncSettings().supabaseUrl;
+    const key = s.supabaseAnonKey || this.getSyncSettings().supabaseAnonKey;
+    return window.supabase.createClient(url, key);
+  },
+
+  // ── Shared space — encryption (same AES-256, shared passphrase) ────────────
+
+  async _encryptShared(obj) {
+    const { passphrase } = this.getSharedSyncSettings();
+    if (!passphrase || typeof CryptoE2E === 'undefined') return obj;
+    const payload = await CryptoE2E.encrypt(JSON.stringify(obj), passphrase);
+    payload._lastModified = obj._lastModified || Date.now();
+    payload._encrypted = true;
+    return payload;
+  },
+
+  async _decryptShared(blob) {
+    if (!blob || !blob._encrypted) return blob;
+    const { passphrase } = this.getSharedSyncSettings();
+    if (!passphrase) throw new Error('Datos compartidos cifrados pero no hay frase configurada.');
+    const plain = await CryptoE2E.decrypt(blob, passphrase);
+    return JSON.parse(plain);
+  },
+
+  // ── Shared space — Supabase push/pull ──────────────────────────────────────
+
+  async _pushSharedToSupabase() {
+    if (!this.isSharedEnabled()) return false;
+    try {
+      const { rowId } = this.getSharedSyncSettings();
+      const blob = await this._encryptShared(this._sharedData);
+      const { error } = await this._getSharedClient()
+        .from('sync_data')
+        .upsert({ id: rowId, payload: blob });
+      return !error;
+    } catch { return false; }
+  },
+
+  async _pullSharedFromSupabase() {
+    if (!this.isSharedEnabled()) return false;
+    try {
+      const { rowId } = this.getSharedSyncSettings();
+      const { data, error } = await this._getSharedClient()
+        .from('sync_data')
+        .select('payload')
+        .eq('id', rowId)
+        .maybeSingle();
+      if (error) return false;
+      if (!data) {
+        // First time — push our local shared data
+        await this._pushSharedToSupabase();
+        return true;
+      }
+      const remote = await this._decryptShared(data.payload);
+      if (!remote) return false;
+      if ((remote._lastModified || 0) > (this._sharedData._lastModified || 0)) {
+        this._sharedData = remote;
+        if (!this._sharedData.debts) this._sharedData.debts = [];
+        localStorage.setItem(SHARED_STORAGE_KEY, JSON.stringify(this._sharedData));
+        this._sharedCallbacks.forEach(cb => cb());
+      }
+      return true;
+    } catch { return false; }
+  },
+
+  // ── Shared space — init ────────────────────────────────────────────────────
+
+  async _initShared() {
+    if (this._sharedTimer) { clearInterval(this._sharedTimer); this._sharedTimer = null; }
+    if (!this.isSharedEnabled()) return;
+
+    // Load local cache first
+    try {
+      const raw = localStorage.getItem(SHARED_STORAGE_KEY);
+      if (raw) this._sharedData = JSON.parse(raw);
+    } catch {}
+    if (!this._sharedData.debts) this._sharedData.debts = [];
+
+    // Pull from Supabase
+    await this._pullSharedFromSupabase();
+
+    // Start polling
+    this._sharedTimer = setInterval(() => this._pullSharedFromSupabase(), SYNC_INTERVAL);
+  },
+
+  _saveShared() {
+    this._sharedData._lastModified = Date.now();
+    localStorage.setItem(SHARED_STORAGE_KEY, JSON.stringify(this._sharedData));
+    this._pushSharedToSupabase();
+    this._sharedCallbacks.forEach(cb => cb());
+  },
+
+  // ── Shared space — debt CRUD ───────────────────────────────────────────────
+
+  getSharedDebts()         { return [...(this._sharedData.debts || [])]; },
+  getPendingSharedDebts()  { return this.getSharedDebts().filter(d => !d.isPaid); },
+  getSettledSharedDebts()  { return this.getSharedDebts().filter(d => d.isPaid); },
+
+  addSharedDebt(data) {
+    if (!this._sharedData.debts) this._sharedData.debts = [];
+    const debt = {
+      id: Date.now().toString(36) + Math.random().toString(36).substr(2, 8),
+      person: data.person || '',
+      amount: data.amount,
+      type: data.type || 'owed_to_me',
+      description: data.description || '',
+      category: data.category || 'Otros',
+      date: data.date || new Date().toISOString().split('T')[0],
+      isPaid: false,
+      paidDate: null,
+      paidTxId: null,
+      _shared: true,
+    };
+    this._sharedData.debts.push(debt);
+    this._saveShared();
+    return debt;
+  },
+
+  addSharedDebtsForPeople({ persons = [], amount, type, description, category, date }) {
+    return persons.map(person => this.addSharedDebt({ person, amount, type, description, category, date }));
+  },
+
+  updateSharedDebt(id, patch) {
+    const d = (this._sharedData.debts || []).find(x => x.id === id);
+    if (!d) return;
+    Object.assign(d, patch);
+    this._saveShared();
+  },
+
+  deleteSharedDebt(id) {
+    if (!this._sharedData.debts) return;
+    this._sharedData.debts = this._sharedData.debts.filter(d => d.id !== id);
+    this._saveShared();
+  },
+
+  settleSharedDebt(id) {
+    const d = (this._sharedData.debts || []).find(x => x.id === id);
+    if (!d || d.isPaid) return;
+    d.isPaid = true;
+    d.paidDate = new Date().toISOString().split('T')[0];
+    this._saveShared();
+  },
+
+  reopenSharedDebt(id) {
+    const d = (this._sharedData.debts || []).find(x => x.id === id);
+    if (!d) return;
+    d.isPaid = false;
+    d.paidDate = null;
+    this._saveShared();
+  },
+
+  // ── Shared space — Tricount net balance ────────────────────────────────────
+
+  getSharedNetBalance(person) {
+    const pending = this.getPendingSharedDebts().filter(d => d.person === person);
+    const owedToMe = pending.filter(d => (d.type || 'owed_to_me') === 'owed_to_me').reduce((s, d) => s + d.amount, 0);
+    const iOwe     = pending.filter(d => d.type === 'i_owe').reduce((s, d) => s + d.amount, 0);
+    return Math.round((owedToMe - iOwe) * 100) / 100;
+  },
+
+  settleSharedPersonNet(person) {
+    const pending = this.getPendingSharedDebts().filter(d => d.person === person);
+    if (!pending.length) return;
+    const today = new Date().toISOString().split('T')[0];
+    for (const d of pending) { d.isPaid = true; d.paidDate = today; }
+    this._saveShared();
   },
 
   exportJSON() {
