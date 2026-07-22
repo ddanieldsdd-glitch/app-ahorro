@@ -451,7 +451,7 @@ const BudgetEngine = {
     const incomeGroups = Store.getIncomeGroups();
     const byIncomeGroup = incomeGroups.map(g => {
       const received = incomes
-        .filter(t => Store.categoryInList(t.category, g.categories))
+        .filter(t => Store.txInIncomeGroup(t, g))
         .reduce((s, t) => s + t.amount, 0);
       const target = g.monthlyTarget || 0;
       const targetPeriod = isWeek ? target / 4.33 : target;

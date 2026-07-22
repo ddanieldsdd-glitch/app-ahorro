@@ -471,6 +471,45 @@ html {
   padding: 14px;
   margin-bottom: 10px;
 }
+.cat-section-details {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  margin-bottom: 10px;
+  background: var(--card);
+  overflow: hidden;
+}
+.cat-section-details[open] { border-color: color-mix(in srgb, var(--primary) 30%, var(--border)); }
+.cat-section-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 14px;
+  font-weight: 700;
+  user-select: none;
+}
+.cat-section-summary::-webkit-details-marker { display: none; }
+.cat-section-meta { font-size: 11px; font-weight: 600; color: var(--text-secondary); }
+.cat-section-body { padding: 0 14px 14px; }
+.cat-section-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.cat-section-hint {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.4;
+  flex: 1;
+}
+.cat-tx-amount-income { color: var(--income) !important; }
+.cat-group-block { margin-bottom: 8px; }
 .cat-section-title { font-size: 14px; font-weight: 700; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; }
 .cat-list { display: flex; flex-direction: column; gap: 4px; }
 .cat-list-expenses { gap: 6px; }

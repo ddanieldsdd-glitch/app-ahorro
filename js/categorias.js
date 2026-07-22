@@ -606,57 +606,83 @@ END $$;</code>
       </div>
 
       <div class="cat-grid">
-        <div class="cat-section">
-          <div class="cat-section-title">
+        <details class="cat-section-details">
+          <summary class="cat-section-summary">
             <span>Categorías de gasto</span>
-            <button type="button" class="btn btn-secondary btn-sm cat-tx-scope-btn" onclick="Categorias._toggleCatTxScope()" title="Alternar periodo visible">
-              ${this._catTxShowAll ? '📅 Todo el historial' : '📅 Mes actual'}
-            </button>
+            <span class="cat-section-meta" id="catSectionMeta-expense"></span>
+          </summary>
+          <div class="cat-section-body">
+            <div class="cat-section-toolbar">
+              <p class="cat-section-hint">Pulsa una categoría para ver cuándo y dónde fue cada gasto.</p>
+              <button type="button" class="btn btn-secondary btn-sm cat-tx-scope-btn" onclick="Categorias._toggleCatTxScope()" title="Alternar periodo visible">
+                ${this._catTxShowAll ? '📅 Todo el historial' : '📅 Mes actual'}
+              </button>
+            </div>
+            <div class="cat-list cat-list-expenses" id="catList"></div>
+            <div class="add-cat-form">
+              <input type="text" id="newCategory" placeholder="Nueva categoría de gasto...">
+              <button onclick="Categorias._add('category')">Añadir</button>
+            </div>
           </div>
-          <p style="font-size:11px;color:var(--text-secondary);margin:-4px 0 8px;line-height:1.4">Pulsa una categoría para ver cuándo y dónde fue cada gasto.</p>
-          <div class="cat-list cat-list-expenses" id="catList"></div>
-          <div class="add-cat-form">
-            <input type="text" id="newCategory" placeholder="Nueva categoría de gasto...">
-            <button onclick="Categorias._add('category')">Añadir</button>
-          </div>
-        </div>
-        <div class="cat-section">
-          <div class="cat-section-title">
+        </details>
+        <details class="cat-section-details">
+          <summary class="cat-section-summary">
             <span>Categorías de ingreso</span>
+            <span class="cat-section-meta" id="catSectionMeta-income"></span>
+          </summary>
+          <div class="cat-section-body">
+            <div class="cat-section-toolbar">
+              <p class="cat-section-hint">Pulsa una categoría para ver cuándo y de dónde vino cada ingreso.</p>
+              <button type="button" class="btn btn-secondary btn-sm cat-tx-scope-btn" onclick="Categorias._toggleCatTxScope()">${this._catTxShowAll ? '📅 Todo' : '📅 Mes'}</button>
+            </div>
+            <div class="cat-list cat-list-expenses" id="incomeCatList"></div>
+            <div class="add-cat-form">
+              <input type="text" id="newIncomeCategory" placeholder="Nueva categoría de ingreso...">
+              <button onclick="Categorias._add('incomeCategory')">Añadir</button>
+            </div>
           </div>
-          <div class="cat-list" id="incomeCatList"></div>
-          <div class="add-cat-form">
-            <input type="text" id="newIncomeCategory" placeholder="Nueva categoría de ingreso...">
-            <button onclick="Categorias._add('incomeCategory')">Añadir</button>
-          </div>
-        </div>
-        <div class="cat-section">
-          <div class="cat-section-title">
+        </details>
+        <details class="cat-section-details">
+          <summary class="cat-section-summary">
             <span>Tipo de movimiento</span>
+            <span class="cat-section-meta" id="catSectionMeta-type"></span>
+          </summary>
+          <div class="cat-section-body">
+            <div class="cat-section-toolbar">
+              <p class="cat-section-hint">Pulsa un tipo para ver todos los movimientos registrados con él.</p>
+              <button type="button" class="btn btn-secondary btn-sm cat-tx-scope-btn" onclick="Categorias._toggleCatTxScope()">${this._catTxShowAll ? '📅 Todo' : '📅 Mes'}</button>
+            </div>
+            <div class="cat-list cat-list-expenses" id="typeList"></div>
+            <div class="add-cat-form">
+              <input type="text" id="newType" placeholder="Nuevo tipo de movimiento...">
+              <button onclick="Categorias._add('type')">Añadir</button>
+            </div>
           </div>
-          <div class="cat-list" id="typeList"></div>
-          <div class="add-cat-form">
-            <input type="text" id="newType" placeholder="Nuevo tipo de movimiento...">
-            <button onclick="Categorias._add('type')">Añadir</button>
-          </div>
-        </div>
-        <div class="cat-section">
-          <div class="cat-section-title">
+        </details>
+        <details class="cat-section-details">
+          <summary class="cat-section-summary">
             <span>Métodos de pago</span>
+            <span class="cat-section-meta" id="catSectionMeta-method"></span>
+          </summary>
+          <div class="cat-section-body">
+            <div class="cat-section-toolbar">
+              <p class="cat-section-hint">Pulsa un método para ver dónde y cuándo lo usaste.</p>
+              <button type="button" class="btn btn-secondary btn-sm cat-tx-scope-btn" onclick="Categorias._toggleCatTxScope()">${this._catTxShowAll ? '📅 Todo' : '📅 Mes'}</button>
+            </div>
+            <div class="cat-list cat-list-expenses" id="methodList"></div>
+            <div class="add-cat-form">
+              <input type="text" id="newMethod" placeholder="Nuevo método...">
+              <button onclick="Categorias._add('method')">Añadir</button>
+            </div>
           </div>
-          <div class="cat-list" id="methodList"></div>
-          <div class="add-cat-form">
-            <input type="text" id="newMethod" placeholder="Nuevo método...">
-            <button onclick="Categorias._add('method')">Añadir</button>
-          </div>
-        </div>
+        </details>
       </div>
     `;
 
-    this._renderExpenseCategoryList();
-    this._renderList('incomeCatList', Store.getIncomeCategories(), 'incomeCategory');
-    this._renderList('typeList', Store.getTypes(), 'type');
-    this._renderList('methodList', Store.getPaymentMethods(), 'method');
+    this._renderCatalogTxList('catList', 'category', Store.getCategories());
+    this._renderCatalogTxList('incomeCatList', 'incomeCategory', Store.getIncomeCategories());
+    this._renderCatalogTxList('typeList', 'type', Store.getTypes());
+    this._renderCatalogTxList('methodList', 'method', Store.getPaymentMethods());
     this._renderPeople();
     this._renderGroups();
     this._renderCategoryGroups();
@@ -934,46 +960,64 @@ END $$;</code>
     }
 
     const weekExpenses = BudgetEngine.getWeekSpendableExpenses();
+    const month = Store.getCurrentMonth();
+    const monthExpenses = BudgetEngine.getMonthSpendableExpenses(month);
+    const [curY, curMo] = month.split('-');
+    const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    const monthLabel = `${monthNames[parseInt(curMo, 10) - 1]} ${curY}`;
 
     el.innerHTML = groups.map(g => {
       const weeklyBudget = g.monthlyBudget > 0 ? g.monthlyBudget / 4.33 : 0;
       const weekSpent = weekExpenses.filter(t => Store.txInCategoryGroup(t, g)).reduce((s, t) => s + t.amount, 0);
+      const monthSpent = monthExpenses.filter(t => Store.txInCategoryGroup(t, g)).reduce((s, t) => s + t.amount, 0);
+      const monthTxs = monthExpenses.filter(t => Store.txInCategoryGroup(t, g));
       const pct = weeklyBudget > 0 ? Math.min(100, (weekSpent / weeklyBudget) * 100) : 0;
       const barColor = pct >= 100 ? 'var(--expense)' : pct >= 80 ? '#F97316' : pct >= 50 ? '#F59E0B' : 'var(--income)';
       const emoji = Store.getGroupDisplayEmoji(g);
-      const emojiDisplay = `<button type="button" class="cat-emoji-btn" title="Pulsa para cambiar emoticono del grupo" onclick="Categorias._editGroupEmoji('${g.id}', false)">${emoji}</button>`;
+      const emojiDisplay = `<button type="button" class="cat-emoji-btn" title="Pulsa para cambiar emoticono del grupo" onclick="event.stopPropagation(); Categorias._editGroupEmoji('${g.id}', false)">${emoji}</button>`;
 
-      return `<div style="padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+      return `<details class="cat-expense-block cat-group-block">
+        <summary class="cat-expense-summary">
+          <span class="cat-expense-summary-left">
             ${emojiDisplay}
-            <span style="font-size:14px;font-weight:700">${esc(g.name)}</span>
+            <span class="cat-expense-name">${esc(g.name)}</span>
             ${g.isFoodGroup ? '<span style="font-size:10px;background:#FEF3C7;color:#92400E;padding:2px 6px;border-radius:10px;font-weight:600">🍽️ Plan comida</span>' : '<span style="font-size:10px;background:var(--bg);color:var(--text-secondary);padding:2px 6px;border-radius:10px">📊 Seguimiento</span>'}
+          </span>
+          <span class="cat-expense-summary-right">
+            ${monthTxs.length ? `<span class="cat-expense-count">${monthTxs.length} gasto${monthTxs.length !== 1 ? 's' : ''}</span>` : ''}
+            <span class="cat-expense-total">${monthSpent > 0 ? monthSpent.toFixed(2) + ' €' : '—'}</span>
+            <span class="cat-expense-chevron" aria-hidden="true">▾</span>
+          </span>
+        </summary>
+        <div class="cat-expense-body">
+          <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px">
+            ${g.categories.length ? g.categories.map(c => `<span style="font-size:11px;background:var(--card);border:1px solid var(--border);padding:2px 8px;border-radius:10px">${Store.getCatalogDisplayEmoji('category', c)} ${esc(c)}</span>`).join('') : '<span style="font-size:11px;color:var(--text-secondary)">Sin categorías asignadas — edita el grupo para añadirlas</span>'}
           </div>
-          <div style="display:flex;gap:4px">
-            <button class="btn-sm" style="border:1px solid var(--border);border-radius:4px;background:var(--card);cursor:pointer;font-size:11px;padding:2px 6px" onclick="Categorias._editCategoryGroup('${g.id}')">✏️</button>
-            <button class="delete-cat" onclick="Categorias._deleteCategoryGroup('${g.id}')">✕</button>
+          ${g.monthlyBudget > 0 ? `
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-secondary);margin-bottom:3px">
+            <span>Semana: ${weekSpent.toFixed(1)}€ / ${weeklyBudget.toFixed(1)}€</span>
+            <span style="color:${barColor};font-weight:600">${weeklyBudget > weekSpent ? (weeklyBudget - weekSpent).toFixed(1) + '€ restan' : (weekSpent - weeklyBudget).toFixed(1) + '€ excedido'}</span>
+          </div>
+          <div style="height:5px;background:var(--card);border-radius:3px;overflow:hidden;margin-bottom:6px">
+            <div style="height:100%;width:${pct}%;background:${barColor};border-radius:3px;transition:width .3s"></div>
+          </div>
+          <div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px">Mes (${monthLabel}): <strong style="color:var(--text)">${monthSpent.toFixed(2)}€</strong> / ${g.monthlyBudget.toFixed(0)}€ presupuestados</div>` : `<div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px">Mes (${monthLabel}): <strong>${monthSpent.toFixed(2)}€</strong> · sin presupuesto mensual</div>`}
+          <div class="cat-expense-period">Gastos del mes en este grupo</div>
+          <div class="cat-tx-list">${this._renderCategoryTxRows(monthTxs, 'category', 'expense')}</div>
+          <div class="cat-expense-actions">
+            <button type="button" class="btn-sm" style="border:1px solid var(--border);border-radius:4px;background:var(--card);cursor:pointer;font-size:11px;padding:2px 8px" onclick="Categorias._editCategoryGroup('${g.id}')">✏️ Editar grupo</button>
+            <button type="button" class="delete-cat" onclick="Categorias._deleteCategoryGroup('${g.id}')">✕ Eliminar</button>
           </div>
         </div>
-        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px">
-          ${g.categories.length ? g.categories.map(c => `<span style="font-size:11px;background:var(--bg);border:1px solid var(--border);padding:2px 8px;border-radius:10px">${Store.getCatalogDisplayEmoji('category', c)} ${esc(c)}</span>`).join('') : '<span style="font-size:11px;color:var(--text-secondary)">Sin categorías asignadas</span>'}
-        </div>
-        ${g.monthlyBudget > 0 ? `
-        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-secondary);margin-bottom:3px">
-          <span>${weekSpent.toFixed(1)}€ / ${weeklyBudget.toFixed(1)}€ sem (${g.monthlyBudget.toFixed(0)}€/mes)</span>
-          <span style="color:${barColor};font-weight:600">${weeklyBudget > weekSpent ? (weeklyBudget - weekSpent).toFixed(1) + '€ restan' : (weekSpent - weeklyBudget).toFixed(1) + '€ excedido'}</span>
-        </div>
-        <div style="height:5px;background:var(--bg);border-radius:3px;overflow:hidden">
-          <div style="height:100%;width:${pct}%;background:${barColor};border-radius:3px;transition:width .3s"></div>
-        </div>` : `<span style="font-size:11px;color:var(--text-secondary)">Sin presupuesto — solo seguimiento visual</span>`}
-      </div>`;
+      </details>`;
     }).join('');
   },
 
   _addCategoryGroup() {
     const allCats = Store.getCategories();
     const groups = Store.getCategoryGroups();
-    const usedCats = new Set(groups.flatMap(g => g.categories));
+    const findOtherGroup = (cat, excludeId) =>
+      groups.find(g => g.id !== excludeId && Store.categoryInList(cat, g.categories || []));
 
     App.showCustom('📂 Nuevo grupo de gasto', `
       <div style="display:flex;gap:8px;margin-bottom:8px">
@@ -1005,8 +1049,8 @@ END $$;</code>
         <label style="font-size:12px;font-weight:600">Categorías del grupo</label>
         <div style="max-height:180px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius);padding:6px">
           ${allCats.map(c => {
-            const inOtherGroup = usedCats.has(c);
-            const otherGroupName = inOtherGroup ? (groups.find(g => g.categories.includes(c))?.name || '') : '';
+            const inOtherGroup = Store.isCategoryInOtherExpenseGroup(c, '');
+            const otherGroupName = inOtherGroup ? (findOtherGroup(c, '')?.name || '') : '';
             return `<label style="display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer">
               <input type="checkbox" class="cg-cat-check" value="${esc(c)}" ${inOtherGroup ? 'disabled' : ''}>
               <span style="font-size:13px${inOtherGroup ? ';color:var(--text-secondary)' : ''}">${esc(c)}</span>
@@ -1036,7 +1080,8 @@ END $$;</code>
     if (!g) return;
     const allCats = Store.getCategories();
     const groups = Store.getCategoryGroups();
-    const otherGroupCats = new Set(groups.filter(x => x.id !== id).flatMap(x => x.categories));
+    const findOtherGroup = (cat, excludeId) =>
+      groups.find(g => g.id !== excludeId && Store.categoryInList(cat, g.categories || []));
 
     App.showCustom(`✏️ Editar grupo "${esc(g.name)}"`, `
       <div style="display:flex;gap:8px;margin-bottom:8px">
@@ -1066,10 +1111,11 @@ END $$;</code>
         <label style="font-size:12px;font-weight:600">Categorías del grupo</label>
         <div style="max-height:180px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius);padding:6px">
           ${allCats.map(c => {
-            const inOther = otherGroupCats.has(c);
-            const otherName = inOther ? (groups.find(x => x.id !== id && x.categories.includes(c))?.name || '') : '';
+            const inOther = Store.isCategoryInOtherExpenseGroup(c, id);
+            const otherName = inOther ? (findOtherGroup(c, id)?.name || '') : '';
+            const checked = Store.categoryInList(c, g.categories);
             return `<label style="display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer">
-              <input type="checkbox" class="cg-cat-check" value="${esc(c)}" ${g.categories.includes(c) ? 'checked' : ''} ${inOther ? 'disabled' : ''}>
+              <input type="checkbox" class="cg-cat-check" value="${esc(c)}" ${checked ? 'checked' : ''} ${inOther ? 'disabled' : ''}>
               <span style="font-size:13px${inOther ? ';color:var(--text-secondary)' : ''}">${esc(c)}</span>
               ${inOther ? `<span style="font-size:10px;color:var(--text-secondary)">(en ${esc(otherName)})</span>` : ''}
             </label>`;
@@ -1120,7 +1166,7 @@ END $$;</code>
 
     el.innerHTML = groups.map(g => {
       const spent = monthIncomes
-        .filter(t => Store.categoryInList(t.category, g.categories))
+        .filter(t => Store.txInIncomeGroup(t, g))
         .reduce((s, t) => s + t.amount, 0);
       const target = g.monthlyTarget || 0;
       const pct = target > 0 ? Math.min(100, (spent / target) * 100) : 0;
@@ -1237,7 +1283,13 @@ END $$;</code>
 
   _toggleCatTxScope() {
     this._catTxShowAll = !this._catTxShowAll;
-    this._renderExpenseCategoryList();
+    this._renderCatalogTxList('catList', 'category', Store.getCategories());
+    this._renderCatalogTxList('incomeCatList', 'incomeCategory', Store.getIncomeCategories());
+    this._renderCatalogTxList('typeList', 'type', Store.getTypes());
+    this._renderCatalogTxList('methodList', 'method', Store.getPaymentMethods());
+    document.querySelectorAll('.cat-tx-scope-btn').forEach(btn => {
+      btn.textContent = this._catTxShowAll ? '📅 Todo el historial' : '📅 Mes actual';
+    });
   },
 
   _fmtTxDate(dateStr) {
@@ -1254,19 +1306,34 @@ END $$;</code>
     return null;
   },
 
-  _buildCategoryTxIndex(categories) {
+  _txMatchesCatalogItem(t, type, item) {
+    if (Store.isAdjustment(t)) return false;
+    switch (type) {
+      case 'category':
+        return t.type !== 'Ingreso' && Store._categoryKeysMatch(t.category, item);
+      case 'incomeCategory':
+        return t.type === 'Ingreso' && Store._categoryKeysMatch(t.category, item);
+      case 'type':
+        return Store._categoryKeysMatch(t.type, item);
+      case 'method':
+        return Store._categoryKeysMatch(t.paymentMethod, item);
+      default:
+        return false;
+    }
+  },
+
+  _buildCatalogTxIndex(type, items) {
     const month = Store.getCurrentMonth();
     const index = new Map();
-    for (const cat of categories) {
-      index.set(cat, { month: [], older: [] });
-    }
+    for (const item of items) index.set(item, { month: [], older: [] });
 
     const pushTx = (t) => {
-      if (t.type === 'Ingreso' || Store.isAdjustment(t)) return;
-      const cat = this._resolveCatalogCategory(t.category, categories);
-      if (!cat || !index.has(cat)) return;
-      const bucket = t.month === month ? 'month' : 'older';
-      index.get(cat)[bucket].push(t);
+      for (const item of items) {
+        if (!this._txMatchesCatalogItem(t, type, item)) continue;
+        const bucket = t.month === month ? 'month' : 'older';
+        index.get(item)[bucket].push(t);
+        break;
+      }
     };
 
     Store.getTransactions().forEach(pushTx);
@@ -1279,46 +1346,67 @@ END $$;</code>
     return index;
   },
 
-  _renderCategoryTxRows(txs, limit = 40) {
+  _catalogTxMeta(t, catalogType) {
+    const parts = [];
+    if (catalogType === 'category' || catalogType === 'incomeCategory') {
+      if (t.paymentMethod) parts.push(t.paymentMethod);
+      if (t.type && t.type !== 'Gasto' && t.type !== 'Ingreso') parts.push(t.type);
+    } else if (catalogType === 'type') {
+      if (t.category) parts.push(t.category);
+      if (t.paymentMethod) parts.push(t.paymentMethod);
+    } else if (catalogType === 'method') {
+      if (t.category) parts.push(t.category);
+      if (t.type) parts.push(t.type);
+    }
+    return parts.filter(Boolean).join(' · ');
+  },
+
+  _renderCategoryTxRows(txs, catalogType, amountClass = 'expense', limit = 40) {
     if (!txs.length) {
       return '<div class="cat-tx-empty">Sin movimientos en este periodo</div>';
     }
     const slice = txs.slice(0, limit);
     const hidden = txs.length - slice.length;
     const rows = slice.map(t => {
-      const where = (t.description || '').trim() || t.category || '—';
-      const meta = [t.paymentMethod, t.type !== 'Gasto' ? t.type : ''].filter(Boolean).join(' · ');
+      const where = (t.description || '').trim() || t.category || t.type || '—';
+      const meta = this._catalogTxMeta(t, catalogType);
+      const prefix = amountClass === 'income' && t.type === 'Ingreso' ? '+' : '';
       return `<div class="cat-tx-row">
         <span class="cat-tx-date">${this._fmtTxDate(t.date)}</span>
         <span class="cat-tx-where">
           <span class="cat-tx-desc">${esc(where)}</span>
           ${meta ? `<span class="cat-tx-meta">${esc(meta)}</span>` : ''}
         </span>
-        <span class="cat-tx-amount">${t.amount.toFixed(2)} €</span>
+        <span class="cat-tx-amount cat-tx-amount-${amountClass}">${prefix}${t.amount.toFixed(2)} €</span>
       </div>`;
     }).join('');
     return rows + (hidden > 0 ? `<div class="cat-tx-more">+ ${hidden} movimiento${hidden !== 1 ? 's' : ''} más</div>` : '');
   },
 
-  _renderExpenseCategoryList() {
-    const el = document.getElementById('catList');
+  _renderCatalogTxList(listId, catalogType, items) {
+    const el = document.getElementById(listId);
     if (!el) return;
 
-    const categories = Store.getCategories();
-    const usedItems = this._getUsedItems('category');
-    const usage = Store.getCatalogUsage().category || {};
-    const txIndex = this._buildCategoryTxIndex(categories);
+    const usedItems = this._getUsedItems(catalogType);
+    const usageKey = { category: 'category', incomeCategory: 'incomeCategory', type: 'type', method: 'method' }[catalogType];
+    const usageMap = Store.getCatalogUsage()[usageKey] || {};
+    const txIndex = this._buildCatalogTxIndex(catalogType, items);
     const showAll = this._catTxShowAll;
     const [curY, curMo] = Store.getCurrentMonth().split('-');
     const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
     const monthLabel = `${monthNames[parseInt(curMo, 10) - 1]} ${curY}`;
+    const amountClass = catalogType === 'incomeCategory' ? 'income' : 'expense';
+    const txWord = catalogType === 'incomeCategory' ? 'ingreso' : 'mov.';
 
-    if (!categories.length) {
-      el.innerHTML = '<div style="font-size:12px;color:var(--text-secondary);padding:6px 0">Sin categorías de gasto.</div>';
+    const metaEl = document.getElementById(`catSectionMeta-${catalogType === 'category' ? 'expense' : catalogType === 'incomeCategory' ? 'income' : catalogType}`);
+    if (metaEl) metaEl.textContent = items.length ? `${items.length} en catálogo` : '';
+
+    if (!items.length) {
+      el.innerHTML = '<div style="font-size:12px;color:var(--text-secondary);padding:6px 0">Sin elementos en el catálogo.</div>';
       return;
     }
 
-    const sorted = [...categories].sort((a, b) => {
+    const sorted = [...items].sort((a, b) => {
       const ta = txIndex.get(a);
       const tb = txIndex.get(b);
       const sumA = (showAll ? [...ta.month, ...ta.older] : ta.month).reduce((s, t) => s + t.amount, 0);
@@ -1329,81 +1417,47 @@ END $$;</code>
 
     el.innerHTML = sorted.map(item => {
       const inUse = usedItems.has(item);
-      const count = usage[item] || 0;
+      const count = usageMap[item] || 0;
       const safeItem = item.replace(/'/g, "\\'");
-      const emoji = Store.getCatalogDisplayEmoji('category', item);
-      const hasCustom = !!Store.getCatalogEmoji('category', item);
+      const emoji = Store.getCatalogDisplayEmoji(catalogType, item);
+      const hasCustom = !!Store.getCatalogEmoji(catalogType, item);
       const buckets = txIndex.get(item) || { month: [], older: [] };
       const visibleTxs = showAll ? [...buckets.month, ...buckets.older] : buckets.month;
       const periodTotal = visibleTxs.reduce((s, t) => s + t.amount, 0);
       const txCount = visibleTxs.length;
-      const periodHint = showAll ? 'historial' : monthLabel;
+      const periodHint = showAll ? 'Todo el historial' : `Movimientos de ${monthLabel}`;
 
       const olderBlock = !showAll && buckets.older.length ? `
         <details class="cat-tx-older">
-          <summary>${buckets.older.length} movimiento${buckets.older.length !== 1 ? 's' : ''} de meses anteriores (${buckets.older.reduce((s, t) => s + t.amount, 0).toFixed(2)} €)</summary>
-          <div class="cat-tx-list">${this._renderCategoryTxRows(buckets.older)}</div>
+          <summary>${buckets.older.length} movimiento${buckets.older.length !== 1 ? 's' : ''} anteriores (${buckets.older.reduce((s, t) => s + t.amount, 0).toFixed(2)} €)</summary>
+          <div class="cat-tx-list">${this._renderCategoryTxRows(buckets.older, catalogType, amountClass)}</div>
         </details>` : '';
 
       return `
         <details class="cat-expense-block">
           <summary class="cat-expense-summary">
             <span class="cat-expense-summary-left">
-              <button type="button" class="cat-emoji-btn" title="${hasCustom ? 'Emoticono personalizado' : 'Emoticono automático — pulsa para cambiar'}" onclick="event.stopPropagation(); Categorias._editCatalogEmoji('category', '${safeItem}')">${emoji}</button>
+              <button type="button" class="cat-emoji-btn" title="${hasCustom ? 'Emoticono personalizado' : 'Emoticono automático — pulsa para cambiar'}" onclick="event.stopPropagation(); Categorias._editCatalogEmoji('${catalogType}', '${safeItem}')">${emoji}</button>
               <span class="cat-expense-name">${esc(item)}</span>
               ${count ? `<span class="cat-expense-usage">(${count})</span>` : ''}
             </span>
             <span class="cat-expense-summary-right">
-              ${txCount ? `<span class="cat-expense-count">${txCount} gasto${txCount !== 1 ? 's' : ''}</span>` : ''}
-              <span class="cat-expense-total">${periodTotal > 0 ? periodTotal.toFixed(2) + ' €' : '—'}</span>
+              ${txCount ? `<span class="cat-expense-count">${txCount} ${txWord}${txCount !== 1 ? 's' : ''}</span>` : ''}
+              <span class="cat-expense-total cat-tx-amount-${amountClass}">${periodTotal > 0 ? (amountClass === 'income' ? '+' : '') + periodTotal.toFixed(2) + ' €' : '—'}</span>
               <span class="cat-expense-chevron" aria-hidden="true">▾</span>
             </span>
           </summary>
           <div class="cat-expense-body">
-            <div class="cat-expense-period">${showAll ? 'Todo el historial' : `Movimientos de ${periodHint}`}</div>
-            <div class="cat-tx-list">${this._renderCategoryTxRows(visibleTxs)}</div>
+            <div class="cat-expense-period">${periodHint}</div>
+            <div class="cat-tx-list">${this._renderCategoryTxRows(visibleTxs, catalogType, amountClass)}</div>
             ${olderBlock}
             <div class="cat-expense-actions">
-              <button type="button" class="btn-sm" style="border:1px solid var(--border);border-radius:4px;background:var(--card);cursor:pointer;font-size:11px;padding:2px 8px" title="Renombrar" onclick="Categorias._rename('category', '${safeItem}')">✏️ Renombrar</button>
-              <button type="button" class="delete-cat" onclick="Categorias._delete('category', '${safeItem}')"
+              <button type="button" class="btn-sm" style="border:1px solid var(--border);border-radius:4px;background:var(--card);cursor:pointer;font-size:11px;padding:2px 8px" title="Renombrar" onclick="Categorias._rename('${catalogType}', '${safeItem}')">✏️ Renombrar</button>
+              <button type="button" class="delete-cat" onclick="Categorias._delete('${catalogType}', '${safeItem}')"
                 title="${inUse ? 'En uso — al eliminar podrás reasignar' : 'Eliminar'}">✕ Eliminar</button>
             </div>
           </div>
         </details>`;
-    }).join('');
-
-    const scopeBtn = document.querySelector('.cat-tx-scope-btn');
-    if (scopeBtn) {
-      scopeBtn.textContent = showAll ? '📅 Todo el historial' : '📅 Mes actual';
-    }
-  },
-
-  _renderList(listId, items, type) {
-    const el = document.getElementById(listId);
-    const usedItems = this._getUsedItems(type);
-    const usage = Store.getCatalogUsage();
-    const usageKey = { category: 'category', incomeCategory: 'incomeCategory', type: 'type', method: 'method' }[type];
-    const usageMap = usage[usageKey] || {};
-    el.innerHTML = items.map(item => {
-      const inUse = usedItems.has(item);
-      const count = usageMap[item] || 0;
-      const safeItem = item.replace(/'/g, "\\'");
-      const canEdit = type === 'category' || type === 'incomeCategory' || type === 'type' || type === 'method';
-      const emoji = Store.getCatalogDisplayEmoji(type, item);
-      const hasCustom = !!Store.getCatalogEmoji(type, item);
-      return `
-        <div class="cat-item">
-          <span class="cat-name" style="display:flex;align-items:center;gap:6px">
-            <button type="button" class="cat-emoji-btn" title="${hasCustom ? 'Emoticono personalizado' : 'Emoticono automático — pulsa para cambiar'}" onclick="Categorias._editCatalogEmoji('${type}', '${safeItem}')">${emoji}</button>
-            <span>${esc(item)}${count ? ` <span style="font-size:10px;color:var(--text-secondary)">(${count})</span>` : ''}</span>
-          </span>
-          <div style="display:flex;gap:4px;align-items:center">
-            ${canEdit ? `<button class="btn-sm" style="border:1px solid var(--border);border-radius:4px;background:var(--card);cursor:pointer;font-size:11px;padding:2px 6px" title="Renombrar" onclick="Categorias._rename('${type}', '${safeItem}')">✏️</button>` : ''}
-            <button class="delete-cat" onclick="Categorias._delete('${type}', '${safeItem}')"
-              title="${inUse ? 'En uso — al eliminar podrás reasignar' : 'Eliminar'}">✕</button>
-          </div>
-        </div>
-      `;
     }).join('');
   },
 

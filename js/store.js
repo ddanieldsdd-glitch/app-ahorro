@@ -1078,8 +1078,6 @@ const Store = {
       d.foodCategories = [...foodMap.values()];
     }
 
-    this._ensureFoodCategoriesSynced();
-
     if (!d.expensePriorities || typeof d.expensePriorities !== 'object') {
       d.expensePriorities = {};
     }
@@ -1241,9 +1239,193 @@ const Store = {
       return g;
     });
 
-    this._syncCatalogFromData();
+    this._reconcileDataFoundation();
+
     for (const debt of d.debts || []) {
       if (debt.person) this.rememberPerson(debt.person, false);
+    }
+  },
+
+  /**
+   * Base unificada: catálogo, movimientos, grupos y límites conectados.
+   * Idempotente — se ejecuta en cada carga para datos legacy y nuevos.
+   */
+  _reconcileDataFoundation() {
+    this._syncCatalogFromData();
+    this._dedupeCatalogLists();
+    this._canonicalizeTransactionFields();
+    this._normalizeCategoryGroups({ save: false });
+    this._reconcileExpenseGroupsFromData();
+    this._ensureFoodCategoriesSynced({ save: false });
+    this._reconcileIncomeGroupsFromData();
+    this._normalizeCategoryLimitsKeys();
+    this._ensureTransactionMonths();
+    this._syncFoodCategoriesFromGroups();
+    if (typeof this._syncPriorityIncludesAuto === 'function') {
+      this._syncPriorityIncludesAuto();
+    }
+  },
+
+  _allTransactions(data) {
+    const d = data || this._data;
+    return [
+      ...(d.transactions || []),
+      ...Object.values(d.archives || {}).flat(),
+    ];
+  },
+
+  _dedupeCatalogLists() {
+    const d = this._data;
+    const dedupe = (arr) => {
+      const out = [];
+      for (const val of arr || []) {
+        if (!val) continue;
+        if (!out.some(x => this._categoryKeysMatch(x, val))) out.push(val);
+      }
+      return out;
+    };
+    d.categories = dedupe(d.categories);
+    d.incomeCategories = dedupe(d.incomeCategories);
+    d.types = dedupe(d.types);
+    d.paymentMethods = dedupe(d.paymentMethods);
+  },
+
+  _canonicalizeTransactionFields() {
+    const d = this._data;
+    const canonCat = (cat, income) => {
+      if (!cat) return cat;
+      const list = income ? d.incomeCategories : d.categories;
+      return (list || []).find(c => this._categoryKeysMatch(c, cat)) || cat;
+    };
+    const fix = (t) => {
+      if (!t) return;
+      if (t.type) {
+        const ty = (d.types || []).find(x => this._categoryKeysMatch(x, t.type));
+        if (ty) t.type = ty;
+      }
+      if (t.paymentMethod) {
+        const pm = (d.paymentMethods || []).find(m => this._categoryKeysMatch(m, t.paymentMethod));
+        if (pm) t.paymentMethod = pm;
+      }
+      if (!t.category || t.category === '__ajuste__' || t.category === 'Traspaso') return;
+      if (t.type === 'Ingreso') t.category = canonCat(t.category, true);
+      else if (t.type !== 'Traspaso') t.category = canonCat(t.category, false);
+    };
+    for (const t of d.transactions || []) fix(t);
+    for (const txs of Object.values(d.archives || {})) txs.forEach(fix);
+    for (const r of d.recurringTransactions || []) fix(r);
+  },
+
+  _ensureTransactionMonths() {
+    const fix = (t) => {
+      if (!t?.date) return;
+      const m = t.date.slice(0, 7);
+      if (m && t.month !== m) t.month = m;
+    };
+    for (const t of this._data.transactions || []) fix(t);
+    for (const txs of Object.values(this._data.archives || {})) txs.forEach(fix);
+  },
+
+  _normalizeCategoryLimitsKeys() {
+    const limits = this._data.budgetConfig?.categoryLimits;
+    if (!limits || typeof limits !== 'object') return;
+    const next = {};
+    for (const [key, val] of Object.entries(limits)) {
+      if (!(val > 0)) continue;
+      const canon = (this._data.categories || []).find(c => this._categoryKeysMatch(c, key)) || key;
+      next[canon] = val;
+    }
+    this._data.budgetConfig.categoryLimits = next;
+  },
+
+  _isLeisureLikeCategoryName(cat) {
+    if (!cat) return false;
+    const n = this._normCategoryKey(cat);
+    return /ocio|salida|caprich|entreten|cine|netflix|spotify|fiesta|copas|juego|streaming|concierto|teatro|viaje|vacac|hotel/i.test(n);
+  },
+
+  _groupNameHints(name) {
+    const n = this._normCategoryKey(name);
+    return {
+      food: /aliment|comida|super|food|restaur/i.test(n),
+      leisure: /ocio|salida|caprich|entreten|diversi/i.test(n),
+      transport: /transport|movilidad|gasolina|combust/i.test(n),
+      home: /vivienda|hogar|casa|alquiler|hipoteca/i.test(n),
+    };
+  },
+
+  _reconcileExpenseGroupsFromData() {
+    const d = this._data;
+    if (!d.categoryGroups) d.categoryGroups = [];
+    const catalog = d.categories || [];
+    const allCats = this._collectAllCategoryNames();
+
+    let foodGroup = d.categoryGroups.find(g => g.isFoodGroup);
+    if (!foodGroup && allCats.some(c => this.isFoodLikeCategoryName(c))) {
+      foodGroup = {
+        id: 'cgrp_alim',
+        name: 'Alimentación',
+        categories: [...(d.foodCategories || [])],
+        monthlyBudget: d.foodBudget || 200,
+        isFoodGroup: true,
+        color: '#F59E0B',
+      };
+      d.categoryGroups.push(foodGroup);
+    }
+
+    for (const g of d.categoryGroups) {
+      const map = new Map();
+      const addCat = (cat) => {
+        if (!cat || cat === '__ajuste__') return;
+        const canon = catalog.find(c => this._categoryKeysMatch(c, cat)) || cat;
+        map.set(this._normCategoryKey(canon), canon);
+      };
+      for (const c of g.categories || []) addCat(c);
+
+      for (const cat of allCats) {
+        if (!cat || cat === '__ajuste__') continue;
+        const inThisGroup = [...map.values()].some(c => this._categoryKeysMatch(c, cat));
+        if (inThisGroup) {
+          addCat(cat);
+          continue;
+        }
+        if (this.isCategoryInOtherExpenseGroup(cat, g.id)) continue;
+
+        const hints = this._groupNameHints(g.name);
+        if (g.isFoodGroup || hints.food) {
+          if (this.isFoodLikeCategoryName(cat)) addCat(cat);
+          continue;
+        }
+        if (hints.leisure && this._isLeisureLikeCategoryName(cat)) addCat(cat);
+        else if (hints.transport && /transport|gasolina|combust|metro|bus|taxi|uber|parking|peaje/i.test(this._normCategoryKey(cat))) addCat(cat);
+        else if (hints.home && /vivienda|hogar|alquiler|hipoteca|luz|agua|gas|internet|comunidad/i.test(this._normCategoryKey(cat))) addCat(cat);
+      }
+
+      g.categories = [...map.values()];
+    }
+  },
+
+  _reconcileIncomeGroupsFromData() {
+    const d = this._data;
+    if (!d.incomeGroups) d.incomeGroups = [];
+    const catalog = d.incomeCategories || [];
+    const usedIncome = new Set();
+    for (const t of this._allTransactions()) {
+      if (t.type === 'Ingreso' && t.category) usedIncome.add(t.category);
+    }
+
+    for (const g of d.incomeGroups) {
+      const map = new Map();
+      const addCat = (cat) => {
+        if (!cat) return;
+        const canon = catalog.find(c => this._categoryKeysMatch(c, cat)) || cat;
+        map.set(this._normCategoryKey(canon), canon);
+      };
+      for (const c of g.categories || []) addCat(c);
+      for (const cat of usedIncome) {
+        if ([...map.values()].some(c => this._categoryKeysMatch(c, cat))) addCat(cat);
+      }
+      g.categories = [...map.values()];
     }
   },
 
@@ -1252,7 +1434,8 @@ const Store = {
     const d = this._data;
     const addUnique = (arr, val) => {
       if (!val || val === '__add__' || val === '__ajuste__' || val === 'Traspaso') return;
-      if (!arr.includes(val)) arr.push(val);
+      if ((arr || []).some(x => this._categoryKeysMatch(x, val))) return;
+      arr.push(val);
     };
     const scanTx = (t) => {
       if (!t) return;
@@ -1923,7 +2106,7 @@ const Store = {
   },
 
   /** Añade al grupo Alimentación categorías food-like usadas en movimientos (idempotente). */
-  _ensureFoodCategoriesSynced() {
+  _ensureFoodCategoriesSynced({ save = true } = {}) {
     const foodGroup = (this._data.categoryGroups || []).find(g => g.isFoodGroup);
     if (!foodGroup) return;
     let changed = false;
@@ -1936,7 +2119,7 @@ const Store = {
     }
     if (changed) {
       this._syncFoodCategoriesFromGroups();
-      this._save();
+      if (save) this._save();
     }
   },
 
@@ -2046,7 +2229,7 @@ const Store = {
   getCategoryGroup(categoryName) {
     if (!categoryName) return null;
     const groups = this._data.categoryGroups || [];
-    const direct = groups.find(g => this.categoryInList(categoryName, g.categories));
+    const direct = groups.find(g => this.categoryInList(categoryName, g.categories || []));
     if (direct) return direct;
     if (this.isFoodCategory(categoryName)) {
       return groups.find(g => g.isFoodGroup) || null;
@@ -2054,19 +2237,55 @@ const Store = {
     return null;
   },
 
-  /** ¿El movimiento pertenece al grupo? (resuelve variantes de nombre y comida fuera) */
+  /** ¿La categoría del catálogo ya está en otro grupo de gasto? */
+  isCategoryInOtherExpenseGroup(categoryName, excludeGroupId) {
+    return (this._data.categoryGroups || []).some(g =>
+      g.id !== excludeGroupId && this.categoryInList(categoryName, g.categories || [])
+    );
+  },
+
+  /** ¿El movimiento pertenece al grupo? (misma regla en todas las pantallas) */
   txInCategoryGroup(t, group) {
-    if (!t || !group) return false;
-    const g = this.getCategoryGroup(t.category);
-    return g && g.id === group.id;
+    if (!t || !group || t.type === 'Ingreso' || this.isAdjustment(t)) return false;
+    if (this.categoryInList(t.category, group.categories || [])) return true;
+    if (group.isFoodGroup && this.isFoodCategory(t.category)) {
+      return !this.isCategoryInOtherExpenseGroup(t.category, group.id);
+    }
+    return false;
+  },
+
+  /** Normaliza nombres de categorías dentro de los grupos (variantes Comida fuera / comida fuera). */
+  _normalizeCategoryGroups({ save = true } = {}) {
+    const catalog = this.getCategories();
+    let changed = false;
+    for (const g of this._data.categoryGroups || []) {
+      const next = [];
+      for (const c of g.categories || []) {
+        const canon = catalog.find(cat => this._categoryKeysMatch(cat, c)) || c;
+        if (!next.some(x => this._categoryKeysMatch(x, canon))) next.push(canon);
+        if (!this._categoryKeysMatch(c, canon)) changed = true;
+      }
+      if (next.length !== (g.categories || []).length) changed = true;
+      g.categories = next;
+    }
+    if (changed) {
+      this._syncFoodCategoriesFromGroups();
+      if (save) this._save();
+    }
   },
 
   /** Grupo de ingreso que contiene una categoría de ingreso */
   getIncomeGroup(categoryName) {
     if (!categoryName) return null;
     return (this._data.incomeGroups || []).find(g =>
-      this.categoryInList(categoryName, g.categories)
+      this.categoryInList(categoryName, g.categories || [])
     ) || null;
+  },
+
+  /** ¿El ingreso pertenece al grupo de ingreso? */
+  txInIncomeGroup(t, group) {
+    if (!t || !group || t.type !== 'Ingreso' || this.isAdjustment(t)) return false;
+    return this.categoryInList(t.category, group.categories || []);
   },
 
   addCategoryGroup(name, opts = {}) {
