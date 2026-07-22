@@ -463,13 +463,10 @@ const Store = {
     if (localScore > 0 && remoteScore === 0) {
       return { winner: localData, shouldPush: true };
     }
-    // Ambos con datos distintos → preguntar antes de sobrescribir
+    // Ambos con datos distintos → resolver sin preguntar (un solo dispositivo habitual)
     if (localScore > 0 && remoteScore > 0 && this._contentDiffers(localData, remoteData)) {
-      return {
-        winner: null,
-        shouldPush: false,
-        conflict: { reason: 'diverged', local: localData, remote: remoteData },
-      };
+      if (localTs > remoteTs) return { winner: localData, shouldPush: true };
+      return { winner: remoteData, shouldPush: false };
     }
     // Nube vacía intentando pisar local con datos
     if (localScore > 0 && remoteScore === 0 && remoteTs > localTs) {
@@ -485,6 +482,36 @@ const Store = {
     if (remoteScore > localScore) return { winner: remoteData, shouldPush: false };
     if (localScore > remoteScore) return { winner: localData, shouldPush: true };
     return { winner: remoteData, shouldPush: false };
+  },
+
+  /** Comprueba si otro dispositivo modificó la nube desde nuestra última sync. */
+  _remoteChangedSinceLastSync(remote) {
+    if (!remote) return false;
+    const remoteFp = this._dataFingerprint(remote);
+    if (remoteFp === this._lastPushedFingerprint) return false;
+    return this._hasSubstantialData(remote);
+  },
+
+  _registerMultiDeviceConflict(local, remote) {
+    const localTs = this._dataTimestamp(local);
+    const remoteTs = this._dataTimestamp(remote);
+    this._registerSyncConflict({ reason: 'simultaneous', local, remote });
+    this._cloudDiff = {
+      local,
+      remote,
+      localSummary: this._describeDataBrief(local),
+      remoteSummary: this._describeDataBrief(remote),
+      localTs,
+      remoteTs,
+      localNewer: localTs > remoteTs,
+      remoteNewer: remoteTs > localTs,
+      detectedAt: Date.now(),
+    };
+    this._notifyCloudDiff();
+    this._setSyncStatus('local', 'Otro dispositivo editó la nube — elige qué conservar');
+    if (typeof App !== 'undefined') {
+      setTimeout(() => App._checkSyncConflict?.(), 400);
+    }
   },
 
   _getDeviceId() {
@@ -516,23 +543,9 @@ const Store = {
     const differs = this._contentDiffers(this._data, serverData);
 
     if (this._localDirty && differs) {
-      this._registerSyncConflict({ reason: 'simultaneous', local: this._data, remote: serverData });
-      this._cloudDiff = {
-        local: this._data,
-        remote: serverData,
-        localSummary: this._describeDataBrief(this._data),
-        remoteSummary: this._describeDataBrief(serverData),
-        localTs,
-        remoteTs,
-        localNewer: localTs > remoteTs,
-        remoteNewer: remoteTs > localTs,
-        detectedAt: Date.now(),
-      };
-      this._notifyCloudDiff();
-      this._setSyncStatus('local', 'Otro dispositivo editó mientras tú también — elige qué conservar');
+      this._registerMultiDeviceConflict(this._data, serverData);
       if (source === 'realtime' && typeof App !== 'undefined') {
         App.showToast?.('⚠️ Otro dispositivo cambió la nube', 4500);
-        setTimeout(() => App._checkSyncConflict?.(), 600);
       }
       return false;
     }
@@ -819,52 +832,34 @@ const Store = {
   async _pushToServer({ force = false, allowOverwrite = false } = {}) {
     if (!this._data) return false;
 
-    if (!force) {
-      try {
-        const remote = await this._fetchRemoteData();
-        if (remote) {
-          if (this._hasSubstantialData(remote) && this._isFactoryLike(this._data)) {
-            this._registerSyncConflict({
-              reason: 'local_empty_remote_rich',
-              local: this._data,
-              remote,
-            });
-            this._setSyncStatus('local', 'La nube tiene datos — elige qué conservar antes de sincronizar');
-            return false;
-          }
-          const result = this._pickSyncWinner(this._data, remote);
-          if (result.conflict) {
-            this._registerSyncConflict(result.conflict);
-            this._setSyncStatus('local', 'Conflicto de datos — elige qué conservar');
-            return false;
-          }
-          if (result.winner !== this._data && result.winner) {
-            this._applyLocalData(result.winner);
-            const enc = this.isEncryptionEnabled();
-            if (this._isSupabase()) {
-              const { supabaseUrl } = this.getSyncSettings();
-              const host = new URL(supabaseUrl).hostname.replace('.supabase.co', '');
-              this._setSyncStatus('synced', `Actualizado desde nube${enc ? ' 🔒' : ''} (${host})`);
-            } else {
-              this._setSyncStatus('synced', `Actualizado desde ${this._apiBase()}`);
-            }
-            return true;
-          }
-        }
-      } catch { /* sin conexión — intentar push abajo */ }
-    } else if (!allowOverwrite) {
+    const shouldPush = force || this._localDirty;
+
+    // Evitar pisar la nube con datos vacíos/de fábrica
+    if (!allowOverwrite || !shouldPush) {
       try {
         const remote = await this._fetchRemoteData();
         if (remote && this._hasSubstantialData(remote) && this._isFactoryLike(this._data)) {
           this._registerSyncConflict({
-            reason: 'blocked_empty_push',
+            reason: 'local_empty_remote_rich',
             local: this._data,
             remote,
           });
-          this._setSyncStatus('local', 'No se enviarán datos vacíos sobre la nube');
+          this._setSyncStatus('local', 'La nube tiene datos — elige qué conservar antes de sincronizar');
           return false;
         }
-      } catch { /* ignore */ }
+      } catch { /* sin conexión */ }
+      if (!shouldPush) return false;
+    }
+
+    // Varios dispositivos: la nube cambió mientras editábamos aquí
+    if (shouldPush && allowOverwrite) {
+      try {
+        const remote = await this._fetchRemoteData();
+        if (remote && this._contentDiffers(this._data, remote) && this._remoteChangedSinceLastSync(remote)) {
+          this._registerMultiDeviceConflict(this._data, remote);
+          return false;
+        }
+      } catch { /* sin conexión — intentar push abajo */ }
     }
 
     this._setSyncStatus('syncing', 'Enviando cambios…');
@@ -954,38 +949,25 @@ const Store = {
     if (!this._ready || !navigator.onLine) return;
     if (this.getSyncConflict()) return;
 
-    const diff = await this.detectCloudDifference();
-    const remote = diff?.remote || await this._fetchRemoteData();
-
-    if (diff && this._hasSubstantialData(this._data) && this._hasSubstantialData(remote)) {
-      this._registerSyncConflict({ reason: 'diverged', local: this._data, remote });
-      this._setSyncStatus('local', 'La nube tiene datos distintos — elige subir o descargar');
-      return;
-    }
-
-    const result = this._pickSyncWinner(this._data, remote);
-    if (result.conflict) {
-      this._registerSyncConflict(result.conflict);
-      this._setSyncStatus('local', 'Conflicto de datos — elige qué conservar');
-      return;
-    }
-    if (result.winner && result.winner !== this._data) this._applyLocalData(result.winner);
-    if (result.shouldPush) {
+    if (this._localDirty) {
       await this._pushToServer({ force: true, allowOverwrite: true });
-      await this.detectCloudDifference();
-    } else if (remote) {
+      return;
+    }
+
+    const remote = await this._fetchRemoteData();
+    if (remote) {
+      await this._handleIncomingRemote(remote, { source: 'poll', silent: true });
+    } else if (this._hasSubstantialData(this._data)) {
+      await this._pushToServer({ force: true, allowOverwrite: true });
+    } else {
       const enc = this.isEncryptionEnabled();
       if (this._isSupabase()) {
         const { supabaseUrl } = this.getSyncSettings();
         const host = new URL(supabaseUrl).hostname.replace('.supabase.co', '');
         this._setSyncStatus('synced', `Sincronizado${enc ? ' 🔒' : ''} con Supabase (${host})`);
-      } else {
+      } else if (this.getSyncSettings().serverUrl) {
         this._setSyncStatus('synced', `Sincronizado${enc ? ' 🔒' : ''} con ${this._apiBase()}`);
       }
-      await this.detectCloudDifference();
-    } else if (this._hasSubstantialData(this._data)) {
-      await this._pushToServer({ force: true, allowOverwrite: true });
-      await this.detectCloudDifference();
     }
   },
 
@@ -1273,7 +1255,7 @@ const Store = {
     const data = this._data;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     this._saveCallbacks.forEach(cb => cb());
-    const push = this._pushToServer({ force: forcePush }).then((ok) => {
+    const push = this._pushToServer({ force: true, allowOverwrite: true }).then((ok) => {
       if (!ok && typeof App !== 'undefined' && App.showToast) {
         App.showToast('⚡ Cambios guardados solo localmente — sin conexión', 3500);
       }

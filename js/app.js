@@ -78,14 +78,10 @@ const App = {
       this._runStartupTasks();
     }
     setTimeout(() => this._checkSyncConflict(), 900);
-    setTimeout(() => this._checkCloudDifference(), 1400);
   },
 
   async _checkCloudDifference() {
-    if (!this._isCloudConfigured() || Store.getSyncConflict?.()) return;
-    const diff = await Store.detectCloudDifference?.();
-    if (!diff) return;
-    this._showCloudDiffBanner(diff);
+    // Solo manual desde Ajustes → Comparar con nube
   },
 
   _showCloudDiffBanner(diff) {
@@ -135,7 +131,7 @@ const App = {
           Hay datos distintos en <strong>este dispositivo</strong> y en la <strong>nube</strong>.
           ${conflict.reason === 'simultaneous'
             ? 'Parece que <strong>dos dispositivos editaron a la vez</strong>. Elige qué copia quieres conservar.'
-            : 'No se borrará nada hasta que elijas.'}
+            : 'Hay datos distintos en la nube. Elige qué copia quieres conservar.'}
         </p>
         <div style="display:grid;gap:8px;margin-bottom:12px">
           <div style="padding:10px;background:var(--bg);border-radius:8px;font-size:12px;line-height:1.5">

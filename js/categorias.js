@@ -339,26 +339,19 @@ END $$;</code>
         </div>
         ${Store.getSyncConflict?.() ? `
         <div style="margin-top:10px;padding:10px;border-radius:8px;background:rgba(239,68,68,.08);border:1px solid var(--expense);font-size:12px;line-height:1.5">
-          <strong style="color:var(--expense)">⚠️ Datos distintos entre dispositivo y nube</strong><br>
-          No se sobrescribirá nada hasta que elijas qué copia conservar.
+          <strong style="color:var(--expense)">⚠️ Varios dispositivos editando a la vez</strong><br>
+          Otro dispositivo cambió la nube mientras tú también editabas. Elige qué copia conservar.
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
             <button class="btn btn-primary btn-sm" onclick="Categorias._uploadToCloud()">⬆ Subir a la nube</button>
             <button class="btn btn-secondary btn-sm" onclick="Categorias._downloadFromCloud()">⬇ Usar la nube</button>
             <button class="btn btn-secondary btn-sm" onclick="App._checkSyncConflict()">Ver detalle</button>
           </div>
-        </div>` : (Store.getCloudDiff?.() ? `
-        <div style="margin-top:10px;padding:10px;border-radius:8px;background:rgba(245,158,11,.08);border:1px solid var(--warning,#f59e0b);font-size:12px;line-height:1.5">
-          <strong style="color:var(--warning,#d97706)">☁️ La nube tiene contenido distinto</strong><br>
-          📱 ${esc(Store.getCloudDiff().localSummary)} · ☁️ ${esc(Store.getCloudDiff().remoteSummary)}
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-            <button class="btn btn-primary btn-sm" onclick="Categorias._uploadToCloud()">⬆ Subir datos de aquí</button>
-            <button class="btn btn-secondary btn-sm" onclick="Categorias._downloadFromCloud()">⬇ Descargar de la nube</button>
-          </div>
         </div>` : `
         <div style="font-size:11px;color:var(--text-secondary);margin-top:8px;line-height:1.5">
-          Si editas sin conexión, usa <strong>Comparar con nube</strong> o <strong>Subir a la nube</strong> para actualizar otros dispositivos.
-          Con Supabase, los cambios se propagan en directo cuando solo un dispositivo está editando.
-        </div>`)}
+          Al abrir la app se descargan los datos de la nube. Cada cambio se sube solo, sin pulsar nada.
+          Solo se te preguntará si <strong>dos dispositivos editan a la vez</strong>.
+          Usa <strong>Comparar con nube</strong> solo si quieres revisar manualmente.
+        </div>`}
 
         <details style="margin-top:14px">
           <summary style="font-size:11px;color:var(--text-secondary);cursor:pointer">Modo experto (no recomendado)</summary>
@@ -1735,9 +1728,6 @@ END $$;</code>
       App.showToast('✅ Este dispositivo y la nube coinciden');
       this.render();
       return;
-    }
-    if (Store._hasSubstantialData?.(diff.local) && Store._hasSubstantialData?.(diff.remote)) {
-      Store._registerSyncConflict?.({ reason: 'diverged', local: diff.local, remote: diff.remote });
     }
     App._showCloudDiffBanner(diff);
     this.render();
