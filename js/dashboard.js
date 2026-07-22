@@ -282,7 +282,7 @@ const Dashboard = {
           <div style="font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.3px;margin-bottom:6px">📂 Por grupo esta semana</div>
           ${nonFoodGroupsWithBudget.map(g => {
             const weeklyLimit = g.monthlyBudget / 4.33;
-            const spent = weekExpenses.filter(t => g.categories.includes(t.category)).reduce((s, t) => s + t.amount, 0);
+            const spent = weekExpenses.filter(t => Store.txInCategoryGroup(t, g)).reduce((s, t) => s + t.amount, 0);
             const pct = weeklyLimit > 0 ? Math.min(100, (spent / weeklyLimit) * 100) : 0;
             const remain = weeklyLimit - spent;
             const barColor = pct >= 100 ? 'var(--expense)' : pct >= 80 ? '#F97316' : pct >= 50 ? '#F59E0B' : 'var(--income)';
@@ -301,7 +301,7 @@ const Dashboard = {
           <div style="font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.3px;margin-bottom:6px">🏷️ Por categoría esta semana</div>
           ${catsWithLimits.map(cat => {
             const limit = limits[cat];
-            const spent = weekExpenses.filter(t => t.category === cat).reduce((s, t) => s + t.amount, 0);
+            const spent = weekExpenses.filter(t => Store._categoryKeysMatch(t.category, cat)).reduce((s, t) => s + t.amount, 0);
             const pct = limit > 0 ? Math.min(100, (spent / limit) * 100) : 0;
             const remain = limit - spent;
             const level = pct >= 100 ? 'danger' : pct >= 80 ? 'warning' : pct >= 50 ? 'caution' : 'good';

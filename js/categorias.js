@@ -1,5 +1,6 @@
 const Categorias = {
   _settingsExpanded: { sync: false, shared: false },
+  _catTxShowAll: false,
 
   render() {
     const el = document.getElementById('tab-categorias');
@@ -608,8 +609,12 @@ END $$;</code>
         <div class="cat-section">
           <div class="cat-section-title">
             <span>Categorías de gasto</span>
+            <button type="button" class="btn btn-secondary btn-sm cat-tx-scope-btn" onclick="Categorias._toggleCatTxScope()" title="Alternar periodo visible">
+              ${this._catTxShowAll ? '📅 Todo el historial' : '📅 Mes actual'}
+            </button>
           </div>
-          <div class="cat-list" id="catList"></div>
+          <p style="font-size:11px;color:var(--text-secondary);margin:-4px 0 8px;line-height:1.4">Pulsa una categoría para ver cuándo y dónde fue cada gasto.</p>
+          <div class="cat-list cat-list-expenses" id="catList"></div>
           <div class="add-cat-form">
             <input type="text" id="newCategory" placeholder="Nueva categoría de gasto...">
             <button onclick="Categorias._add('category')">Añadir</button>
@@ -648,7 +653,7 @@ END $$;</code>
       </div>
     `;
 
-    this._renderList('catList', Store.getCategories(), 'category');
+    this._renderExpenseCategoryList();
     this._renderList('incomeCatList', Store.getIncomeCategories(), 'incomeCategory');
     this._renderList('typeList', Store.getTypes(), 'type');
     this._renderList('methodList', Store.getPaymentMethods(), 'method');
@@ -932,7 +937,7 @@ END $$;</code>
 
     el.innerHTML = groups.map(g => {
       const weeklyBudget = g.monthlyBudget > 0 ? g.monthlyBudget / 4.33 : 0;
-      const weekSpent = weekExpenses.filter(t => g.categories.includes(t.category)).reduce((s, t) => s + t.amount, 0);
+      const weekSpent = weekExpenses.filter(t => Store.txInCategoryGroup(t, g)).reduce((s, t) => s + t.amount, 0);
       const pct = weeklyBudget > 0 ? Math.min(100, (weekSpent / weeklyBudget) * 100) : 0;
       const barColor = pct >= 100 ? 'var(--expense)' : pct >= 80 ? '#F97316' : pct >= 50 ? '#F59E0B' : 'var(--income)';
       const emoji = Store.getGroupDisplayEmoji(g);
@@ -1115,7 +1120,7 @@ END $$;</code>
 
     el.innerHTML = groups.map(g => {
       const spent = monthIncomes
-        .filter(t => g.categories.includes(t.category))
+        .filter(t => Store.categoryInList(t.category, g.categories))
         .reduce((s, t) => s + t.amount, 0);
       const target = g.monthlyTarget || 0;
       const pct = target > 0 ? Math.min(100, (spent / target) * 100) : 0;
@@ -1228,6 +1233,149 @@ END $$;</code>
       this._renderIncomeGroups();
       App._refreshConfigDependents?.();
     });
+  },
+
+  _toggleCatTxScope() {
+    this._catTxShowAll = !this._catTxShowAll;
+    this._renderExpenseCategoryList();
+  },
+
+  _fmtTxDate(dateStr) {
+    if (!dateStr) return '—';
+    const p = dateStr.split('-');
+    return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : dateStr;
+  },
+
+  _resolveCatalogCategory(txCategory, categories) {
+    if (!txCategory) return null;
+    for (const cat of categories) {
+      if (Store._categoryKeysMatch(cat, txCategory)) return cat;
+    }
+    return null;
+  },
+
+  _buildCategoryTxIndex(categories) {
+    const month = Store.getCurrentMonth();
+    const index = new Map();
+    for (const cat of categories) {
+      index.set(cat, { month: [], older: [] });
+    }
+
+    const pushTx = (t) => {
+      if (t.type === 'Ingreso' || Store.isAdjustment(t)) return;
+      const cat = this._resolveCatalogCategory(t.category, categories);
+      if (!cat || !index.has(cat)) return;
+      const bucket = t.month === month ? 'month' : 'older';
+      index.get(cat)[bucket].push(t);
+    };
+
+    Store.getTransactions().forEach(pushTx);
+    Object.values(Store.getArchives() || {}).forEach(txs => txs.forEach(pushTx));
+
+    for (const buckets of index.values()) {
+      buckets.month.sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
+      buckets.older.sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
+    }
+    return index;
+  },
+
+  _renderCategoryTxRows(txs, limit = 40) {
+    if (!txs.length) {
+      return '<div class="cat-tx-empty">Sin movimientos en este periodo</div>';
+    }
+    const slice = txs.slice(0, limit);
+    const hidden = txs.length - slice.length;
+    const rows = slice.map(t => {
+      const where = (t.description || '').trim() || t.category || '—';
+      const meta = [t.paymentMethod, t.type !== 'Gasto' ? t.type : ''].filter(Boolean).join(' · ');
+      return `<div class="cat-tx-row">
+        <span class="cat-tx-date">${this._fmtTxDate(t.date)}</span>
+        <span class="cat-tx-where">
+          <span class="cat-tx-desc">${esc(where)}</span>
+          ${meta ? `<span class="cat-tx-meta">${esc(meta)}</span>` : ''}
+        </span>
+        <span class="cat-tx-amount">${t.amount.toFixed(2)} €</span>
+      </div>`;
+    }).join('');
+    return rows + (hidden > 0 ? `<div class="cat-tx-more">+ ${hidden} movimiento${hidden !== 1 ? 's' : ''} más</div>` : '');
+  },
+
+  _renderExpenseCategoryList() {
+    const el = document.getElementById('catList');
+    if (!el) return;
+
+    const categories = Store.getCategories();
+    const usedItems = this._getUsedItems('category');
+    const usage = Store.getCatalogUsage().category || {};
+    const txIndex = this._buildCategoryTxIndex(categories);
+    const showAll = this._catTxShowAll;
+    const [curY, curMo] = Store.getCurrentMonth().split('-');
+    const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    const monthLabel = `${monthNames[parseInt(curMo, 10) - 1]} ${curY}`;
+
+    if (!categories.length) {
+      el.innerHTML = '<div style="font-size:12px;color:var(--text-secondary);padding:6px 0">Sin categorías de gasto.</div>';
+      return;
+    }
+
+    const sorted = [...categories].sort((a, b) => {
+      const ta = txIndex.get(a);
+      const tb = txIndex.get(b);
+      const sumA = (showAll ? [...ta.month, ...ta.older] : ta.month).reduce((s, t) => s + t.amount, 0);
+      const sumB = (showAll ? [...tb.month, ...tb.older] : tb.month).reduce((s, t) => s + t.amount, 0);
+      if (sumB !== sumA) return sumB - sumA;
+      return a.localeCompare(b, 'es');
+    });
+
+    el.innerHTML = sorted.map(item => {
+      const inUse = usedItems.has(item);
+      const count = usage[item] || 0;
+      const safeItem = item.replace(/'/g, "\\'");
+      const emoji = Store.getCatalogDisplayEmoji('category', item);
+      const hasCustom = !!Store.getCatalogEmoji('category', item);
+      const buckets = txIndex.get(item) || { month: [], older: [] };
+      const visibleTxs = showAll ? [...buckets.month, ...buckets.older] : buckets.month;
+      const periodTotal = visibleTxs.reduce((s, t) => s + t.amount, 0);
+      const txCount = visibleTxs.length;
+      const periodHint = showAll ? 'historial' : monthLabel;
+
+      const olderBlock = !showAll && buckets.older.length ? `
+        <details class="cat-tx-older">
+          <summary>${buckets.older.length} movimiento${buckets.older.length !== 1 ? 's' : ''} de meses anteriores (${buckets.older.reduce((s, t) => s + t.amount, 0).toFixed(2)} €)</summary>
+          <div class="cat-tx-list">${this._renderCategoryTxRows(buckets.older)}</div>
+        </details>` : '';
+
+      return `
+        <details class="cat-expense-block">
+          <summary class="cat-expense-summary">
+            <span class="cat-expense-summary-left">
+              <button type="button" class="cat-emoji-btn" title="${hasCustom ? 'Emoticono personalizado' : 'Emoticono automático — pulsa para cambiar'}" onclick="event.stopPropagation(); Categorias._editCatalogEmoji('category', '${safeItem}')">${emoji}</button>
+              <span class="cat-expense-name">${esc(item)}</span>
+              ${count ? `<span class="cat-expense-usage">(${count})</span>` : ''}
+            </span>
+            <span class="cat-expense-summary-right">
+              ${txCount ? `<span class="cat-expense-count">${txCount} gasto${txCount !== 1 ? 's' : ''}</span>` : ''}
+              <span class="cat-expense-total">${periodTotal > 0 ? periodTotal.toFixed(2) + ' €' : '—'}</span>
+              <span class="cat-expense-chevron" aria-hidden="true">▾</span>
+            </span>
+          </summary>
+          <div class="cat-expense-body">
+            <div class="cat-expense-period">${showAll ? 'Todo el historial' : `Movimientos de ${periodHint}`}</div>
+            <div class="cat-tx-list">${this._renderCategoryTxRows(visibleTxs)}</div>
+            ${olderBlock}
+            <div class="cat-expense-actions">
+              <button type="button" class="btn-sm" style="border:1px solid var(--border);border-radius:4px;background:var(--card);cursor:pointer;font-size:11px;padding:2px 8px" title="Renombrar" onclick="Categorias._rename('category', '${safeItem}')">✏️ Renombrar</button>
+              <button type="button" class="delete-cat" onclick="Categorias._delete('category', '${safeItem}')"
+                title="${inUse ? 'En uso — al eliminar podrás reasignar' : 'Eliminar'}">✕ Eliminar</button>
+            </div>
+          </div>
+        </details>`;
+    }).join('');
+
+    const scopeBtn = document.querySelector('.cat-tx-scope-btn');
+    if (scopeBtn) {
+      scopeBtn.textContent = showAll ? '📅 Todo el historial' : '📅 Mes actual';
+    }
   },
 
   _renderList(listId, items, type) {

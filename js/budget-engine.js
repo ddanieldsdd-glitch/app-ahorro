@@ -56,9 +56,8 @@ const BudgetEngine = {
   /** Todos los gastos de alimentación del mes actual según categorías configuradas */
   getMonthFoodSpending(month) {
     const m = month || Store.getCurrentMonth();
-    const foodCats = Store.getFoodCategories();
     return Store.getTransactions()
-      .filter(t => t.month === m && foodCats.includes(t.category) && Store.isSpendableExpense(t))
+      .filter(t => t.month === m && Store.isFoodCategory(t.category) && Store.isSpendableExpense(t))
       .reduce((s, t) => s + t.amount, 0);
   },
 
@@ -197,7 +196,7 @@ const BudgetEngine = {
     if (!group) return 0;
     const weekExpenses = this.getWeekSpendableExpenses();
     return weekExpenses
-      .filter(t => group.categories.includes(t.category))
+      .filter(t => Store.txInCategoryGroup(t, group))
       .reduce((s, t) => s + t.amount, 0);
   },
 
@@ -208,7 +207,7 @@ const BudgetEngine = {
     if (!group) return 0;
     const m = month || Store.getCurrentMonth();
     return Store.getTransactions()
-      .filter(t => t.month === m && group.categories.includes(t.category) && Store.isSpendableExpense(t))
+      .filter(t => t.month === m && Store.txInCategoryGroup(t, group) && Store.isSpendableExpense(t))
       .reduce((s, t) => s + t.amount, 0);
   },
 
@@ -338,16 +337,14 @@ const BudgetEngine = {
    * pero no están asignadas a ningún grupo de categorías.
    */
   getUncategorizedCategories() {
-    const groups = Store.getCategoryGroups();
-    const allGroupedCats = new Set(groups.flatMap(g => g.categories));
     const currentMonth = Store.getCurrentMonth();
     const monthExpenses = this.getMonthSpendableExpenses(currentMonth);
 
     const usedCats = new Set(monthExpenses.map(t => t.category));
     const uncategorized = [];
     for (const cat of usedCats) {
-      if (!allGroupedCats.has(cat)) {
-        const total = monthExpenses.filter(t => t.category === cat).reduce((s, t) => s + t.amount, 0);
+      if (!Store.getCategoryGroup(cat)) {
+        const total = monthExpenses.filter(t => Store._categoryKeysMatch(t.category, cat)).reduce((s, t) => s + t.amount, 0);
         uncategorized.push({ name: cat, total });
       }
     }
@@ -412,7 +409,7 @@ const BudgetEngine = {
     const limits = Store.getCategoryLimits();
     const byGroup = groups.map(g => {
       const spent = expenses
-        .filter(t => g.categories.includes(t.category))
+        .filter(t => Store.txInCategoryGroup(t, g))
         .reduce((s, t) => s + t.amount, 0);
       const monthlyBudget = g.monthlyBudget || 0;
       const budget = isWeek ? monthlyBudget / 4.33 : monthlyBudget;
@@ -432,22 +429,43 @@ const BudgetEngine = {
     }).filter(g => g.spent > 0 || g.budget > 0)
       .sort((a, b) => b.spent - a.spent);
 
-    const groupedCats = new Set(groups.flatMap(g => g.categories));
     const byCategory = Object.entries(byCatMap)
       .map(([name, spent]) => {
         const limit = limits[name] || 0;
         const budget = isWeek ? limit : limit * 4.33;
+        const grp = Store.getCategoryGroup(name);
         return {
           name,
           spent,
           budget,
           weeklyLimit: limit,
-          inGroup: groupedCats.has(name),
+          inGroup: !!grp,
+          groupName: grp?.name || null,
+          isFood: Store.isFoodCategory(name),
           priority: Store.getCategoryPriority(name),
           pct: budget > 0 ? (spent / budget) * 100 : 0,
         };
       })
       .sort((a, b) => b.spent - a.spent);
+
+    const incomeGroups = Store.getIncomeGroups();
+    const byIncomeGroup = incomeGroups.map(g => {
+      const received = incomes
+        .filter(t => Store.categoryInList(t.category, g.categories))
+        .reduce((s, t) => s + t.amount, 0);
+      const target = g.monthlyTarget || 0;
+      const targetPeriod = isWeek ? target / 4.33 : target;
+      return {
+        id: g.id,
+        name: g.name,
+        emoji: Store.getGroupDisplayEmoji(g, true),
+        received,
+        target: targetPeriod,
+        monthlyTarget: target,
+        pct: targetPeriod > 0 ? (received / targetPeriod) * 100 : 0,
+      };
+    }).filter(g => g.received > 0 || g.target > 0)
+      .sort((a, b) => b.received - a.received);
 
     const byIncomeCat = {};
     for (const t of incomes) {
@@ -469,8 +487,10 @@ const BudgetEngine = {
       balanceVsPlan: incomeConfigured - expenseTotal,
       byGroup,
       byCategory,
+      byIncomeGroup,
       byIncomeCat,
       topExpenses: byCategory.slice(0, 6),
+      ungroupedExpenses: byCategory.filter(c => !c.inGroup && c.spent > 0),
     };
   },
 
@@ -644,7 +664,7 @@ const BudgetEngine = {
     const limits = Store.getCategoryLimits();
     for (const [cat, limit] of Object.entries(limits)) {
       if (!(limit > 0)) continue;
-      const spent = weekExpenses.filter(t => t.category === cat).reduce((s, t) => s + t.amount, 0);
+      const spent = weekExpenses.filter(t => Store._categoryKeysMatch(t.category, cat)).reduce((s, t) => s + t.amount, 0);
       const priority = Store.getCategoryPriority(cat);
       const pMeta = this.getPriorityMeta(priority);
       const weekFrac = Math.max(0.2, (7 - this.calcWeekly().daysLeft) / 7);
@@ -825,12 +845,13 @@ const BudgetEngine = {
 
     // Check individual category limit
     const catLimit = limits[category];
-    const catSpent = weekExpenses.filter(t => t.category === category).reduce((s, t) => s + t.amount, 0);
+    const catSpent = weekExpenses.filter(t => Store._categoryKeysMatch(t.category, category)).reduce((s, t) => s + t.amount, 0);
 
-    // Check group limit if category belongs to a group with monthlyBudget
     const group = Store.getCategoryGroup(category);
     const groupWeekLimit = group && group.monthlyBudget > 0 ? group.monthlyBudget / 4.33 : null;
-    const groupSpent = group ? weekExpenses.filter(t => group.categories.includes(t.category)).reduce((s, t) => s + t.amount, 0) : 0;
+    const groupSpent = group
+      ? weekExpenses.filter(t => Store.txInCategoryGroup(t, group)).reduce((s, t) => s + t.amount, 0)
+      : 0;
 
     if (!catLimit && !groupWeekLimit) return null;
 

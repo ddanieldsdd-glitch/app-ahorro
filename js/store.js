@@ -1012,7 +1012,7 @@ const Store = {
       const allCats = new Set([...d.categories, ...Object.values(d.archives || {}).flatMap(txs => txs.map(t => t.category))]);
       for (const cat of allCats) {
         if (!d.foodCategories.includes(cat) &&
-            /superm|comida|cafet|restaur|alimenta|bar |bebida|fruter|panade|carnic/i.test(cat)) {
+            /superm|comida|comidas|cafe|cafet|restaur|alimenta|bar |bebida|fruter|panade|carnic|hostel|tapas|pizza|burger|kebab|delivery|glovo|uber\s*eats|menú|menu/i.test(cat)) {
           d.foodCategories.push(cat);
         }
       }
@@ -1033,6 +1033,52 @@ const Store = {
         d.categoryGroups = [];
       }
     }
+
+    // Re-sincronizar categorías de comida con el grupo Alimentación (variantes: comida fuera, cafe fuera…)
+    if (!d._foodCategoryResyncV2) {
+      d._foodCategoryResyncV2 = true;
+      const foodLike = (cat) => {
+        const n = norm(cat);
+        return /superm|comida|comidas|cafe|cafet|restaur|alimenta|bar |bebida|fruter|panade|carnic|hostel|tapas|pizza|burger|kebab|delivery|glovo|uber\s*eats|menú|menu|fuera/i.test(n);
+      };
+      const norm = (s) => String(s || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ');
+      const inList = (cat, list) => (list || []).some(c => norm(c) === norm(cat));
+      const allCats = new Set([
+        ...(d.categories || []),
+        ...Object.values(d.archives || {}).flatMap(txs => txs.map(t => t.category)),
+        ...(d.transactions || []).map(t => t.category),
+      ]);
+      let foodGroup = (d.categoryGroups || []).find(g => g.isFoodGroup);
+      if (!foodGroup && (d.foodCategories?.length || [...allCats].some(foodLike))) {
+        foodGroup = {
+          id: 'cgrp_alim',
+          name: 'Alimentación',
+          categories: [...(d.foodCategories || [])],
+          monthlyBudget: d.foodBudget || 200,
+          isFoodGroup: true,
+          color: '#F59E0B',
+        };
+        d.categoryGroups.push(foodGroup);
+      }
+      if (foodGroup) {
+        for (const cat of allCats) {
+          if (!cat || cat === '__ajuste__') continue;
+          if (foodLike(cat) && !inList(cat, foodGroup.categories)) {
+            foodGroup.categories.push(cat);
+          }
+        }
+      }
+      const foodMap = new Map();
+      for (const g of d.categoryGroups || []) {
+        if (!g.isFoodGroup) continue;
+        for (const c of g.categories || []) {
+          if (c) foodMap.set(norm(c), c);
+        }
+      }
+      d.foodCategories = [...foodMap.values()];
+    }
+
+    this._ensureFoodCategoriesSynced();
 
     if (!d.expensePriorities || typeof d.expensePriorities !== 'object') {
       d.expensePriorities = {};
@@ -1849,6 +1895,77 @@ const Store = {
   setCategoryLimit(cat, amount) { this._data.budgetConfig.categoryLimits[cat] = amount; this._save(); },
   removeCategoryLimit(cat) { delete this._data.budgetConfig.categoryLimits[cat]; this._save(); },
 
+  /** Normaliza nombre de categoría para comparar variantes (Comida fuera / comida fuera). */
+  _normCategoryKey(name) {
+    return String(name || '')
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ');
+  },
+
+  _categoryKeysMatch(a, b) {
+    return this._normCategoryKey(a) === this._normCategoryKey(b);
+  },
+
+  /** ¿La categoría del movimiento pertenece a la lista del grupo? (comparación flexible) */
+  categoryInList(categoryName, list) {
+    if (!categoryName || !list?.length) return false;
+    const key = this._normCategoryKey(categoryName);
+    return list.some(c => this._normCategoryKey(c) === key);
+  },
+
+  isFoodLikeCategoryName(cat) {
+    if (!cat) return false;
+    const n = this._normCategoryKey(cat);
+    return /superm|comida|comidas|cafe|cafet|restaur|alimenta|bar |bebida|fruter|panade|carnic|hostel|tapas|pizza|burger|kebab|delivery|glovo|uber\s*eats|menú|menu|fuera/i.test(n);
+  },
+
+  /** Añade al grupo Alimentación categorías food-like usadas en movimientos (idempotente). */
+  _ensureFoodCategoriesSynced() {
+    const foodGroup = (this._data.categoryGroups || []).find(g => g.isFoodGroup);
+    if (!foodGroup) return;
+    let changed = false;
+    for (const cat of this._collectAllCategoryNames()) {
+      if (!cat || cat === '__ajuste__') continue;
+      if (this.isFoodLikeCategoryName(cat) && !this.categoryInList(cat, foodGroup.categories)) {
+        foodGroup.categories.push(cat);
+        changed = true;
+      }
+    }
+    if (changed) {
+      this._syncFoodCategoriesFromGroups();
+      this._save();
+    }
+  },
+
+  _collectAllCategoryNames(data) {
+    const d = data || this._data;
+    const set = new Set(d.categories || []);
+    for (const t of d.transactions || []) {
+      if (t.category) set.add(t.category);
+    }
+    for (const txs of Object.values(d.archives || {})) {
+      for (const t of txs) if (t.category) set.add(t.category);
+    }
+    return [...set];
+  },
+
+  _syncFoodCategoriesFromGroups() {
+    const map = new Map();
+    for (const g of (this._data.categoryGroups || [])) {
+      if (!g.isFoodGroup) continue;
+      for (const c of g.categories || []) {
+        if (c) map.set(this._normCategoryKey(c), c);
+      }
+    }
+    for (const c of (this._data.foodCategories || [])) {
+      if (c) map.set(this._normCategoryKey(c), c);
+    }
+    this._data.foodCategories = [...map.values()];
+  },
+
   getFoodBudget() { return this._data.foodBudget ?? 200; },
   setFoodBudget(v) {
     this._data.foodBudget = v;
@@ -1865,38 +1982,60 @@ const Store = {
     return this.getFoodBudget();
   },
 
-  getFoodCategories() { return [...(this._data.foodCategories || [])]; },
+  getFoodCategories() {
+    const map = new Map();
+    for (const g of (this._data.categoryGroups || [])) {
+      if (!g.isFoodGroup) continue;
+      for (const c of g.categories || []) {
+        if (c) map.set(this._normCategoryKey(c), c);
+      }
+    }
+    for (const c of (this._data.foodCategories || [])) {
+      if (c) map.set(this._normCategoryKey(c), c);
+    }
+    for (const cat of this._collectAllCategoryNames()) {
+      if (this.isFoodLikeCategoryName(cat)) map.set(this._normCategoryKey(cat), cat);
+    }
+    return [...map.values()];
+  },
   setFoodCategories(arr) { this._data.foodCategories = [...arr]; this._save(); },
   isFoodCategory(cat) {
-    // Check category groups first
+    if (!cat) return false;
     const groups = this._data.categoryGroups || [];
-    if (groups.some(g => g.isFoodGroup && g.categories.includes(cat))) return true;
-    // Fall back to legacy foodCategories
-    return (this._data.foodCategories || []).includes(cat);
+    if (groups.some(g => g.isFoodGroup && this.categoryInList(cat, g.categories))) return true;
+    if ((this._data.foodCategories || []).some(c => this._categoryKeysMatch(c, cat))) return true;
+    return this.isFoodLikeCategoryName(cat);
   },
   addFoodCategory(cat) {
-    // Add to the primary food group if it exists, else legacy array
     const foodGroup = (this._data.categoryGroups || []).find(g => g.isFoodGroup);
     if (foodGroup) {
-      if (!foodGroup.categories.includes(cat)) { foodGroup.categories.push(cat); this._save(); }
+      if (!this.categoryInList(cat, foodGroup.categories)) {
+        foodGroup.categories.push(cat);
+        this._syncFoodCategoriesFromGroups();
+        this._save();
+      }
       return;
     }
     if (!this._data.foodCategories) this._data.foodCategories = [];
-    if (!this._data.foodCategories.includes(cat)) { this._data.foodCategories.push(cat); this._save(); }
+    if (!this.categoryInList(cat, this._data.foodCategories)) {
+      this._data.foodCategories.push(cat);
+      this._save();
+    }
   },
   removeFoodCategory(cat) {
-    // Remove from food groups
     let changed = false;
     for (const g of (this._data.categoryGroups || [])) {
-      if (g.isFoodGroup && g.categories.includes(cat)) {
-        g.categories = g.categories.filter(c => c !== cat);
-        changed = true;
+      if (g.isFoodGroup) {
+        const before = g.categories.length;
+        g.categories = g.categories.filter(c => !this._categoryKeysMatch(c, cat));
+        if (g.categories.length !== before) changed = true;
       }
     }
     if (!changed) {
       if (!this._data.foodCategories) return;
-      this._data.foodCategories = this._data.foodCategories.filter(c => c !== cat);
+      this._data.foodCategories = this._data.foodCategories.filter(c => !this._categoryKeysMatch(c, cat));
     }
+    this._syncFoodCategoriesFromGroups();
     this._save();
   },
 
@@ -1905,7 +2044,29 @@ const Store = {
 
   /** Returns the group that contains a given category name, or null */
   getCategoryGroup(categoryName) {
-    return (this._data.categoryGroups || []).find(g => g.categories.includes(categoryName)) || null;
+    if (!categoryName) return null;
+    const groups = this._data.categoryGroups || [];
+    const direct = groups.find(g => this.categoryInList(categoryName, g.categories));
+    if (direct) return direct;
+    if (this.isFoodCategory(categoryName)) {
+      return groups.find(g => g.isFoodGroup) || null;
+    }
+    return null;
+  },
+
+  /** ¿El movimiento pertenece al grupo? (resuelve variantes de nombre y comida fuera) */
+  txInCategoryGroup(t, group) {
+    if (!t || !group) return false;
+    const g = this.getCategoryGroup(t.category);
+    return g && g.id === group.id;
+  },
+
+  /** Grupo de ingreso que contiene una categoría de ingreso */
+  getIncomeGroup(categoryName) {
+    if (!categoryName) return null;
+    return (this._data.incomeGroups || []).find(g =>
+      this.categoryInList(categoryName, g.categories)
+    ) || null;
   },
 
   addCategoryGroup(name, opts = {}) {
@@ -1928,6 +2089,7 @@ const Store = {
     if (!this.getPriorityIncludes().customized) {
       this.getPriorityIncludes().groups.push(g.id);
     }
+    if (g.isFoodGroup) this._syncFoodCategoriesFromGroups();
     this._save();
     return g;
   },
@@ -1944,9 +2106,11 @@ const Store = {
       g.emoji = updates.emoji;
       if (updates.emoji) this.trackEmoji(updates.emoji);
     }
-    // Sync legacy foodBudget when updating the food group budget
     if (updates.isFoodGroup && updates.monthlyBudget !== undefined) {
       this._data.foodBudget = updates.monthlyBudget;
+    }
+    if (g.isFoodGroup || updates.isFoodGroup || updates.categories !== undefined) {
+      this._syncFoodCategoriesFromGroups();
     }
     this._save();
   },
@@ -1961,10 +2125,6 @@ const Store = {
 
   // ── Grupos de ingreso ─────────────────────────────────────────────────────
   getIncomeGroups() { return [...(this._data.incomeGroups || [])]; },
-
-  getIncomeGroup(categoryName) {
-    return (this._data.incomeGroups || []).find(g => g.categories.includes(categoryName)) || null;
-  },
 
   addIncomeGroup(name, opts = {}) {
     const g = {

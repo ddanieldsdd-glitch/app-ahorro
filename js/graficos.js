@@ -192,7 +192,10 @@ const Graficos = {
         key = `Sem ${String(mon.getDate()).padStart(2,'0')}/${String(mon.getMonth()+1).padStart(2,'0')}`;
       } else if (group === 'month') key = `${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
       else if (group === 'category') key = t.category || 'Otros';
-      else if (group === 'group') key = (t.category && catToGroup[t.category]) || '📦 Sin grupo';
+      else if (group === 'group') {
+        const g = Store.getCategoryGroup(t.category);
+        key = g ? ((g.emoji ? g.emoji + ' ' : '') + g.name) : '📦 Sin grupo';
+      }
       else key = t.paymentMethod || 'Sin método';
 
       if (!map[key]) map[key] = { income: 0, expense: 0 };
@@ -460,7 +463,7 @@ const Graficos = {
     // Aggregate actual spend per group
     const spent = {};
     tx.filter(t => Store.isSpendableExpense(t)).forEach(t => {
-      const g = catToGroup[t.category];
+      const g = Store.getCategoryGroup(t.category);
       const key = g ? ((g.emoji ? g.emoji + ' ' : '') + g.name) : '📦 Sin grupo';
       spent[key] = (spent[key] || 0) + t.amount;
     });

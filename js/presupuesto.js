@@ -563,7 +563,7 @@ const Presupuesto = {
     if (cats.length === 0) return '<p style="color:var(--text-secondary);font-size:14px;text-align:center;padding:8px">Añade límites a las categorías que más gastas</p>';
     return cats.map(cat => {
       const limit = limits[cat];
-      const spent = weekExpenses.filter(t => t.category === cat).reduce((s, t) => s + t.amount, 0);
+      const spent = weekExpenses.filter(t => Store._categoryKeysMatch(t.category, cat)).reduce((s, t) => s + t.amount, 0);
       const pct = limit > 0 ? Math.min(100, (spent / limit) * 100) : 0;
       const remain = limit - spent;
       const level = this._alertLevel(spent, limit);
@@ -591,10 +591,8 @@ const Presupuesto = {
     const totalIncome = monthIncome.reduce((s, t) => s + t.amount, 0);
     const monthly = Math.max(totalIncome || budget.totalWeekly * 4.33, budget.totalWeekly * 4.33);
     const skipCats = ['Ahorro','Ahorro programado'];
-    const foodCats = Store.getFoodCategories();
-    const needsCats = [...new Set([...foodCats, 'Vivienda', 'Transporte', 'Salud', 'Educación'])];
-    const needs = monthExpenses.filter(t => needsCats.includes(t.category)).reduce((s, t) => s + t.amount, 0);
-    const wants = monthExpenses.filter(t => !needsCats.includes(t.category) && !skipCats.includes(t.category)).reduce((s, t) => s + t.amount, 0);
+    const needs = monthExpenses.filter(t => Store.isFoodCategory(t.category) || ['Vivienda', 'Transporte', 'Salud', 'Educación'].some(c => Store._categoryKeysMatch(c, t.category))).reduce((s, t) => s + t.amount, 0);
+    const wants = monthExpenses.filter(t => !Store.isFoodCategory(t.category) && !['Vivienda', 'Transporte', 'Salud', 'Educación'].some(c => Store._categoryKeysMatch(c, t.category)) && !skipCats.includes(t.category)).reduce((s, t) => s + t.amount, 0);
     // Use savings account balance (matches Dashboard "Ahorro real")
     const savings = Store.getSavingsBalance();
     const pctNeeds = monthly > 0 ? (needs / monthly) * 100 : 0;
@@ -857,27 +855,54 @@ const Presupuesto = {
     const month = BudgetEngine.getPeriodSummary('month');
 
     const renderBreakdown = (sum, isWeek) => {
-      const rows = sum.byGroup.length
-        ? sum.byGroup.slice(0, 8).map(g => {
-          const meta = BudgetEngine.getPriorityMeta(g.priority);
-          const color = g.pct >= 100 ? 'var(--expense)' : g.pct >= 80 ? '#F97316' : 'var(--income)';
-          return `<div class="psum-row">
-            <div class="psum-row-top">
-              <span>${g.emoji} ${esc(g.name)} <span class="prio-mini" style="background:${meta.color}">${meta.short}</span></span>
-              <span style="color:${color};font-weight:700">${g.spent.toFixed(0)}€${g.budget > 0 ? ` / ${g.budget.toFixed(0)}€` : ''}</span>
-            </div>
-            ${g.budget > 0 ? `<div class="psum-bar"><div style="width:${Math.min(100, g.pct)}%;background:${color}"></div></div>` : ''}
-          </div>`;
-        }).join('')
-        : sum.topExpenses.map(c => {
+      const groupRows = sum.byGroup.slice(0, 8).map(g => {
+        const meta = BudgetEngine.getPriorityMeta(g.priority);
+        const color = g.pct >= 100 ? 'var(--expense)' : g.pct >= 80 ? '#F97316' : 'var(--income)';
+        return `<div class="psum-row">
+          <div class="psum-row-top">
+            <span>${g.emoji} ${esc(g.name)}${g.isFoodGroup ? ' <span style="font-size:10px;background:#FEF3C7;color:#92400E;padding:1px 5px;border-radius:8px">🍽️</span>' : ''} <span class="prio-mini" style="background:${meta.color}">${meta.short}</span></span>
+            <span style="color:${color};font-weight:700">${g.spent.toFixed(0)}€${g.budget > 0 ? ` / ${g.budget.toFixed(0)}€` : ''}</span>
+          </div>
+          ${g.budget > 0 ? `<div class="psum-bar"><div style="width:${Math.min(100, g.pct)}%;background:${color}"></div></div>` : ''}
+        </div>`;
+      }).join('');
+
+      const ungrouped = (sum.ungroupedExpenses || []).slice(0, 6);
+      const ungroupedRows = ungrouped.map(c => {
+        const meta = BudgetEngine.getPriorityMeta(c.priority);
+        const emoji = Store.getCatalogDisplayEmoji('category', c.name);
+        return `<div class="psum-row">
+          <div class="psum-row-top">
+            <span>${emoji} ${esc(c.name)}${c.isFood ? ' <span style="font-size:10px;color:#92400E">🍽️</span>' : ''} <span class="prio-mini" style="background:${meta.color}">${meta.short}</span></span>
+            <span style="font-weight:700">${c.spent.toFixed(0)}€${c.budget > 0 ? ` / ${c.budget.toFixed(0)}€` : ''}</span>
+          </div>
+        </div>`;
+      }).join('');
+
+      const incomeRows = (sum.byIncomeGroup || []).filter(g => g.received > 0).slice(0, 5).map(g => `
+        <div class="psum-row">
+          <div class="psum-row-top">
+            <span>${g.emoji} ${esc(g.name)} <span style="font-size:10px;background:#ECFDF5;color:#065F46;padding:1px 5px;border-radius:8px">💰</span></span>
+            <span style="color:var(--income);font-weight:700">+${g.received.toFixed(0)}€${g.target > 0 ? ` / ${g.target.toFixed(0)}€` : ''}</span>
+          </div>
+        </div>`).join('');
+
+      const fallbackRows = !groupRows && !ungroupedRows
+        ? sum.topExpenses.map(c => {
           const meta = BudgetEngine.getPriorityMeta(c.priority);
+          const emoji = Store.getCatalogDisplayEmoji('category', c.name);
           return `<div class="psum-row">
             <div class="psum-row-top">
-              <span>${esc(c.name)} <span class="prio-mini" style="background:${meta.color}">${meta.short}</span></span>
+              <span>${emoji} ${esc(c.name)} <span class="prio-mini" style="background:${meta.color}">${meta.short}</span></span>
               <span style="font-weight:700">${c.spent.toFixed(0)}€</span>
             </div>
           </div>`;
-        }).join('');
+        }).join('')
+        : '';
+
+      const expenseRows = groupRows
+        + (ungroupedRows ? `<div style="font-size:10px;font-weight:700;color:var(--text-secondary);margin:8px 0 4px">Sin grupo asignado</div>${ungroupedRows}` : '')
+        + fallbackRows;
 
       return `
         <div class="psum-stats">
@@ -894,16 +919,21 @@ const Presupuesto = {
           <div class="week-stat"><div class="week-stat-label">Días</div><div class="week-stat-value">${budget.daysLeft}</div></div>
         </div>` : ''}
         <div style="margin-top:10px">
-          <div style="font-size:11px;font-weight:700;color:var(--text-secondary);margin-bottom:4px">Desglose por prioridad</div>
-          ${rows || '<div style="font-size:12px;color:var(--text-secondary)">Sin gastos en este periodo</div>'}
-        </div>`;
+          <div style="font-size:11px;font-weight:700;color:var(--text-secondary);margin-bottom:4px">Desglose por prioridad (gastos)</div>
+          ${expenseRows || '<div style="font-size:12px;color:var(--text-secondary)">Sin gastos en este periodo</div>'}
+        </div>
+        ${incomeRows ? `<div style="margin-top:10px">
+          <div style="font-size:11px;font-weight:700;color:var(--text-secondary);margin-bottom:4px">Ingresos por grupo</div>
+          ${incomeRows}
+        </div>` : ''}
+      `;
     };
 
     const limitRemain = Object.keys(limits).filter(c => limits[c] > 0 && categories.includes(c)).length > 0 ? `
       <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border)">
         <div style="font-size:11px;font-weight:700;color:var(--text-secondary);margin-bottom:4px">🏷️ Lo que te queda por categoría (semana):</div>
         ${Object.entries(limits).filter(([c, l]) => l > 0 && categories.includes(c)).map(([cat, limit]) => {
-          const spent = weekExpenses.filter(t => t.category === cat).reduce((s, t) => s + t.amount, 0);
+          const spent = weekExpenses.filter(t => Store._categoryKeysMatch(t.category, cat)).reduce((s, t) => s + t.amount, 0);
           const remain = limit - spent;
           const pct = limit > 0 ? Math.min(100, (spent / limit) * 100) : 0;
           const color = pct >= 100 ? 'var(--expense)' : pct >= 80 ? '#F97316' : pct >= 50 ? '#F59E0B' : 'var(--income)';
@@ -1437,7 +1467,7 @@ const Presupuesto = {
     if (key === 'food') cats = Store.getFoodCategories();
     else if (key === 'imprevistos') cats = ['Imprevisto'];
     const txs = Store.getTransactions()
-      .filter(t => t.month === month && cats.includes(t.category) && Store.isSpendableExpense(t))
+      .filter(t => t.month === month && (key === 'food' ? Store.isFoodCategory(t.category) : Store.categoryInList(t.category, cats)) && Store.isSpendableExpense(t))
       .sort((a, b) => b.date.localeCompare(a.date))
       .slice(0, 10);
     if (!txs.length) return '<span style="color:var(--text-secondary)">Sin movimientos</span>';
@@ -1489,7 +1519,7 @@ const Presupuesto = {
     const limits = Store.getCategoryLimits();
     const current = limits[cat] || 0;
     const weekExpenses = this._getWeekTransactions().filter(t => Store.isSpendableExpense(t));
-    const spent = weekExpenses.filter(t => t.category === cat).reduce((s, t) => s + t.amount, 0);
+    const spent = weekExpenses.filter(t => Store._categoryKeysMatch(t.category, cat)).reduce((s, t) => s + t.amount, 0);
     App.showCustom(`✏️ Límite semanal — ${cat}`, `
       <div style="margin-bottom:10px;padding:8px 12px;background:var(--bg);border-radius:8px;font-size:13px">
         <span>Gastado esta semana: </span><strong style="color:var(--expense)">${spent.toFixed(2)} €</strong>
@@ -1512,37 +1542,58 @@ const Presupuesto = {
     }, 80);
   },
 
-  _addGoal() {
-    document.getElementById('modalTitle').textContent = 'Nueva meta de ahorro';
-    document.getElementById('modalBody').innerHTML = `
+  _goalFormHtml(g = null) {
+    const isEdit = !!g;
+    return `
       <div style="display:flex;flex-direction:column;gap:10px">
-        <div class="form-group"><label>Nombre</label><input type="text" id="goalNameInput" placeholder="Ej: Navidad 2026" style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)"></div>
-        <div class="form-group"><label>Objetivo (€)</label><input type="number" id="goalTargetInput" placeholder="500" step="10" style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)"></div>
+        <div class="form-group"><label>Nombre</label><input type="text" id="goalNameInput" value="${isEdit ? esc(g.name) : ''}" placeholder="Ej: Navidad 2026" style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);width:100%"></div>
+        <div class="form-group"><label>Objetivo (€)</label><input type="number" id="goalTargetInput" value="${isEdit ? g.targetAmount : ''}" placeholder="500" step="10" style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);width:100%"></div>
+        ${isEdit ? `<div class="form-group"><label>Cantidad actual ahorrada (€)</label><input type="number" id="goalCurrentInput" value="${g.currentAmount}" step="1" style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);width:100%"></div>` : ''}
         <div class="form-group"><label>¿Para cuándo quieres conseguirlo?</label>
           <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">
-            <button class="btn-sm gc-range" onclick="Presupuesto._quickDate(3)">3 meses</button>
-            <button class="btn-sm gc-range" onclick="Presupuesto._quickDate(6)">6 meses</button>
-            <button class="btn-sm gc-range" onclick="Presupuesto._quickDate(12)">1 año</button>
-            <button class="btn-sm gc-range" onclick="Presupuesto._quickDate(24)">2 años</button>
+            <button type="button" class="btn-sm gc-range" onclick="Presupuesto._quickDate(3)">3 meses</button>
+            <button type="button" class="btn-sm gc-range" onclick="Presupuesto._quickDate(6)">6 meses</button>
+            <button type="button" class="btn-sm gc-range" onclick="Presupuesto._quickDate(12)">1 año</button>
+            <button type="button" class="btn-sm gc-range" onclick="Presupuesto._quickDate(24)">2 años</button>
           </div>
-          <input type="date" id="goalDateInput" style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);width:100%">
+          <input type="date" id="goalDateInput" value="${isEdit && g.targetDate ? g.targetDate : ''}" style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);width:100%">
         </div>
         <div style="font-size:12px;color:var(--text-secondary);text-align:center" id="goalDatePreview">Sin fecha definida — calcularemos el tiempo estimado</div>
-      </div>
-    `;
-    document.getElementById('goalDateInput').addEventListener('change', () => { this._updateGoalDatePreview(); });
-    document.getElementById('modalConfirm').onclick = () => {
-      const name = document.getElementById('goalNameInput').value.trim();
-      const target = parseFloat(document.getElementById('goalTargetInput').value);
-      const date = document.getElementById('goalDateInput').value;
-      if (!name || !target || target <= 0) return;
-      Store.addSavingGoal(name, target, date || undefined);
-      App._closeModal();
-      this.render();
-    };
-    document.getElementById('modalCancel').onclick = () => App._closeModal();
-    document.getElementById('modalOverlay').classList.add('open');
+      </div>`;
+  },
+
+  _bindGoalFormExtras() {
+    const inp = document.getElementById('goalDateInput');
+    if (inp) inp.addEventListener('change', () => { this._updateGoalDatePreview(); });
     this._updateGoalDatePreview();
+  },
+
+  _addGoal() {
+    App.openModal({
+      title: 'Nueva meta de ahorro',
+      body: this._goalFormHtml(),
+      actions: [
+        { label: 'Cancelar' },
+        {
+          label: 'Crear',
+          primary: true,
+          cb: () => {
+            const name = document.getElementById('goalNameInput')?.value.trim();
+            const target = parseFloat(document.getElementById('goalTargetInput')?.value);
+            const date = document.getElementById('goalDateInput')?.value;
+            if (!name || !target || target <= 0) {
+              App.showToast('⚠️ Indica nombre y objetivo válido');
+              setTimeout(() => this._addGoal(), 80);
+              return;
+            }
+            Store.addSavingGoal(name, target, date || undefined);
+            this.render();
+            App.showToast('✅ Meta creada');
+          },
+        },
+      ],
+    });
+    this._bindGoalFormExtras();
   },
 
   _quickDate(months) {
@@ -1569,60 +1620,70 @@ const Presupuesto = {
   _editGoal(id) {
     const g = Store.getSavingGoals().find(x => x.id === id);
     if (!g) return;
-    document.getElementById('modalTitle').textContent = 'Editar meta';
-    document.getElementById('modalBody').innerHTML = `
-      <div style="display:flex;flex-direction:column;gap:10px">
-        <div class="form-group"><label>Nombre</label><input type="text" id="goalNameInput" value="${esc(g.name)}" style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)"></div>
-        <div class="form-group"><label>Objetivo (€)</label><input type="number" id="goalTargetInput" value="${g.targetAmount}" step="10" style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)"></div>
-        <div class="form-group"><label>Cantidad actual ahorrada (€)</label><input type="number" id="goalCurrentInput" value="${g.currentAmount}" step="1" style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)"></div>
-        <div class="form-group"><label>¿Para cuándo quieres conseguirlo?</label>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">
-            <button class="btn-sm gc-range" onclick="Presupuesto._quickDate(3)">3 meses</button>
-            <button class="btn-sm gc-range" onclick="Presupuesto._quickDate(6)">6 meses</button>
-            <button class="btn-sm gc-range" onclick="Presupuesto._quickDate(12)">1 año</button>
-            <button class="btn-sm gc-range" onclick="Presupuesto._quickDate(24)">2 años</button>
-          </div>
-          <input type="date" id="goalDateInput" value="${g.targetDate || ''}" style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);width:100%">
-        </div>
-        <div style="font-size:12px;color:var(--text-secondary);text-align:center" id="goalDatePreview"></div>
-      </div>
-    `;
-    document.getElementById('goalDateInput').addEventListener('change', () => { this._updateGoalDatePreview(); });
-    document.getElementById('modalConfirm').onclick = () => {
-      const name = document.getElementById('goalNameInput').value.trim();
-      const target = parseFloat(document.getElementById('goalTargetInput').value);
-      const current = parseFloat(document.getElementById('goalCurrentInput').value) || 0;
-      const date = document.getElementById('goalDateInput').value;
-      if (!name || !target || target <= 0) return;
-      Store.updateSavingGoal(id, { name, targetAmount: target, currentAmount: Math.min(current, target), targetDate: date || '' });
-      App._closeModal();
-      this.render();
-    };
-    document.getElementById('modalCancel').onclick = () => App._closeModal();
-    document.getElementById('modalOverlay').classList.add('open');
-    this._updateGoalDatePreview();
+    App.openModal({
+      title: 'Editar meta',
+      body: this._goalFormHtml(g),
+      actions: [
+        { label: 'Cancelar' },
+        {
+          label: 'Guardar',
+          primary: true,
+          cb: () => {
+            const name = document.getElementById('goalNameInput')?.value.trim();
+            const target = parseFloat(document.getElementById('goalTargetInput')?.value);
+            const current = parseFloat(document.getElementById('goalCurrentInput')?.value) || 0;
+            const date = document.getElementById('goalDateInput')?.value;
+            if (!name || !target || target <= 0) {
+              App.showToast('⚠️ Indica nombre y objetivo válido');
+              setTimeout(() => this._editGoal(id), 80);
+              return;
+            }
+            Store.updateSavingGoal(id, {
+              name,
+              targetAmount: target,
+              currentAmount: Math.min(current, target),
+              targetDate: date || '',
+            });
+            this.render();
+            App.showToast('✅ Meta actualizada');
+          },
+        },
+      ],
+    });
+    this._bindGoalFormExtras();
   },
 
   _contributeGoal(id) {
     const g = Store.getSavingGoals().find(x => x.id === id);
     if (!g || g.currentAmount >= g.targetAmount) return;
-    document.getElementById('modalTitle').textContent = `Aportar a "${g.name}"`;
-    document.getElementById('modalBody').innerHTML = `
+    App.openModal({
+      title: `Aportar a "${g.name}"`,
+      body: `
       <div class="form-group">
         <label>Cantidad a añadir (€)</label>
-        <input type="number" id="goalContributeInput" value="5" step="1" min="0.01" style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:18px;font-weight:700">
+        <input type="number" id="goalContributeInput" value="5" step="1" min="0.01" style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:18px;font-weight:700;width:100%">
       </div>
       <p style="font-size:13px;color:var(--text-secondary);margin-top:8px">Faltan ${(g.targetAmount - g.currentAmount).toFixed(0)} € para alcanzar la meta</p>
-    `;
-    document.getElementById('modalConfirm').onclick = () => {
-      const amt = parseFloat(document.getElementById('goalContributeInput').value);
-      if (!amt || amt <= 0) return;
-      Store.contributeToGoal(id, amt);
-      App._closeModal();
-      this.render();
-    };
-    document.getElementById('modalCancel').onclick = () => App._closeModal();
-    document.getElementById('modalOverlay').classList.add('open');
+    `,
+      actions: [
+        { label: 'Cancelar' },
+        {
+          label: 'Aportar',
+          primary: true,
+          cb: () => {
+            const amt = parseFloat(document.getElementById('goalContributeInput')?.value);
+            if (!amt || amt <= 0) {
+              App.showToast('⚠️ Indica una cantidad válida');
+              setTimeout(() => this._contributeGoal(id), 80);
+              return;
+            }
+            Store.contributeToGoal(id, amt);
+            this.render();
+            App.showToast('✅ Aportación registrada');
+          },
+        },
+      ],
+    });
   },
 
   _deleteGoal(id) {
