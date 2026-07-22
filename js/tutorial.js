@@ -125,24 +125,19 @@ const Tutorial = {
       title: '☁️ Sincronización con Supabase (gratis)',
       body: `
         <p style="font-size:13px;line-height:1.7;color:var(--text);margin-bottom:10px">
-          Usa <strong>Supabase</strong> para sincronizar tus datos entre todos los dispositivos —
-          gratis, sin servidor propio y con cifrado AES-256.
+          Configúralo en <strong>⚙️ → Sincronización (Supabase)</strong>.
+          Tus datos viajan <strong>cifrados AES-256</strong> — la nube no puede leerlos.
         </p>
         <ol style="font-size:12px;line-height:1.9;padding-left:18px;color:var(--text);margin-bottom:12px">
-          <li>Ve a <strong>supabase.com</strong> → crea cuenta gratuita y un proyecto nuevo</li>
-          <li>En el proyecto → <em>SQL Editor</em> → pega el SQL de <strong>⚙️ → Sincronización → "Cómo configurar Supabase"</strong></li>
-          <li>En el dashboard ve a <strong>Settings → API Keys</strong> y copia:
-            <ul style="margin-top:4px;line-height:1.7">
-              <li><strong>Project URL</strong> — algo como <code>https://xxxxx.supabase.co</code></li>
-              <li><strong>Publishable key</strong> — empieza por <code>sb_publishable_...</code></li>
-            </ul>
-          </li>
-          <li>En <strong>⚙️ → Sincronización</strong> selecciona <em>Supabase</em>, pega URL y clave, pon un ID de fila único y añade tu frase de cifrado</li>
-          <li>Repite en cada dispositivo tuyo con los <em>mismos datos</em></li>
+          <li>Crea un proyecto gratis en <strong>supabase.com</strong></li>
+          <li>En <em>SQL Editor</em> ejecuta el SQL que aparece en Ajustes (botón Copiar SQL)</li>
+          <li>En <em>Settings → API Keys</em> copia la <strong>URL</strong> y la <strong>Publishable key</strong></li>
+          <li>Pega URL + clave, elige un <strong>ID de perfil</strong> (ej. <code>yo</code>) y tu <strong>frase secreta</strong></li>
+          <li>Repite lo mismo en cada dispositivo tuyo</li>
         </ol>
         <div style="background:var(--bg);padding:10px;border-radius:8px;font-size:11px;color:var(--text-secondary);line-height:1.6">
-          🔐 Supabase nunca ve tus datos en claro — viajan cifrados AES-256 desde tu dispositivo.<br>
-          💡 Si aún ves la clave <code>anon</code> clásica (<code>eyJ...</code>), también funciona hasta finales de 2026.
+          🔐 Sin la frase de cifrado nadie (ni Supabase) puede leer tus gastos.<br>
+          🤝 Para deudas con tu pareja: usa <strong>Espacio compartido</strong> con otra fila y otra frase.
         </div>`,
     },
     {

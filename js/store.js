@@ -82,7 +82,7 @@ const Store = {
       const raw = localStorage.getItem(SYNC_SETTINGS_KEY);
       if (raw) return JSON.parse(raw);
     } catch {}
-    return { provider: 'custom', serverUrl: '', syncKey: '', supabaseUrl: '', supabaseAnonKey: '', supabaseRowId: '' };
+    return { provider: 'supabase', serverUrl: '', syncKey: '', supabaseUrl: '', supabaseAnonKey: '', supabaseRowId: '' };
   },
 
   setSyncSettings(settings) {
@@ -97,7 +97,7 @@ const Store = {
     } else {
       const prev = this.getSyncSettings();
       obj = {
-        provider: settings.provider || prev.provider || 'custom',
+        provider: settings.provider || prev.provider || 'supabase',
         serverUrl: (settings.serverUrl || '').trim().replace(/\/+$/, ''),
         syncKey: settings.syncKey || '',
         supabaseUrl: (settings.supabaseUrl || '').trim().replace(/\/+$/, ''),

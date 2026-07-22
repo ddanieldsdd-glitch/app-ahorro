@@ -165,32 +165,13 @@ const Categorias = {
 
       <div class="card" style="margin-bottom:10px">
         <div class="card-header">
-          <span class="card-title">☁️ Sincronización entre dispositivos</span>
+          <span class="card-title">☁️ Sincronización (Supabase)</span>
         </div>
         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;line-height:1.6">
-          Tus datos se cifran en tu dispositivo con <strong>AES-256</strong> antes de subirse.
-          La nube solo almacena datos cifrados — nadie puede leerlos sin tu frase.
+          Conecta tus dispositivos con la misma nube gratuita.
+          Los datos se <strong>cifran en tu móvil/PC</strong> (AES-256) antes de subir — Supabase solo guarda un blob ilegible.
         </p>
 
-        <details style="margin-bottom:10px" ${(Store.getSyncSettings().provider || 'supabase') !== 'supabase' ? 'open' : ''}>
-          <summary style="font-size:11px;color:var(--text-secondary);cursor:pointer">Opciones avanzadas — servidor propio</summary>
-          <div style="margin-top:8px">
-            <div class="debt-view-toggle">
-              <button type="button" id="providerBtnSupabase"
-                class="cal-type-btn${(Store.getSyncSettings().provider || 'supabase') === 'supabase' ? ' active' : ''}"
-                onclick="Categorias._switchSyncProvider('supabase')">
-                🟢 Supabase <span style="font-size:10px;opacity:.7">(recomendado)</span>
-              </button>
-              <button type="button" id="providerBtnCustom"
-                class="cal-type-btn${(Store.getSyncSettings().provider || 'supabase') !== 'supabase' ? ' active' : ''}"
-                onclick="Categorias._switchSyncProvider('custom')">
-                🖥 Servidor propio
-              </button>
-            </div>
-          </div>
-        </details>
-
-        <!-- Estado de sincronización -->
         <div class="form-group" style="margin-bottom:10px">
           <label style="font-size:12px;font-weight:600">Estado</label>
           <div id="syncStatusLine" style="font-size:13px;padding:8px 10px;border-radius:8px;background:var(--bg)">
@@ -198,19 +179,24 @@ const Categorias = {
           </div>
         </div>
 
-        <!-- ── SUPABASE FIELDS ─────────────────────────────────────────────── -->
-        <div id="supabaseFields" style="display:${(Store.getSyncSettings().provider || 'custom') === 'supabase' ? '' : 'none'}">
-          <details style="margin-bottom:12px;padding:10px;background:var(--bg);border-radius:8px">
-            <summary style="font-size:12px;font-weight:600;cursor:pointer;color:var(--primary)">
-              📋 Cómo configurar Supabase (3 pasos)
-            </summary>
-            <div style="font-size:12px;line-height:1.9;padding:10px 0 2px;color:var(--text-secondary)">
-              <strong style="color:var(--text)">1. Crear proyecto gratuito</strong><br>
-              Ve a <a href="https://supabase.com" target="_blank" style="color:var(--primary)">supabase.com</a>
-              → New project → elige nombre y contraseña de DB.<br><br>
-              <strong style="color:var(--text)">2. Crear la tabla sync_data</strong><br>
-              En Supabase → <em>SQL Editor</em> → New query → pega y ejecuta:<br>
-              <code style="display:block;margin:6px 0;padding:8px;background:var(--card);border-radius:6px;font-size:11px;white-space:pre;overflow:auto">CREATE TABLE IF NOT EXISTS sync_data (
+        <div style="margin-bottom:14px;padding:12px;background:var(--bg);border-radius:10px;border:1px solid var(--border)">
+          <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:8px">Cómo configurarlo (una sola vez)</div>
+          <ol style="font-size:12px;line-height:1.85;padding-left:18px;color:var(--text-secondary);margin:0">
+            <li>Entra en <a href="https://supabase.com" target="_blank" rel="noopener" style="color:var(--primary)">supabase.com</a> y crea un proyecto gratis.</li>
+            <li>Abre <strong>SQL Editor</strong> → New query → pega el SQL de abajo → <strong>Run</strong>.
+              <span style="opacity:.8">(Si dice que la política ya existe, ignóralo: está bien.)</span></li>
+            <li>Ve a <strong>Settings → API Keys</strong> y copia:
+              <ul style="margin:4px 0 0;padding-left:16px">
+                <li><strong>Project URL</strong> → campo URL abajo</li>
+                <li><strong>Publishable key</strong> (<code>sb_publishable_…</code>) → campo clave</li>
+              </ul>
+            </li>
+            <li>Elige un <strong>ID de perfil</strong> (ej. <code>yo</code>) y una <strong>frase secreta</strong>. Pon lo mismo en todos <em>tus</em> dispositivos.</li>
+            <li>Pulsa <strong>Guardar y sincronizar</strong>.</li>
+          </ol>
+          <details style="margin-top:10px">
+            <summary style="font-size:11px;font-weight:600;cursor:pointer;color:var(--primary)">Ver / copiar SQL</summary>
+            <code id="supabaseSetupSql" style="display:block;margin-top:8px;padding:10px;background:var(--card);border-radius:8px;font-size:10px;white-space:pre;overflow:auto;border:1px solid var(--border)">CREATE TABLE IF NOT EXISTS sync_data (
   id TEXT PRIMARY KEY,
   payload JSONB NOT NULL,
   updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -220,96 +206,67 @@ DO $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
-    WHERE tablename = 'sync_data'
-      AND policyname = 'allow_all'
+    WHERE tablename = 'sync_data' AND policyname = 'allow_all'
   ) THEN
     CREATE POLICY "allow_all" ON sync_data
       FOR ALL USING (true) WITH CHECK (true);
   END IF;
 END $$;</code>
-              <strong style="color:var(--text)">3. Copiar URL y clave</strong><br>
-              En Supabase → <em>Settings → <strong>API Keys</strong></em> → copia:<br>
-              • <strong>Project URL</strong> (ej: <code>https://xxxxx.supabase.co</code>)<br>
-              • <strong>Publishable key</strong> (empieza por <code>sb_publishable_…</code>)
-            </div>
+            <button type="button" class="btn btn-secondary btn-sm" style="margin-top:8px"
+              onclick="navigator.clipboard.writeText(document.getElementById('supabaseSetupSql').textContent).then(()=>App.showToast('SQL copiado'))">📋 Copiar SQL</button>
           </details>
+        </div>
 
+        <div id="supabaseFields">
           <div class="form-group" style="margin-bottom:8px">
-            <label style="font-size:12px;font-weight:600">URL del proyecto Supabase</label>
-            <input type="url" id="supabaseUrl" placeholder="https://xxxxxxxx.supabase.co"
+            <label style="font-size:12px;font-weight:600">1. URL del proyecto</label>
+            <input type="url" id="supabaseUrl" placeholder="https://xxxxx.supabase.co"
               value="${esc(Store.getSyncSettings().supabaseUrl || '')}"
-              style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px">
+              style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--card);color:var(--text)">
           </div>
           <div class="form-group" style="margin-bottom:8px">
-            <label style="font-size:12px;font-weight:600">Publishable key <span style="font-weight:400;color:var(--text-secondary)">(Settings → API Keys en Supabase)</span></label>
+            <label style="font-size:12px;font-weight:600">2. Publishable key</label>
             <div style="position:relative">
-              <input type="password" id="supabaseAnonKey" placeholder="sb_publishable_… (o eyJ… si usas clave legacy)"
+              <input type="password" id="supabaseAnonKey" placeholder="sb_publishable_…"
                 value="${esc(Store.getSyncSettings().supabaseAnonKey || '')}"
-                style="width:100%;padding:8px 36px 8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;box-sizing:border-box">
+                style="width:100%;padding:8px 36px 8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;box-sizing:border-box;background:var(--card);color:var(--text)">
               <button type="button" onclick="Categorias._toggleFieldVisibility('supabaseAnonKey','supabaseKeyToggle')"
                 id="supabaseKeyToggle"
                 style="position:absolute;right:8px;top:50%;transform:translateY(-50%);border:none;background:none;cursor:pointer;font-size:14px;color:var(--text-secondary)">👁</button>
             </div>
             <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">
-              Segura en el cliente — los datos viajan cifrados AES-256 antes de salir del dispositivo.
+              Settings → API Keys en Supabase. No uses la Secret key.
             </div>
           </div>
           <div class="form-group" style="margin-bottom:8px">
-            <label style="font-size:12px;font-weight:600">ID de usuario / fila <span style="font-weight:400;color:var(--text-secondary)">(identifica tus datos en Supabase)</span></label>
-            <input type="text" id="supabaseRowId" placeholder="mi-ahorro (inventate uno único)"
-              value="${esc(Store.getSyncSettings().supabaseRowId || 'default')}"
-              style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px">
+            <label style="font-size:12px;font-weight:600">3. ID de tu perfil</label>
+            <input type="text" id="supabaseRowId" placeholder="ej: yo"
+              value="${esc(Store.getSyncSettings().supabaseRowId || '')}"
+              style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--card);color:var(--text)">
             <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">
-              Usa el mismo ID en todos tus dispositivos. No es una contraseña, la frase de cifrado protege tus datos.
+              Mismo ID en todos <strong>tus</strong> dispositivos. Tu pareja usará otro (ej. <code>pareja</code>).
             </div>
           </div>
         </div>
 
-        <!-- ── CUSTOM SERVER FIELDS ───────────────────────────────────────── -->
-        <div id="customServerFields" style="display:${(Store.getSyncSettings().provider || 'custom') !== 'supabase' ? '' : 'none'}">
-          <details style="margin-bottom:12px;padding:10px;background:var(--bg);border-radius:8px">
-            <summary style="font-size:12px;font-weight:600;cursor:pointer;color:var(--primary)">
-              🌐 Cómo conectar con servidor propio
-            </summary>
-            <div style="font-size:12px;line-height:1.8;padding:10px 0 4px;color:var(--text-secondary)">
-              Despliega el servidor en <strong>Fly.io</strong> o <strong>Railway</strong> (ver <code>DEPLOY.md</code>).<br>
-              O en LAN: <code>SYNC_KEY=clave node server.js</code> → usa la IP local en el móvil.
-            </div>
-          </details>
-          <div class="form-group" style="margin-bottom:8px">
-            <label style="font-size:12px;font-weight:600">URL del servidor</label>
-            <input type="url" id="syncServerUrl" placeholder="https://tu-app.fly.dev  o  http://192.168.x.x:3000"
-              value="${esc(Store.getSyncSettings().serverUrl)}"
-              style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px">
-            <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">Déjalo vacío si el servidor corre en este dispositivo.</div>
-          </div>
-          <div class="form-group" style="margin-bottom:8px">
-            <label style="font-size:12px;font-weight:600">Clave de sincronización (SYNC_KEY)</label>
-            <input type="password" id="syncKey" placeholder="La misma SYNC_KEY del servidor"
-              value="${esc(Store.getSyncSettings().syncKey)}"
-              style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px">
-          </div>
-        </div>
-
-        <!-- ── E2E PASSPHRASE (siempre visible) ───────────────────────────── -->
-        <div class="form-group" style="margin-bottom:10px;padding:10px;border-radius:8px;background:var(--bg);border:1.5px solid ${Store.isEncryptionEnabled() ? 'var(--income)' : 'var(--border)'}">
+        <div class="form-group" style="margin:12px 0 10px;padding:10px;border-radius:8px;background:var(--bg);border:1.5px solid ${Store.isEncryptionEnabled() ? 'var(--income)' : 'var(--border)'}">
           <label style="font-size:12px;font-weight:700;display:flex;align-items:center;gap:6px;margin-bottom:6px">
-            🔐 Frase de cifrado (E2E)
+            4. Frase de cifrado
             <span style="font-size:10px;font-weight:500;padding:2px 7px;border-radius:10px;background:${Store.isEncryptionEnabled() ? 'var(--income)' : 'var(--border)'};color:${Store.isEncryptionEnabled() ? '#fff' : 'var(--text-secondary)'}">
-              ${Store.isEncryptionEnabled() ? 'Activo ✓' : 'Sin cifrado'}
+              ${Store.isEncryptionEnabled() ? 'Activo ✓' : 'Obligatoria'}
             </span>
           </label>
           <div style="position:relative">
-            <input type="password" id="e2ePassphrase" placeholder="Frase secreta — nunca sale de tu dispositivo"
+            <input type="password" id="e2ePassphrase" placeholder="Frase secreta — solo tú la conoces"
               value="${esc(Store.getPassphrase())}"
-              style="width:100%;padding:8px 36px 8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;box-sizing:border-box">
+              style="width:100%;padding:8px 36px 8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;box-sizing:border-box;background:var(--card);color:var(--text)">
             <button type="button" onclick="Categorias._togglePassphraseVisibility()"
               style="position:absolute;right:8px;top:50%;transform:translateY(-50%);border:none;background:none;cursor:pointer;font-size:14px;color:var(--text-secondary)"
               id="passphraseToggleBtn">👁</button>
           </div>
           <div style="font-size:11px;color:var(--text-secondary);margin-top:6px;line-height:1.5">
-            ⚠️ <strong>Guarda esta frase en un lugar seguro.</strong> Sin ella los datos cifrados no se pueden recuperar.<br>
-            Usa la <em>misma frase</em> en todos tus dispositivos. Vacía = sin cifrar.
+            Guárdala fuera de la app. Sin ella no se pueden recuperar los datos cifrados.
+            Usa la <em>misma frase</em> en todos tus dispositivos.
           </div>
         </div>
 
@@ -318,6 +275,36 @@ END $$;</code>
           <button class="btn btn-secondary btn-sm" onclick="Categorias._testSync()">🔌 Probar conexión</button>
           <button class="btn btn-secondary btn-sm" onclick="Categorias._forceSync()">🔄 Sincronizar ahora</button>
         </div>
+
+        <!-- Legacy custom server — hidden, not recommended -->
+        <details style="margin-top:14px">
+          <summary style="font-size:11px;color:var(--text-secondary);cursor:pointer">Modo experto (no recomendado)</summary>
+          <div style="margin-top:8px;padding:10px;background:var(--bg);border-radius:8px;font-size:11px;color:var(--text-secondary);line-height:1.6">
+            Solo si mantienes un servidor Node propio. La opción recomendada es Supabase.
+            <div class="debt-view-toggle" style="margin:8px 0">
+              <button type="button" id="providerBtnSupabase"
+                class="cal-type-btn${(Store.getSyncSettings().provider || 'supabase') === 'supabase' ? ' active' : ''}"
+                onclick="Categorias._switchSyncProvider('supabase')">Supabase</button>
+              <button type="button" id="providerBtnCustom"
+                class="cal-type-btn${(Store.getSyncSettings().provider || 'supabase') === 'custom' ? ' active' : ''}"
+                onclick="Categorias._switchSyncProvider('custom')">Servidor propio</button>
+            </div>
+            <div id="customServerFields" style="display:${(Store.getSyncSettings().provider || 'supabase') === 'custom' ? '' : 'none'}">
+              <div class="form-group" style="margin-bottom:8px">
+                <label style="font-size:12px;font-weight:600;color:var(--text)">URL del servidor</label>
+                <input type="url" id="syncServerUrl" placeholder="https://tu-servidor.ejemplo.com"
+                  value="${esc(Store.getSyncSettings().serverUrl || '')}"
+                  style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--card);color:var(--text)">
+              </div>
+              <div class="form-group">
+                <label style="font-size:12px;font-weight:600;color:var(--text)">SYNC_KEY</label>
+                <input type="password" id="syncKey" placeholder="Clave del servidor"
+                  value="${esc(Store.getSyncSettings().syncKey || '')}"
+                  style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--card);color:var(--text)">
+              </div>
+            </div>
+          </div>
+        </details>
       </div>
 
       <!-- ══ Espacio compartido con tu pareja ══════════════════════════════════ -->
@@ -1389,10 +1376,10 @@ END $$;</code>
   },
 
   _switchSyncProvider(provider) {
-    document.getElementById('supabaseFields').style.display    = provider === 'supabase' ? '' : 'none';
-    document.getElementById('customServerFields').style.display = provider !== 'supabase' ? '' : 'none';
-    document.getElementById('providerBtnSupabase').classList.toggle('active', provider === 'supabase');
-    document.getElementById('providerBtnCustom').classList.toggle('active', provider !== 'supabase');
+    const custom = document.getElementById('customServerFields');
+    if (custom) custom.style.display = provider === 'custom' ? '' : 'none';
+    document.getElementById('providerBtnSupabase')?.classList.toggle('active', provider === 'supabase');
+    document.getElementById('providerBtnCustom')?.classList.toggle('active', provider === 'custom');
   },
 
   _toggleFieldVisibility(inputId, btnId) {
@@ -1404,8 +1391,9 @@ END $$;</code>
   },
 
   _readSyncProvider() {
-    const supBtn = document.getElementById('providerBtnSupabase');
-    return (supBtn && supBtn.classList.contains('active')) ? 'supabase' : 'custom';
+    const customBtn = document.getElementById('providerBtnCustom');
+    if (customBtn && customBtn.classList.contains('active')) return 'custom';
+    return 'supabase';
   },
 
   _saveSyncSettings() {

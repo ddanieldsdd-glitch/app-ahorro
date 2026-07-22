@@ -1,4 +1,4 @@
-const WINDOWS_EXE_URL = 'https://github.com/ddanieldsdd-glitch/app-ahorro/releases/download/v2.0.1/Presupuesto.Personal.Setup.2.0.1.exe';
+const WINDOWS_EXE_URL = 'https://github.com/ddanieldsdd-glitch/app-ahorro/releases/download/v2.0.2/Presupuesto.Personal.Setup.2.0.2.exe';
 
 const Install = {
   _deferredPrompt: null,

@@ -18,15 +18,20 @@
     "allowToChangeInstallationDirectory": true,
     "shortcutName": "Presupuesto Personal",
     "createDesktopShortcut": true,
-    "createStartMenuShortcut": true
+    "createStartMenuShortcut": true,
+    "installerIcon": "resources/icon.ico",
+    "uninstallerIcon": "resources/icon.ico",
+    "installerHeaderIcon": "resources/icon.ico"
   },
   "win": {
+    "icon": "resources/icon.ico",
     "target": [
       { "target": "nsis", "arch": ["x64"] },
       { "target": "portable", "arch": ["x64"] }
     ]
   },
   "mac": {
+    "icon": "assets/icon.png",
     "category": "public.app-category.finance",
     "target": [
       { "target": "dmg", "arch": ["universal"] }
@@ -36,6 +41,7 @@
     "identity": null
   },
   "linux": {
+    "icon": "assets/icon.png",
     "target": ["AppImage"],
     "category": "Finance"
   }
