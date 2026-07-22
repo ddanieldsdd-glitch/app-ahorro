@@ -1,3 +1,4 @@
+const APP_BUILD_ID = 'presupuesto-v32';
 const WINDOWS_EXE_URL = 'https://github.com/ddanieldsdd-glitch/app-ahorro/releases/download/v2.0.4/Presupuesto.Personal.Setup.2.0.4.exe';
 const PWA_INSTALLED_KEY = 'ahorro_pwa_installed';
 
@@ -37,7 +38,9 @@ const Install = {
 
     this._setupUpdateDetection();
     this._fetchRemoteVersion().then((v) => {
-      if (v && !this._getLocalVersion()) this._setLocalVersion(v);
+      if (v && !localStorage.getItem('_appCacheVersion')) {
+        this._setLocalVersion(this._getRunningVersion() || v);
+      }
     });
   },
 
@@ -88,14 +91,15 @@ const Install = {
 
   // ── Update detection ──────────────────────────────────────────────────────
 
+  _isSafari() {
+    return /Safari/i.test(navigator.userAgent) && !/Chrome|Chromium|Edg/i.test(navigator.userAgent);
+  },
+
   _setupUpdateDetection() {
     if (!('serviceWorker' in navigator)) {
       this._checkRemoteVersion(false);
-      document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') this._onAppForeground();
-      });
-      window.addEventListener('pageshow', (e) => { if (e.persisted) this._onAppForeground(); });
-      setInterval(() => this._checkRemoteVersion(false), 5 * 60 * 1000);
+      this._bindUpdateListeners();
+      setInterval(() => this._onAppForeground(), 5 * 60 * 1000);
       return;
     }
 
@@ -119,12 +123,17 @@ const Install = {
     });
 
     this._checkRemoteVersion(false);
+    this._bindUpdateListeners();
+    const intervalMs = (this._isMac() || this._isSafari()) ? 2 * 60 * 1000 : 5 * 60 * 1000;
+    setInterval(() => this._onAppForeground(), intervalMs);
+  },
+
+  _bindUpdateListeners() {
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') this._onAppForeground();
     });
     window.addEventListener('pageshow', (e) => { if (e.persisted) this._onAppForeground(); });
     window.addEventListener('focus', () => this._onAppForeground());
-    setInterval(() => this._onAppForeground(), 5 * 60 * 1000);
   },
 
   _onAppForeground() {
@@ -139,9 +148,13 @@ const Install = {
 
   async _fetchRemoteVersion() {
     const paths = ['/version-check.json', '/version.json'];
+    const fetchOpts = {
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+    };
     for (const path of paths) {
       try {
-        const res = await fetch(`${path}?_=${Date.now()}`, { cache: 'no-store' });
+        const res = await fetch(`${path}?_=${Date.now()}`, fetchOpts);
         if (!res.ok) continue;
         const data = await res.json();
         const v = data.cache || data.version || null;
@@ -151,9 +164,26 @@ const Install = {
     return null;
   },
 
-  _getRunningVersion() {
+  _getMetaVersion() {
     const meta = document.querySelector('meta[name="app-cache-version"]');
     return meta?.content || window.__APP_CACHE_VERSION || '';
+  },
+
+  /** Versión del código JS que está ejecutándose (fiable en macOS con caché parcial). */
+  _getRunningVersion() {
+    if (typeof APP_BUILD_ID !== 'undefined' && APP_BUILD_ID) return APP_BUILD_ID;
+    return this._getMetaVersion();
+  },
+
+  _needsVersionUpdate(remote) {
+    if (!remote) return false;
+    const running = this._getRunningVersion();
+    if (running && running !== remote) return true;
+    const meta = this._getMetaVersion();
+    if (meta && meta !== remote) return true;
+    const stored = localStorage.getItem('_appCacheVersion') || '';
+    if (stored && stored !== remote && running !== remote) return true;
+    return false;
   },
 
   _getLocalVersion() {
@@ -167,14 +197,7 @@ const Install = {
   async _checkRemoteVersion(showIfCurrent) {
     const remote = await this._fetchRemoteVersion();
     if (!remote) return false;
-    const running = this._getRunningVersion();
-    const stored = this._getLocalVersion();
-    const baseline = running || stored;
-    if (!baseline) {
-      this._setLocalVersion(remote);
-      return false;
-    }
-    if (baseline !== remote) {
+    if (this._needsVersionUpdate(remote)) {
       this._showUpdateBanner('version');
       return true;
     }
@@ -217,9 +240,7 @@ const Install = {
 
     const swUpdate = await this._checkServiceWorkerUpdate();
     const remote = await this._fetchRemoteVersion();
-    const running = this._getRunningVersion();
-
-    const versionUpdate = !!(remote && running && remote !== running);
+    const versionUpdate = this._needsVersionUpdate(remote);
     const bannerVisible = !!document.getElementById('updateBanner');
 
     if (swUpdate || versionUpdate) {
@@ -231,7 +252,7 @@ const Install = {
     }
 
     if (typeof App !== 'undefined') {
-      const label = remote || running || 'desconocida';
+      const label = remote || this._getRunningVersion() || 'desconocida';
       App.showToast(`✅ App al día (${label})`);
     }
   },

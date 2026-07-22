@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#4F46E5">
-  <meta name="app-cache-version" content="presupuesto-v31">
+  <meta name="app-cache-version" content="presupuesto-v32">
   <!-- iOS PWA -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -134,8 +134,9 @@
   <script src="js/app.js"></script>
   <script>
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').then((reg) => {
+      navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).then((reg) => {
         if (typeof Install !== 'undefined') Install._swRegistration = reg;
+        reg.update().catch(() => {});
       });
     }
   </script>

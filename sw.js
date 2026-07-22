@@ -1,4 +1,4 @@
-const CACHE = 'presupuesto-v31';
+const CACHE = 'presupuesto-v32';
 
 const ASSETS = [
   '/', '/index.html', '/styles.css', '/manifest.json', '/icon.svg',
@@ -40,6 +40,8 @@ self.addEventListener('fetch', (e) => {
   }
   if (url.pathname.startsWith('/api/')) {
     e.respondWith(networkFirst(e.request));
+  } else if (url.pathname.startsWith('/js/')) {
+    e.respondWith(networkFirst(e.request));
   } else if (e.request.mode === 'navigate') {
     e.respondWith(networkFirst(e.request));
   } else if (ASSETS.some((a) => url.pathname === a || url.pathname + '/' === a)) {
@@ -64,8 +66,15 @@ async function cacheFirst(req) {
 
 async function networkFirst(req) {
   try {
-    return await fetch(req);
+    const res = await fetch(req);
+    if (res.ok && req.url.includes('/js/')) {
+      const cache = await caches.open(CACHE);
+      cache.put(req, res.clone());
+    }
+    return res;
   } catch {
+    const hit = await caches.match(req);
+    if (hit) return hit;
     return new Response(JSON.stringify({ error: 'offline' }), {
       status: 503,
       headers: { 'Content-Type': 'application/json' },

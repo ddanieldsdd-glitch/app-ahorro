@@ -96,6 +96,18 @@ try {
   }
   fs.writeFileSync(indexPath, html);
   copyFile(indexPath, path.join(DST, 'index.html'));
+  const installPath = path.join(SRC, 'js', 'install.js');
+  if (fs.existsSync(installPath)) {
+    let installJs = fs.readFileSync(installPath, 'utf8');
+    if (/const APP_BUILD_ID = '[^']*'/.test(installJs)) {
+      installJs = installJs.replace(/const APP_BUILD_ID = '[^']*'/, `const APP_BUILD_ID = '${version.cache}'`);
+    } else {
+      installJs = installJs.replace(/^(const WINDOWS_EXE_URL)/m, `const APP_BUILD_ID = '${version.cache}';\n$1`);
+    }
+    fs.writeFileSync(installPath, installJs);
+    copyFile(installPath, path.join(DST, 'js', 'install.js'));
+    console.log(`  ✅ js/install.js (${version.cache})`);
+  }
   console.log(`  ✅ version.json (${version.cache})`);
 } catch (e) {
   console.log(`  ⚠️  version.json no generado: ${e.message}`);
