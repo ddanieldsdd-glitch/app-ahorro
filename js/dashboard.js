@@ -2,38 +2,49 @@ const Dashboard = {
   _dayNames: ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'],
 
   render() {
-    const budget = Presupuesto._calc();
+    // Use BudgetEngine for accurate week calculations
+    const b = BudgetEngine.calcWeekly();
+    const budget = Presupuesto._calc(); // thin wrapper around BudgetEngine
     const transactions = App.getCurrentTransactions().filter(t => !Store.isAdjustment(t));
     const income = transactions.filter(t => t.type === 'Ingreso').reduce((s, t) => s + t.amount, 0);
-    const expense = transactions.filter(t => t.type !== 'Ingreso').reduce((s, t) => s + t.amount, 0);
+    const expense = transactions.filter(t => Store.isSpendableExpense(t)).reduce((s, t) => s + t.amount, 0);
     const balance = income - expense;
 
     const goals = Store.getSavingGoals();
     const totalSaved = goals.reduce((s, g) => s + g.currentAmount, 0);
     const savingsBalance = Store.getSavingsBalance();
     const checkingBalance = Store.getCheckingBalance();
-    const totalWealth = checkingBalance !== null && checkingBalance !== undefined ? checkingBalance + savingsBalance : savingsBalance;
-    const weeklyPct = budget.totalWeekly > 0 ? Math.min(100, (budget.actualExpense / budget.totalWeekly) * 100) : 0;
-    const dailyRec = budget.daysLeft > 0 ? Math.max(0, budget.remaining / budget.daysLeft) : 0;
+    const cashBalance = Store.getCashBalance();
+    const totalWealth = (checkingBalance !== null && checkingBalance !== undefined ? checkingBalance : 0) + savingsBalance + cashBalance;
 
-    const foodBudget = Store.getFoodBudget();
-    const foodWeekly = foodBudget / 4.33;
-    const recommendedWeeklySaving = Store.getRecommendedWeeklySaving(goals);
+    // Smart savings guide and sustainability
+    const savingsGuide = BudgetEngine.getSmartSavingsGuide();
+    const sustainability = BudgetEngine.getSustainabilityMetrics();
+    const uncategorized = BudgetEngine.getUncategorizedCategories();
+
+    const foodWeekly = b.foodWeekly;
+    const recommendedWeeklySaving = b.savingWeekly;
+    const imprevistosWeekly = b.imprevistosWeekly;
+    const plannedExpensesWeekly = b.plannedExpWeekly;
     const imprevistosBudget = Store.getImprevistosBudget();
-    const imprevistosWeekly = imprevistosBudget / 4.33;
+    const imprevistosSavings = Store.getImprevistosSavings();
     const imprevistosMonthlySpent = Store.getImprevistosMonthlySpent();
     const imprevistosRemaining = Math.max(0, imprevistosBudget - imprevistosMonthlySpent);
-    const imprevistosSavings = Store.getImprevistosSavings();
-    const plannedExpensesWeekly = Store.getPlannedExpensesWeeklyNeed();
     const plannedExpensesReserved = Store.getPlannedExpensesReserved();
-    const totalDeductions = foodWeekly + recommendedWeeklySaving + plannedExpensesWeekly + imprevistosWeekly;
-    const adjustedRemaining = budget.remaining;
-    const adjustedDaily = budget.daysLeft > 0 ? Math.max(0, adjustedRemaining / budget.daysLeft) : 0;
+
+    // "Hoy puedes gastar" uses discretionary budget (income minus deductions, minus what's spent)
+    const adjustedRemaining = b.discretionaryRemaining;
+    const adjustedDaily = b.dailySpendable;
+    const dailyRec = adjustedDaily;
+    const weeklyPct = b.discretionaryBudget > 0
+      ? Math.min(100, (b.weekDiscSpent / b.discretionaryBudget) * 100)
+      : 0;
 
     const limits = Store.getCategoryLimits();
-    const weekTx = Presupuesto._getWeekTransactions();
-    const weekExpenses = weekTx.filter(t => t.type !== 'Ingreso');
+    const weekExpenses = BudgetEngine.getWeekSpendableExpenses();
     const catsWithLimits = Object.keys(limits).filter(c => limits[c] > 0);
+    const categoryGroups = Store.getCategoryGroups();
+    const nonFoodGroupsWithBudget = categoryGroups.filter(g => !g.isFoodGroup && g.monthlyBudget > 0);
     const plannedExpenses = Store.getPlannedExpenses();
     const owedToMe  = Store.getPendingOwedToMe();
     const iOwe      = Store.getPendingIOwe();
@@ -49,6 +60,22 @@ const Dashboard = {
     const savingsDone = Store.getLastSavingsWeek() === thisMondayStr;
     const peReserveDone = Store.getLastPEReserveWeek() === thisMondayStr;
 
+    // Monthly plan vs reality
+    const _vm2 = App.getCurrentViewMonth().split('-').map(Number);
+    const _vy = _vm2[0], _vm = _vm2[1];
+    const _isCurrentMonth = _now.getFullYear() === _vy && (_now.getMonth() + 1) === _vm;
+    const _daysInMonth = new Date(_vy, _vm, 0).getDate();
+    const _daysElapsed = _isCurrentMonth ? _now.getDate() : _daysInMonth;
+    const _fracElapsed = _daysElapsed / _daysInMonth;
+    const _monthlyBudget = budget.totalWeekly * 4.33;
+    const _expectedSpendByNow = _monthlyBudget * _fracElapsed;
+    const _spendDiff = expense - _expectedSpendByNow;
+    const _onTrack = _spendDiff <= 0;
+    const _expectedBalance = checkingBalance !== null
+      ? checkingBalance + expense - _expectedSpendByNow
+      : null;
+    const _balanceDiff = _expectedBalance !== null ? checkingBalance - _expectedBalance : null;
+
     document.getElementById('tab-dashboard').innerHTML = `
       <div class="dh-hero">
         <div class="dh-hero-inner">
@@ -63,8 +90,8 @@ const Dashboard = {
           </div>
           <div class="dh-hero-main">
             <div class="dh-hero-label">HOY PUEDES GASTAR</div>
-            <div class="dh-hero-value">${dailyRec.toFixed(2)}<span class="dh-hero-value-unit">€</span></div>
-            <div class="dh-hero-sub">${budget.remaining.toFixed(2)} € para ${budget.daysLeft} días · 🎯 <strong>${recommendedWeeklySaving.toFixed(2)} €/sem</strong> metas · ⚠️ <strong>${imprevistosWeekly.toFixed(2)} €/sem</strong> imprev.</div>
+            <div class="dh-hero-value">${adjustedDaily.toFixed(2)}<span class="dh-hero-value-unit">€</span></div>
+            <div class="dh-hero-sub">${adjustedRemaining.toFixed(2)} € para ${budget.daysLeft} días · 🎯 <strong>${recommendedWeeklySaving.toFixed(2)} €/sem</strong> metas · ⚠️ <strong>${imprevistosWeekly.toFixed(2)} €/sem</strong> imprev.</div>
           </div>
           <div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap;justify-content:center">
             <div style="min-width:60px;flex:1;text-align:center;background:rgba(255,255,255,0.12);border-radius:8px;padding:4px 2px">
@@ -87,16 +114,99 @@ const Dashboard = {
               <div style="font-size:8px;opacity:0.8">💸 Disponible</div>
               <div style="font-size:13px;font-weight:800;color:${adjustedRemaining > 0 ? '#6EE7B7' : '#FCA5A5'}">${Math.max(0, adjustedRemaining).toFixed(1)}€</div>
             </div>
-          ${checkingBalance !== null ? `<div style="text-align:center;margin-top:6px;font-size:11px;opacity:0.8">💳 Cuenta: <strong>${checkingBalance.toFixed(0)} €</strong> · 🔒 Base: <strong>${Store.getCheckingBaseBalance().toFixed(0)} €</strong> · 💸 Libre: <strong style="color:#6EE7B7">${Math.max(0, checkingBalance - Store.getCheckingBaseBalance()).toFixed(0)} €</strong></div>` : ''}
+          ${checkingBalance !== null ? `<div style="text-align:center;margin-top:6px;font-size:11px;opacity:0.8">💳 <strong>${checkingBalance.toFixed(0)} €</strong> · 🔒 <strong>${savingsBalance.toFixed(0)} €</strong>${cashBalance > 0 ? ` · 💵 <strong>${cashBalance.toFixed(0)} €</strong>` : ''}</div>` : (cashBalance > 0 ? `<div style="text-align:center;margin-top:6px;font-size:11px;opacity:0.8">💵 Efectivo: <strong>${cashBalance.toFixed(0)} €</strong></div>` : '')}
           </div>
           <div class="dh-hero-stats">
             <div class="dh-stat"><span class="dh-stat-value income">${income.toFixed(0)}</span><span class="dh-stat-label">Ingresos</span></div>
             <div class="dh-stat"><span class="dh-stat-value expense">${expense.toFixed(0)}</span><span class="dh-stat-label">Gastos</span></div>
             <div class="dh-stat"><span class="dh-stat-value" style="color:#C7D2FE">${balance.toFixed(0)}</span><span class="dh-stat-label">Balance</span></div>
-            <div class="dh-stat"><span class="dh-stat-value" style="color:#6EE7B7">${savingsBalance.toFixed(0)}</span><span class="dh-stat-label">Ahorro real</span></div>
+            <div class="dh-stat"><span class="dh-stat-value" style="color:${_onTrack ? '#6EE7B7' : '#FCA5A5'}">${_onTrack ? '✅' : '⚠️'} ${Math.abs(_spendDiff).toFixed(0)}</span><span class="dh-stat-label">${_onTrack ? 'bajo plan' : 'sobre plan'}</span></div>
           </div>
         </div>
       </div>
+
+      <div class="dh-section">
+        <div class="dh-section-header">
+          <span class="dh-section-title">💰 Tus cuentas</span>
+          <span class="dh-section-badge">${totalWealth.toFixed(0)} € total</span>
+        </div>
+        <div class="dh-acct-grid">
+          ${checkingBalance !== null ? `
+          <div class="dh-acct-card">
+            <span class="dh-acct-icon">💳</span>
+            <div class="dh-acct-body">
+              <span class="dh-acct-label">Cuenta corriente</span>
+              <span class="dh-acct-val">${checkingBalance.toFixed(0)} €</span>
+              ${Store.getCheckingBaseBalance() > 0 ? `<span class="dh-acct-sub">Base: ${Store.getCheckingBaseBalance().toFixed(0)}€ · Libre: ${Math.max(0, checkingBalance - Store.getCheckingBaseBalance()).toFixed(0)}€</span>` : ''}
+            </div>
+          </div>` : ''}
+          <div class="dh-acct-card">
+            <span class="dh-acct-icon">🔒</span>
+            <div class="dh-acct-body">
+              <span class="dh-acct-label">Cuenta ahorro</span>
+              <span class="dh-acct-val">${savingsBalance.toFixed(0)} €</span>
+              ${totalSaved > 0 ? `<span class="dh-acct-sub">En metas: ${totalSaved.toFixed(0)}€</span>` : ''}
+            </div>
+          </div>
+          ${cashBalance > 0 ? `
+          <div class="dh-acct-card">
+            <span class="dh-acct-icon">💵</span>
+            <div class="dh-acct-body">
+              <span class="dh-acct-label">Efectivo</span>
+              <span class="dh-acct-val">${cashBalance.toFixed(0)} €</span>
+            </div>
+          </div>` : ''}
+        </div>
+        <div class="dh-month-cmp">
+          <div class="dh-month-cmp-header">
+            <span class="dh-month-cmp-title">📊 ${_isCurrentMonth ? `Día ${_daysElapsed} de ${_daysInMonth}` : `Mes completo`} · ${(_fracElapsed * 100).toFixed(0)}% del mes</span>
+            <span class="dh-month-cmp-badge ${_onTrack ? 'ok' : 'over'}">${_onTrack ? '✅ En plan' : '⚠️ Pasado'}</span>
+          </div>
+          <div class="dh-month-cmp-grid">
+            <div class="dh-month-cmp-cell">
+              <span class="dh-month-cmp-label">Plan hasta hoy</span>
+              <span class="dh-month-cmp-val">${_expectedSpendByNow.toFixed(0)} €</span>
+              <span class="dh-month-cmp-sub">${_monthlyBudget.toFixed(0)} €/mes presupuestado</span>
+            </div>
+            <div class="dh-month-cmp-cell">
+              <span class="dh-month-cmp-label">Gastado real</span>
+              <span class="dh-month-cmp-val ${_onTrack ? 'income' : 'expense'}">${expense.toFixed(0)} €</span>
+              <span class="dh-month-cmp-sub ${_onTrack ? 'income' : 'expense'}">${_onTrack ? `${Math.abs(_spendDiff).toFixed(0)}€ menos — ✅` : `${Math.abs(_spendDiff).toFixed(0)}€ más — ⚠️`}</span>
+            </div>
+          </div>
+          ${_expectedBalance !== null ? `
+          <div class="dh-month-cmp-balance">
+            <div>
+              <span class="dh-month-cmp-label">Cuenta debería estar en</span>
+              <strong style="font-size:15px">${_expectedBalance.toFixed(0)} €</strong>
+            </div>
+            <div style="text-align:right">
+              <span class="dh-month-cmp-label">Está en</span>
+              <strong class="${_balanceDiff >= 0 ? 'income' : 'expense'}" style="font-size:15px">${checkingBalance.toFixed(0)} €</strong>
+              <span style="display:block;font-size:11px;font-weight:600;color:${_balanceDiff >= 0 ? 'var(--income)' : 'var(--expense)'}">${_balanceDiff >= 0 ? `+${_balanceDiff.toFixed(0)}€ mejor de lo esperado` : `${Math.abs(_balanceDiff).toFixed(0)}€ por debajo del plan`}</span>
+            </div>
+          </div>` : ''}
+        </div>
+      </div>
+
+      ${uncategorized.length > 0 ? `
+      <div style="margin:0 0 12px;padding:10px 14px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;display:flex;align-items:center;gap:10px">
+        <span style="font-size:20px">⚠️</span>
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:700;color:#92400E">${uncategorized.length} categoría${uncategorized.length !== 1 ? 's' : ''} de gasto sin agrupar</div>
+          <div style="font-size:11px;color:#B45309;margin-top:2px">${uncategorized.slice(0,3).map(c => `${c.name} (${c.total.toFixed(0)}€)`).join(' · ')}${uncategorized.length > 3 ? ` · y ${uncategorized.length - 3} más` : ''}. Agrúpalas para mejorar el plan financiero.</div>
+        </div>
+        <button class="btn btn-sm" style="background:#F59E0B;color:#fff;border:none;border-radius:8px;padding:6px 10px;font-size:11px;font-weight:700;white-space:nowrap;cursor:pointer" onclick="App._switchTab('categorias')">Organizar →</button>
+      </div>` : ''}
+
+      ${sustainability.status !== 'good' ? `
+      <div style="margin:0 0 12px;padding:10px 14px;background:${sustainability.status === 'danger' ? '#FEF2F2' : '#FFFBEB'};border:1px solid ${sustainability.status === 'danger' ? '#FECACA' : '#FDE68A'};border-radius:10px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+          <span style="font-size:18px">${sustainability.status === 'danger' ? '🔴' : '🟡'}</span>
+          <span style="font-size:13px;font-weight:700;color:${sustainability.status === 'danger' ? '#991B1B' : '#92400E'}">${sustainability.statusLabel}</span>
+        </div>
+        <div style="font-size:12px;color:${sustainability.status === 'danger' ? '#B91C1C' : '#B45309'}">${sustainability.statusAdvice}</div>
+      </div>` : ''}
 
       ${recommendedWeeklySaving > 0 || imprevistosSavings > 0 ? `
       <div style="text-align:center;margin-bottom:12px">
@@ -162,6 +272,25 @@ const Dashboard = {
           <div class="dh-alloc-item"><span>🎯 Ahorro</span><span class="dh-alloc-val">${recommendedWeeklySaving.toFixed(2)} €/sem</span></div>
           <div class="dh-alloc-item dh-alloc-item-total"><span>💰 Disponible tras ahorro</span><span class="dh-alloc-val" style="color:${adjustedDaily > 0 ? 'var(--income)' : 'var(--expense)'}">${Math.max(0, adjustedRemaining).toFixed(2)} €</span></div>
         </div>
+        ${nonFoodGroupsWithBudget.length > 0 ? `
+        <div style="margin-top:12px">
+          <div style="font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.3px;margin-bottom:6px">📂 Por grupo esta semana</div>
+          ${nonFoodGroupsWithBudget.map(g => {
+            const weeklyLimit = g.monthlyBudget / 4.33;
+            const spent = weekExpenses.filter(t => g.categories.includes(t.category)).reduce((s, t) => s + t.amount, 0);
+            const pct = weeklyLimit > 0 ? Math.min(100, (spent / weeklyLimit) * 100) : 0;
+            const remain = weeklyLimit - spent;
+            const barColor = pct >= 100 ? 'var(--expense)' : pct >= 80 ? '#F97316' : pct >= 50 ? '#F59E0B' : 'var(--income)';
+            const groupEmoji = g.emoji ? `${g.emoji} ` : '';
+            return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+              <span style="min-width:80px;font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${groupEmoji}${esc(g.name)}</span>
+              <div style="flex:1;height:6px;background:var(--bg);border-radius:3px;overflow:hidden">
+                <div style="width:${pct}%;height:100%;background:${barColor};border-radius:3px;transition:width .3s"></div>
+              </div>
+              <span style="min-width:65px;text-align:right;font-size:11px;font-weight:600;color:${remain >= 0 ? 'var(--text-secondary)' : 'var(--expense)'}">${remain >= 0 ? remain.toFixed(0) + '€' : Math.abs(remain).toFixed(0) + '€ +'}</span>
+            </div>`;
+          }).join('')}
+        </div>` : ''}
         ${catsWithLimits.length > 0 ? `
         <div style="margin-top:12px">
           <div style="font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.3px;margin-bottom:6px">🏷️ Por categoría esta semana</div>
@@ -298,6 +427,65 @@ const Dashboard = {
         </div>
       </div>` : ''}
       ${this._renderUpcomingPayments()}
+      ${this._renderPeriodAndRecs()}
+
+      <div class="dh-section">
+        <div class="dh-section-header">
+          <span class="dh-section-title">🧭 Guía de ahorro inteligente</span>
+          <span class="dh-section-badge" style="background:${savingsGuide.color};color:#fff">${savingsGuide.label}</span>
+        </div>
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;line-height:1.5">${savingsGuide.advice}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+          <div style="padding:8px 10px;background:var(--bg);border-radius:8px;border-left:3px solid #4F46E5">
+            <div style="font-size:10px;color:var(--text-secondary);font-weight:600;text-transform:uppercase">💰 Ahorro recomendado</div>
+            <div style="font-size:16px;font-weight:800;color:#4F46E5">${savingsGuide.savingPct}%</div>
+            <div style="font-size:12px;color:var(--text-secondary)">${savingsGuide.weeklySaving.toFixed(2)} €/sem · ${savingsGuide.monthlySaving.toFixed(0)} €/mes</div>
+          </div>
+          <div style="padding:8px 10px;background:var(--bg);border-radius:8px;border-left:3px solid #EC4899">
+            <div style="font-size:10px;color:var(--text-secondary);font-weight:600;text-transform:uppercase">⚠️ Imprevistos recomendados</div>
+            <div style="font-size:16px;font-weight:800;color:#EC4899">${savingsGuide.imprevistosPct}%</div>
+            <div style="font-size:12px;color:var(--text-secondary)">${savingsGuide.weeklyImprevisto.toFixed(2)} €/sem · ${savingsGuide.monthlyImprevisto.toFixed(0)} €/mes</div>
+          </div>
+        </div>
+        <div style="font-size:12px;padding:8px;background:var(--bg);border-radius:8px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+            <span style="color:var(--text-secondary)">💰 Ahorro configurado:</span>
+            <strong style="color:${savingsGuide.currentWeeklySaving >= savingsGuide.weeklySaving * 0.9 ? 'var(--income)' : 'var(--expense)'}">${savingsGuide.currentWeeklySaving.toFixed(2)} €/sem ${savingsGuide.currentWeeklySaving >= savingsGuide.weeklySaving * 0.9 ? '✅' : '⚠️'}</strong>
+          </div>
+          <div style="display:flex;justify-content:space-between">
+            <span style="color:var(--text-secondary)">⚠️ Imprevistos configurados:</span>
+            <strong style="color:${savingsGuide.currentImprevistosBudget / 4.33 >= savingsGuide.weeklyImprevisto * 0.9 ? 'var(--income)' : 'var(--expense)'}">${(savingsGuide.currentImprevistosBudget / 4.33).toFixed(2)} €/sem ${savingsGuide.currentImprevistosBudget / 4.33 >= savingsGuide.weeklyImprevisto * 0.9 ? '✅' : '⚠️'}</strong>
+          </div>
+        </div>
+        <div style="margin-top:8px;text-align:right">
+          <button class="btn btn-sm" style="border:1px solid var(--border);background:var(--card);border-radius:6px;cursor:pointer;font-size:11px" onclick="App._switchTab('presupuesto')">Ver plan financiero →</button>
+        </div>
+      </div>
+
+      <div class="dh-section">
+        <div class="dh-section-header">
+          <span class="dh-section-title">🏦 Salud financiera</span>
+          <span class="dh-section-badge" style="background:${sustainability.status === 'good' ? '#10B981' : sustainability.status === 'warning' ? '#F59E0B' : '#EF4444'};color:#fff">${sustainability.status === 'good' ? '✅ Saludable' : sustainability.status === 'warning' ? '🟡 Atención' : '🔴 Déficit'}</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:8px">
+          <div style="text-align:center;padding:8px;background:var(--bg);border-radius:8px">
+            <div style="font-size:10px;color:var(--text-secondary)">Meses autonomía</div>
+            <div style="font-size:18px;font-weight:800;color:${sustainability.monthsOfAutonomy >= 3 ? 'var(--income)' : 'var(--expense)'}">${sustainability.monthsOfAutonomy.toFixed(1)}</div>
+          </div>
+          <div style="text-align:center;padding:8px;background:var(--bg);border-radius:8px">
+            <div style="font-size:10px;color:var(--text-secondary)">Tasa ahorro</div>
+            <div style="font-size:18px;font-weight:800;color:${sustainability.savingRate >= 0.1 ? 'var(--income)' : sustainability.savingRate >= 0 ? 'var(--primary)' : 'var(--expense)'}">${(sustainability.savingRate * 100).toFixed(0)}%</div>
+          </div>
+          <div style="text-align:center;padding:8px;background:var(--bg);border-radius:8px">
+            <div style="font-size:10px;color:var(--text-secondary)">Total patrimonio</div>
+            <div style="font-size:16px;font-weight:800;color:var(--primary)">${sustainability.totalWealth.toFixed(0)}€</div>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--text-secondary);line-height:1.5">${sustainability.statusAdvice}</div>
+        ${sustainability.projectedIn6Months > sustainability.totalWealth ? `
+        <div style="margin-top:6px;font-size:12px;color:var(--income)">📈 En 6 meses: <strong>${sustainability.projectedIn6Months.toFixed(0)} €</strong> estimados</div>` : sustainability.projectedIn6Months < sustainability.totalWealth ? `
+        <div style="margin-top:6px;font-size:12px;color:var(--expense)">📉 En 6 meses: <strong>${sustainability.projectedIn6Months.toFixed(0)} €</strong> estimados si sigues así</div>` : ''}
+      </div>
     `;
 
     const sel = document.getElementById('dhMonthQuick');
@@ -355,6 +543,80 @@ const Dashboard = {
           <strong class="${u.type === 'Ingreso' ? 'income' : 'expense'}" style="font-size:13px;white-space:nowrap">${u.type === 'Ingreso' ? '+' : '-'}${u.amount.toFixed(2)} €</strong>
         </div>`).join('')}
     </div>`;
+  },
+
+  _renderPeriodAndRecs() {
+    const pack = BudgetEngine.getBudgetRecommendations();
+    const week = pack.week;
+    const month = pack.month;
+    const recs = pack.recommendations.slice(0, 4);
+
+    const groupChips = (sum) => sum.byGroup.slice(0, 4).map(g => {
+      const meta = BudgetEngine.getPriorityMeta(g.priority);
+      const color = g.pct >= 100 ? 'var(--expense)' : g.pct >= 80 ? '#F97316' : 'var(--text)';
+      return `<span class="dh-psum-chip">${g.emoji} ${esc(g.name)} <strong style="color:${color}">${g.spent.toFixed(0)}€</strong> <span class="prio-mini" style="background:${meta.color}">${meta.short}</span></span>`;
+    }).join('');
+
+    return `<div class="dh-section">
+      <div class="dh-section-header">
+        <span class="dh-section-title">📊 Resumen ingresos / gastos</span>
+        <button class="btn btn-sm" style="border:1px solid var(--border);background:var(--card);border-radius:6px;cursor:pointer;font-size:11px" onclick="App._switchTab('presupuesto')">Ver detalle →</button>
+      </div>
+      <div class="dh-psum-grid">
+        <div class="dh-psum-card">
+          <div class="dh-psum-label">Esta semana · ${esc(week.label)}</div>
+          <div class="dh-psum-nums">
+            <span class="income">+${week.incomeActual.toFixed(0)}€</span>
+            <span class="expense">-${week.expenseTotal.toFixed(0)}€</span>
+            <span style="color:${week.balanceActual >= 0 ? 'var(--income)' : 'var(--expense)'};font-weight:800">${week.balanceActual >= 0 ? '+' : ''}${week.balanceActual.toFixed(0)}€</span>
+          </div>
+          <div class="dh-psum-chips">${groupChips(week) || '<span style="font-size:11px;color:var(--text-secondary)">Sin gastos agrupados</span>'}</div>
+        </div>
+        <div class="dh-psum-card">
+          <div class="dh-psum-label">Este mes · ${esc(month.label)}</div>
+          <div class="dh-psum-nums">
+            <span class="income">+${month.incomeActual.toFixed(0)}€</span>
+            <span class="expense">-${month.expenseTotal.toFixed(0)}€</span>
+            <span style="color:${month.balanceActual >= 0 ? 'var(--income)' : 'var(--expense)'};font-weight:800">${month.balanceActual >= 0 ? '+' : ''}${month.balanceActual.toFixed(0)}€</span>
+          </div>
+          <div class="dh-psum-chips">${groupChips(month) || '<span style="font-size:11px;color:var(--text-secondary)">Sin gastos agrupados</span>'}</div>
+        </div>
+      </div>
+      ${recs.length ? `
+      <div style="margin-top:12px">
+        <div style="font-size:12px;font-weight:700;margin-bottom:6px">🎯 Ajustes recomendados por prioridad</div>
+        ${recs.map(r => {
+          const meta = BudgetEngine.getPriorityMeta(r.priority);
+          return `<div class="dh-rec-row">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;font-weight:700">${r.emoji || ''} ${esc(r.targetName)} <span class="prio-mini" style="background:${meta.color}">${meta.short}</span>
+                <span style="font-size:11px;font-weight:600;color:var(--text-secondary)">${r.type === 'increase' ? '⬆️' : r.type === 'decrease' ? '⬇️' : '⚖️'}</span>
+              </div>
+              <div style="font-size:11px;color:var(--text-secondary);line-height:1.4">${esc(r.reason)}</div>
+              <div style="font-size:11px;font-weight:600;margin-top:2px">${r.currentWeekly.toFixed(1)}→${r.suggestedWeekly.toFixed(1)}€/sem · ${r.currentMonthly.toFixed(0)}→${r.suggestedMonthly.toFixed(0)}€/mes</div>
+            </div>
+            ${r.target !== 'plan' || r.applyAllLowPriority ? `<button class="btn btn-sm btn-primary" style="border-radius:6px;font-size:11px;white-space:nowrap" onclick="Dashboard._applyPriorityRec('${r.id}')">Aplicar</button>` : ''}
+          </div>`;
+        }).join('')}
+        <div style="margin-top:8px;font-size:11px;color:var(--text-secondary)">
+          Prioridades en <button type="button" class="linkish" onclick="App._switchTab('categorias')">⚙️ Configuración</button>
+        </div>
+      </div>` : `
+      <div style="margin-top:10px;font-size:12px;color:var(--text-secondary);line-height:1.5">
+        Sin ajustes urgentes. Configura prioridades en ⚙️ para recomendaciones de comida, salidas y grupos.
+      </div>`}
+    </div>`;
+  },
+
+  _applyPriorityRec(recId) {
+    const pack = BudgetEngine.getBudgetRecommendations();
+    const rec = pack.recommendations.find(r => r.id === recId);
+    if (!rec) { App.showToast('Recomendación no disponible'); return; }
+    if (BudgetEngine.applyRecommendation(rec)) {
+      App.showToast(`✅ ${rec.targetName} actualizado`);
+      this.render();
+      if (document.getElementById('tab-presupuesto')?.classList.contains('active')) Presupuesto.render();
+    }
   },
 
   _getMondayStr(d) {

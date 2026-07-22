@@ -3,8 +3,9 @@ const Categorias = {
     const el = document.getElementById('tab-categorias');
     const checking = Store.getCheckingBalance();
     const savings = Store.getSavingsBalance();
+    const cash = Store.getCashBalance();
     const transfers = Store.getTransfers();
-    const totalWealth = checking !== null && checking !== undefined ? checking + savings : savings;
+    const totalWealth = (checking !== null && checking !== undefined ? checking : 0) + savings + cash;
     const baseBalance = Store.getCheckingBaseBalance();
     const checkingAvailable = checking !== null ? Math.max(0, checking - baseBalance) : 0;
 
@@ -36,8 +37,18 @@ const Categorias = {
               </div>
             </div>
           </div>
+          <div class="sa-cuenta">
+            <div class="sa-cuenta-icon" style="background:#FFF7ED;color:#D97706">💵</div>
+            <div class="sa-cuenta-info">
+              <span class="sa-cuenta-label">Dinero en efectivo</span>
+              <div style="display:flex;align-items:center;gap:6px">
+                <span class="sa-cuenta-val" style="color:#D97706">${cash.toFixed(2)} €</span>
+                <button class="btn-sm" style="border:1px solid var(--border);border-radius:4px;background:var(--card);cursor:pointer;font-size:11px" onclick="Categorias._setBalance('cash')">✏️</button>
+              </div>
+            </div>
+          </div>
         </div>
-        ${checking !== null && checking !== undefined ? `<div class="sa-cuenta-total">💵 Patrimonio total: <strong>${totalWealth.toFixed(2)} €</strong></div>` : `<div class="sa-cuenta-total">🐷 Ahorro acumulado: <strong>${savings.toFixed(2)} €</strong></div>`}
+        ${checking !== null && checking !== undefined ? `<div class="sa-cuenta-total">💰 Patrimonio total: <strong>${totalWealth.toFixed(2)} €</strong> <span style="font-size:11px;color:var(--text-secondary)">(corriente + ahorro + efectivo)</span></div>` : `<div class="sa-cuenta-total">🐷 Ahorro acumulado: <strong>${savings.toFixed(2)} €</strong></div>`}
         <div class="sa-transfer-form">
           <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
             <span style="font-size:12px;font-weight:600;color:var(--text-secondary)">Registrar transferencia → ahorro:</span>
@@ -50,6 +61,164 @@ const Categorias = {
         ${transfers.length > 0 ? `<div class="sa-transfer-list"><div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:4px">Últimas transferencias:</div>
           ${transfers.slice(-5).reverse().map(t => `<div class="sa-transfer-item"><span>${t.date}</span><span style="font-weight:700;color:var(--income)">+${t.amount.toFixed(2)}€</span>${t.note ? `<span style="color:var(--text-secondary)">${esc(t.note)}</span>` : ''}<button class="btn-sm" style="margin-left:auto;border:none;background:none;cursor:pointer;color:var(--text-secondary);font-size:11px" onclick="Categorias._undoTransfer('${t.id}')">✕</button></div>`).join('')}
         </div>` : ''}
+      </div>
+
+      <div class="card" style="margin-bottom:10px">
+        <div class="card-header">
+          <span class="card-title">📖 Tutorial de uso</span>
+        </div>
+        <p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">
+          Repasa cómo usar la app, configurar la sincronización en la nube e instalarla en todos tus dispositivos.
+        </p>
+        <button class="btn btn-primary btn-sm" onclick="Tutorial.open(0)">▶ Ver tutorial</button>
+      </div>
+
+      <div class="card" style="margin-bottom:10px">
+        <div class="card-header">
+          <span class="card-title">📲 App e instalación</span>
+        </div>
+        <p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">
+          Instala la app en tu móvil u ordenador para usarla sin navegador. Funciona también sin conexión y sincroniza cuando vuelve a estar online.
+        </p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+          <button class="btn btn-primary btn-sm" onclick="Install.promptInstall()">
+            ${typeof Install !== 'undefined' && Install.isInstalled() ? '✅ App instalada' : '⬇ Instalar app'}
+          </button>
+        </div>
+        <div style="font-size:11px;color:var(--text-secondary);line-height:1.5">
+          <strong>Móvil Android:</strong> pulsa "Instalar" o el menú del navegador → "Instalar app".<br>
+          <strong>iPhone:</strong> Safari → Compartir → Añadir a pantalla de inicio.<br>
+          <strong>PC:</strong> Chrome/Edge → icono ⊕ en la barra de direcciones.
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:10px">
+        <div class="card-header">
+          <span class="card-title">🔒 Sincronización cifrada entre dispositivos</span>
+        </div>
+        <p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.6">
+          Tus datos se cifran en tu dispositivo con <strong>AES-256</strong> antes de subirse a la nube.
+          El servidor solo almacena datos cifrados — sin la frase, nadie puede leerlos.
+        </p>
+
+        <details style="margin-bottom:12px">
+          <summary style="font-size:12px;font-weight:600;cursor:pointer;color:var(--primary);padding:4px 0">
+            🌐 Cómo conectar móvil y PC (guía rápida)
+          </summary>
+          <div style="font-size:12px;line-height:1.8;padding:10px 0 4px;color:var(--text-secondary)">
+            <strong style="color:var(--text)">Opción A — Nube propia (recomendado, 24h disponible):</strong><br>
+            1. Despliega el servidor en <strong>Fly.io</strong> o <strong>Railway</strong> (gratis / bajo coste).<br>
+            &nbsp;&nbsp;&nbsp;Ver instrucciones detalladas en el archivo <code>DEPLOY.md</code> del proyecto.<br>
+            2. Configura la URL del servidor y la SYNC_KEY en todos tus dispositivos.<br>
+            3. Activa la <strong>frase de cifrado</strong> — los datos viajan y se almacenan cifrados.<br><br>
+            <strong style="color:var(--text)">Opción B — PC local (WiFi o Tailscale):</strong><br>
+            1. Arranca el servidor en el PC: <code>SYNC_KEY=mi_clave node server.js</code><br>
+            2. En el móvil pon la IP local (<code>http://192.168.x.x:3000</code>) o la IP de Tailscale.<br>
+            3. Instala como PWA → funciona offline y sincroniza cuando hay red.<br><br>
+            <em>Con la frase de cifrado activa, ni el hosting ni nadie más puede leer tus datos.</em>
+          </div>
+        </details>
+
+        <div class="form-group" style="margin-bottom:8px">
+          <label style="font-size:12px;font-weight:600">Estado de sincronización</label>
+          <div id="syncStatusLine" style="font-size:13px;padding:8px 10px;border-radius:8px;background:var(--bg)">
+            ${esc(Store.getSyncStatusDetail() || Store.getSyncStatus())}
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom:8px">
+          <label style="font-size:12px;font-weight:600">URL del servidor</label>
+          <input type="url" id="syncServerUrl" placeholder="https://tu-app.fly.dev  o  http://192.168.x.x:3000"
+            value="${esc(Store.getSyncSettings().serverUrl)}"
+            style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px">
+          <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">
+            Déjalo vacío si el servidor corre en este mismo dispositivo.
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom:8px">
+          <label style="font-size:12px;font-weight:600">Clave de sincronización (SYNC_KEY)</label>
+          <input type="password" id="syncKey" placeholder="La misma SYNC_KEY configurada en el servidor"
+            value="${esc(Store.getSyncSettings().syncKey)}"
+            style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px">
+          <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">
+            Protege el acceso a la API. Debe coincidir con <code>SYNC_KEY</code> en el servidor.
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom:10px;padding:10px;border-radius:8px;background:var(--bg);border:1.5px solid ${Store.isEncryptionEnabled() ? 'var(--income)' : 'var(--border)'}">
+          <label style="font-size:12px;font-weight:700;display:flex;align-items:center;gap:6px;margin-bottom:6px">
+            🔐 Frase de cifrado (E2E)
+            <span style="font-size:10px;font-weight:500;padding:2px 7px;border-radius:10px;background:${Store.isEncryptionEnabled() ? 'var(--income)' : 'var(--border)'};color:${Store.isEncryptionEnabled() ? '#fff' : 'var(--text-secondary)'}">
+              ${Store.isEncryptionEnabled() ? 'Activo' : 'Sin cifrado'}
+            </span>
+          </label>
+          <div style="position:relative">
+            <input type="password" id="e2ePassphrase" placeholder="Frase secreta — no se envía al servidor nunca"
+              value="${esc(Store.getPassphrase())}"
+              style="width:100%;padding:8px 36px 8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;box-sizing:border-box">
+            <button type="button" onclick="Categorias._togglePassphraseVisibility()"
+              style="position:absolute;right:8px;top:50%;transform:translateY(-50%);border:none;background:none;cursor:pointer;font-size:14px;color:var(--text-secondary)"
+              id="passphraseToggleBtn" title="Mostrar/ocultar">👁</button>
+          </div>
+          <div style="font-size:11px;color:var(--text-secondary);margin-top:6px;line-height:1.5">
+            ⚠️ <strong>Guarda esta frase en un lugar seguro.</strong> Sin ella, los datos cifrados en la nube no se pueden recuperar.<br>
+            Usa la misma frase en todos tus dispositivos. Déjala vacía para sincronizar sin cifrar.
+          </div>
+        </div>
+
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-primary btn-sm" onclick="Categorias._saveSyncSettings()">💾 Guardar y sincronizar</button>
+          <button class="btn btn-secondary btn-sm" onclick="Categorias._testSync()">🔌 Probar conexión</button>
+          <button class="btn btn-secondary btn-sm" onclick="Categorias._forceSync()">🔄 Sincronizar ahora</button>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:10px">
+        <div class="card-header">
+          <span class="card-title">🔄 Actualizaciones</span>
+        </div>
+        <p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">
+          La app detecta automáticamente cuando hay una nueva versión y muestra un aviso. También puedes comprobar manualmente.
+        </p>
+        <button class="btn btn-secondary btn-sm" onclick="Install.manualCheckForUpdates()">🔍 Comprobar actualizaciones</button>
+      </div>
+
+      <div class="card" style="margin-bottom:10px">
+        <div class="card-header">
+          <span class="card-title">📊 Exportar / Importar Excel</span>
+        </div>
+        <p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;line-height:1.5">
+          Exporta todos tus datos a un archivo <strong>.xlsx</strong> usable en Excel o Google Sheets (varias hojas organizadas).
+          También puedes importarlo de vuelta o editarlo y reimportarlo.
+        </p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+          <button class="btn btn-primary btn-sm" onclick="ExcelIO.export()">⬇ Exportar a Excel</button>
+          <button class="btn btn-secondary btn-sm" onclick="document.getElementById('excelImportInput').click()">⬆ Importar Excel</button>
+          <input type="file" id="excelImportInput" accept=".xlsx" style="display:none"
+            onchange="ExcelIO.importFromInput(this)">
+        </div>
+        <div style="font-size:11px;color:var(--text-secondary);line-height:1.5">
+          El Excel incluye: Movimientos, Archivo, Deudas, Metas, Planificados, Recurrentes, Saldos y Configuración.<br>
+          El backup JSON completo (botón ⬇ en la cabecera) sigue disponible para restauraciones exactas.
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:10px;border-color:var(--expense)">
+        <div class="card-header">
+          <span class="card-title" style="color:var(--expense)">⚠️ Zona de restablecimiento</span>
+        </div>
+        <p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;line-height:1.5">
+          Elimina todos los datos de esta app y comienza desde cero. Esta acción no se puede deshacer
+          (se crea un backup automático antes de borrar, pero solo en este dispositivo).
+        </p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-sm" style="background:var(--expense);color:#fff;border:none;padding:8px 14px;border-radius:var(--radius);cursor:pointer;font-size:12px;font-weight:600"
+            onclick="Categorias._confirmFactoryReset()">
+            🗑 Empezar de cero
+          </button>
+        </div>
+        <div style="font-size:11px;color:var(--text-secondary);margin-top:8px;line-height:1.5">
+          Antes de borrar, te recomendamos exportar a Excel o descargar el backup JSON.
+        </div>
       </div>
 
       <div class="card" style="margin-bottom:10px">
@@ -72,6 +241,79 @@ const Categorias = {
             ${Store.getPinCode() ? `<button class="btn btn-sm btn-danger" onclick="Categorias._clearPin()">✕</button>` : ''}
           </div>
         </div>
+      </div>
+
+      <div class="card" style="margin-bottom:10px">
+        <div class="card-header">
+          <span class="card-title">📚 Catálogo de la app</span>
+          <button class="btn btn-secondary btn-sm" onclick="Categorias._syncCatalog()">🔄 Sincronizar</button>
+        </div>
+        <p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">
+          Categorías, tipos y métodos de pago se comparten con Movimientos, Calendario, Deudas y Ahorro.
+          Si añades uno en cualquier pantalla, aparecerá aquí. Pulsa sincronizar para importar los que falten.
+        </p>
+      </div>
+
+      <div class="card" style="margin-bottom:10px">
+        <div class="card-header">
+          <span class="card-title">👥 Personas y grupos</span>
+        </div>
+        <p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px">Se guardan al usarlas en deudas o movimientos. Los grupos sirven para dividir gastos rápidamente.</p>
+        <div class="cat-section" style="margin-bottom:12px">
+          <div class="cat-section-title"><span>Personas guardadas</span></div>
+          <div class="cat-list" id="peopleList"></div>
+          <div class="add-cat-form">
+            <input type="text" id="newPerson" placeholder="Nueva persona...">
+            <button onclick="Categorias._addPerson()">Añadir</button>
+          </div>
+        </div>
+        <div class="cat-section">
+          <div class="cat-section-title"><span>Grupos</span></div>
+          <div class="cat-list" id="groupsList"></div>
+          <div class="add-cat-form">
+            <input type="text" id="newGroupName" placeholder="Nombre del grupo..." style="flex:1">
+            <button onclick="Categorias._addGroup()">+ Grupo</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:10px">
+        <div class="card-header">
+          <span class="card-title">🎯 Prioridad de gastos</span>
+        </div>
+        <p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">
+          Define qué es esencial y qué se puede recortar. La app usa estas prioridades para el <strong>resumen semanal/mensual</strong> y para <strong>recomendar variaciones</strong> del presupuesto (comida, salidas, grupos, límites…).
+        </p>
+        <div class="prio-legend">
+          <span class="prio-pill" style="--prio:#059669">1 Esencial</span>
+          <span class="prio-pill" style="--prio:#2563EB">2 Alta</span>
+          <span class="prio-pill" style="--prio:#D97706">3 Media</span>
+          <span class="prio-pill" style="--prio:#EA580C">4 Baja</span>
+          <span class="prio-pill" style="--prio:#DC2626">5 Recortar</span>
+        </div>
+        <div id="expensePrioritiesList"></div>
+      </div>
+
+      <div class="card" style="margin-bottom:10px">
+        <div class="card-header">
+          <span class="card-title">📂 Grupos de gasto</span>
+          <button class="btn btn-primary btn-sm" onclick="Categorias._addCategoryGroup()">+ Nuevo grupo</button>
+        </div>
+        <p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">
+          Agrupa categorías para asignarles un presupuesto mensual. Los grupos con <strong>Plan comida</strong> activado se deducen del presupuesto semanal como gasto obligatorio y mejoran el cálculo de "HOY PUEDES GASTAR".
+        </p>
+        <div id="categoryGroupsList"></div>
+      </div>
+
+      <div class="card" style="margin-bottom:10px">
+        <div class="card-header">
+          <span class="card-title">💰 Grupos de ingreso</span>
+          <button class="btn btn-primary btn-sm" onclick="Categorias._addIncomeGroup()">+ Nuevo grupo</button>
+        </div>
+        <p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">
+          Agrupa categorías de ingreso (nómina, extras, pagas…) y opcionalmente define un <strong>objetivo mensual</strong> para ver si vas al ritmo.
+        </p>
+        <div id="incomeGroupsList"></div>
       </div>
 
       <div class="cat-grid">
@@ -122,27 +364,502 @@ const Categorias = {
     this._renderList('incomeCatList', Store.getIncomeCategories(), 'incomeCategory');
     this._renderList('typeList', Store.getTypes(), 'type');
     this._renderList('methodList', Store.getPaymentMethods(), 'method');
+    this._renderPeople();
+    this._renderGroups();
+    this._renderCategoryGroups();
+    this._renderIncomeGroups();
+    this._renderExpensePriorities();
 
     document.getElementById('newCategory').addEventListener('keydown', e => { if (e.key === 'Enter') this._add('category'); });
     document.getElementById('newIncomeCategory').addEventListener('keydown', e => { if (e.key === 'Enter') this._add('incomeCategory'); });
     document.getElementById('newType').addEventListener('keydown', e => { if (e.key === 'Enter') this._add('type'); });
     document.getElementById('newMethod').addEventListener('keydown', e => { if (e.key === 'Enter') this._add('method'); });
+    document.getElementById('newPerson')?.addEventListener('keydown', e => { if (e.key === 'Enter') this._addPerson(); });
+  },
+
+  _syncCatalog() {
+    Store.syncCatalogFromData();
+    this.render();
+    App._refreshConfigDependents?.();
+    App.showToast('✅ Catálogo sincronizado con todos los movimientos');
+  },
+
+  _renderPeople() {
+    const el = document.getElementById('peopleList');
+    if (!el) return;
+    const people = Store.getPeople();
+    el.innerHTML = people.length ? people.map(p => {
+      const safe = p.replace(/'/g, "\\'");
+      const used = (Store.getDebts() || []).filter(d => d.person === p).length;
+      return `<div class="cat-item"><span class="cat-name">${esc(p)}${used ? ` <span style="font-size:10px;color:var(--text-secondary)">(${used} deuda${used !== 1 ? 's' : ''})</span>` : ''}</span>
+        <div style="display:flex;gap:4px"><button class="btn-sm" style="border:1px solid var(--border);border-radius:4px;background:var(--card);cursor:pointer;font-size:11px;padding:2px 6px" onclick="Categorias._renamePerson('${safe}')">✏️</button>
+        <button class="delete-cat" onclick="Categorias._deletePerson('${safe}')">✕</button></div></div>`;
+    }).join('') : '<div style="font-size:12px;color:var(--text-secondary);padding:8px 0">Sin personas guardadas aún</div>';
+  },
+
+  _renderGroups() {
+    const el = document.getElementById('groupsList');
+    if (!el) return;
+    const groups = Store.getPeopleGroups();
+    el.innerHTML = groups.length ? groups.map(g => `<div class="cat-item">
+      <span class="cat-name">👥 ${esc(g.name)} <span style="font-size:10px;color:var(--text-secondary)">${g.members.map(esc).join(', ')}</span></span>
+      <div style="display:flex;gap:4px">
+        <button class="btn-sm" style="border:1px solid var(--border);border-radius:4px;background:var(--card);cursor:pointer;font-size:11px;padding:2px 6px" onclick="Categorias._editGroup('${g.id}')">✏️</button>
+        <button class="delete-cat" onclick="Categorias._deleteGroup('${g.id}')">✕</button>
+      </div></div>`).join('') : '<div style="font-size:12px;color:var(--text-secondary);padding:8px 0">Sin grupos aún</div>';
+  },
+
+  _addPerson() {
+    const name = document.getElementById('newPerson')?.value.trim();
+    if (!name) return;
+    Store.addPerson(name);
+    document.getElementById('newPerson').value = '';
+    this._renderPeople();
+  },
+
+  _renamePerson(name) {
+    App.showPrompt('Renombrar persona', 'Nuevo nombre:', name, (n) => {
+      if (n && n !== name) { Store.renamePerson(name, n); this.render(); Deudas.render(); }
+    });
+  },
+
+  _deletePerson(name) {
+    App.showConfirm('Eliminar persona', `¿Eliminar "${name}" de la lista? (no borra deudas existentes)`, () => {
+      Store.deletePerson(name);
+      this._renderPeople();
+    });
+  },
+
+  _addGroup() {
+    const name = document.getElementById('newGroupName')?.value.trim();
+    if (!name) return;
+    const people = Store.getPeople();
+    const opts = people.map(p => `<label style="display:flex;gap:6px;padding:4px 0"><input type="checkbox" value="${esc(p)}"> ${esc(p)}</label>`).join('');
+    App.showCustom('👥 Nuevo grupo', `
+      <div class="form-group"><label>Nombre</label><input type="text" id="grpNameInput" value="${esc(name)}" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)"></div>
+      <div class="form-group"><label>Miembros</label><div id="grpMembersList">${opts || '<p style="font-size:12px;color:var(--text-secondary)">Añade personas primero</p>'}</div>
+        <input type="text" id="grpNewMember" placeholder="O escribe un nombre nuevo" style="width:100%;margin-top:6px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius)">
+      </div>`, 'Crear', () => {
+      const gName = document.getElementById('grpNameInput')?.value.trim();
+      const checked = [...document.querySelectorAll('#grpMembersList input:checked')].map(el => el.value);
+      const extra = document.getElementById('grpNewMember')?.value.trim();
+      if (extra) checked.push(extra);
+      if (!gName || checked.length === 0) { App.showToast('Indica nombre y al menos un miembro'); return; }
+      Store.addPeopleGroup(gName, checked);
+      document.getElementById('newGroupName').value = '';
+      this._renderGroups();
+      this._renderPeople();
+    });
+  },
+
+  _editGroup(id) {
+    const g = Store.getPeopleGroups().find(x => x.id === id);
+    if (!g) return;
+    const people = Store.getPeople();
+    const opts = people.map(p => `<label style="display:flex;gap:6px;padding:4px 0"><input type="checkbox" value="${esc(p)}"${g.members.includes(p) ? ' checked' : ''}> ${esc(p)}</label>`).join('');
+    App.showCustom('✏️ Editar grupo', `
+      <div class="form-group"><label>Nombre</label><input type="text" id="grpNameInput" value="${esc(g.name)}" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)"></div>
+      <div class="form-group"><label>Miembros</label><div id="grpMembersList">${opts}</div></div>`, 'Guardar', () => {
+      const gName = document.getElementById('grpNameInput')?.value.trim();
+      const checked = [...document.querySelectorAll('#grpMembersList input:checked')].map(el => el.value);
+      if (!gName || checked.length === 0) return;
+      Store.updatePeopleGroup(id, { name: gName, members: checked });
+      this._renderGroups();
+      this._renderPeople();
+    });
+  },
+
+  _deleteGroup(id) {
+    App.showConfirm('Eliminar grupo', '¿Eliminar este grupo?', () => {
+      Store.deletePeopleGroup(id);
+      this._renderGroups();
+    });
+  },
+
+  // ── Prioridad de gastos ───────────────────────────────────────────────────
+
+  _renderExpensePriorities() {
+    const el = document.getElementById('expensePrioritiesList');
+    if (!el) return;
+    const items = Store.getPriorityConfigItems();
+    if (!items.length) {
+      el.innerHTML = '<div style="font-size:12px;color:var(--text-secondary);padding:6px 0">Crea grupos de gasto o categorías para configurar prioridades.</div>';
+      return;
+    }
+
+    el.innerHTML = items.map(item => {
+      const meta = BudgetEngine.getPriorityMeta(item.priority);
+      const safeKey = encodeURIComponent(item.key);
+      return `<div class="prio-row">
+        <div class="prio-row-info">
+          <span class="prio-row-emoji">${item.emoji}</span>
+          <div>
+            <div class="prio-row-name">${esc(item.name)}</div>
+            <div class="prio-row-hint">${esc(item.hint)} · <span style="color:${meta.color};font-weight:600">${meta.label}</span></div>
+          </div>
+        </div>
+        <div class="prio-btns">
+          ${[1, 2, 3, 4, 5].map(p => {
+            const m = BudgetEngine.getPriorityMeta(p);
+            const active = item.priority === p;
+            return `<button type="button" class="prio-btn ${active ? 'active' : ''}" style="${active ? `background:${m.color};border-color:${m.color};color:#fff` : ''}"
+              title="${m.label}: ${m.tip}"
+              onclick="Categorias._setPriority('${safeKey}', ${p})">${p}</button>`;
+          }).join('')}
+        </div>
+      </div>`;
+    }).join('');
+  },
+
+  _setPriority(encodedKey, priority) {
+    const key = decodeURIComponent(encodedKey);
+    Store.setExpensePriority(key, priority);
+    this._renderExpensePriorities();
+    App._refreshConfigDependents?.();
+    const meta = BudgetEngine.getPriorityMeta(priority);
+    App.showToast(`Prioridad ${meta.label} guardada`);
+  },
+
+  // ── Grupos de gasto (presupuesto) ─────────────────────────────────────────
+
+  _renderCategoryGroups() {
+    const el = document.getElementById('categoryGroupsList');
+    if (!el) return;
+    const groups = Store.getCategoryGroups();
+
+    if (groups.length === 0) {
+      el.innerHTML = '<div style="font-size:12px;color:var(--text-secondary);padding:6px 0">Sin grupos aún. Crea uno para organizar tus categorías de gasto.</div>';
+      return;
+    }
+
+    const weekExpenses = BudgetEngine.getWeekSpendableExpenses();
+
+    el.innerHTML = groups.map(g => {
+      const weeklyBudget = g.monthlyBudget > 0 ? g.monthlyBudget / 4.33 : 0;
+      const weekSpent = weekExpenses.filter(t => g.categories.includes(t.category)).reduce((s, t) => s + t.amount, 0);
+      const pct = weeklyBudget > 0 ? Math.min(100, (weekSpent / weeklyBudget) * 100) : 0;
+      const barColor = pct >= 100 ? 'var(--expense)' : pct >= 80 ? '#F97316' : pct >= 50 ? '#F59E0B' : 'var(--income)';
+      const emojiDisplay = g.emoji ? `<span style="font-size:18px">${g.emoji}</span>` : '';
+
+      return `<div style="padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            ${emojiDisplay}
+            <span style="font-size:14px;font-weight:700">${esc(g.name)}</span>
+            ${g.isFoodGroup ? '<span style="font-size:10px;background:#FEF3C7;color:#92400E;padding:2px 6px;border-radius:10px;font-weight:600">🍽️ Plan comida</span>' : '<span style="font-size:10px;background:var(--bg);color:var(--text-secondary);padding:2px 6px;border-radius:10px">📊 Seguimiento</span>'}
+          </div>
+          <div style="display:flex;gap:4px">
+            <button class="btn-sm" style="border:1px solid var(--border);border-radius:4px;background:var(--card);cursor:pointer;font-size:11px;padding:2px 6px" onclick="Categorias._editCategoryGroup('${g.id}')">✏️</button>
+            <button class="delete-cat" onclick="Categorias._deleteCategoryGroup('${g.id}')">✕</button>
+          </div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px">
+          ${g.categories.length ? g.categories.map(c => `<span style="font-size:11px;background:var(--bg);border:1px solid var(--border);padding:2px 8px;border-radius:10px">${esc(c)}</span>`).join('') : '<span style="font-size:11px;color:var(--text-secondary)">Sin categorías asignadas</span>'}
+        </div>
+        ${g.monthlyBudget > 0 ? `
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-secondary);margin-bottom:3px">
+          <span>${weekSpent.toFixed(1)}€ / ${weeklyBudget.toFixed(1)}€ sem (${g.monthlyBudget.toFixed(0)}€/mes)</span>
+          <span style="color:${barColor};font-weight:600">${weeklyBudget > weekSpent ? (weeklyBudget - weekSpent).toFixed(1) + '€ restan' : (weekSpent - weeklyBudget).toFixed(1) + '€ excedido'}</span>
+        </div>
+        <div style="height:5px;background:var(--bg);border-radius:3px;overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:${barColor};border-radius:3px;transition:width .3s"></div>
+        </div>` : `<span style="font-size:11px;color:var(--text-secondary)">Sin presupuesto — solo seguimiento visual</span>`}
+      </div>`;
+    }).join('');
+  },
+
+  _addCategoryGroup() {
+    const allCats = Store.getCategories();
+    const groups = Store.getCategoryGroups();
+    const usedCats = new Set(groups.flatMap(g => g.categories));
+
+    const emojiPalette = ['🍔','🛒','☕','🍕','🏠','🚗','💊','📚','👗','🎮','✈️','🎁','💪','🌟','🔧','📱','🎵','🏋️','🐾','🌿','🎨','🎭','🛍️','🏖️','💡'];
+    App.showCustom('📂 Nuevo grupo de gasto', `
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <div class="form-group" style="flex:1;margin-bottom:0">
+          <label style="font-size:12px;font-weight:600">Nombre del grupo</label>
+          <input type="text" id="cgNameInput" placeholder="Ej: Alimentación, Ocio..." style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)">
+        </div>
+        <div class="form-group" style="width:80px;margin-bottom:0">
+          <label style="font-size:12px;font-weight:600">Emoji</label>
+          <input type="text" id="cgEmojiInput" placeholder="😀" maxlength="2" style="width:100%;text-align:center;font-size:22px;padding:6px;border:1px solid var(--border);border-radius:var(--radius)">
+        </div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:10px">
+        ${emojiPalette.map(e => `<button type="button" onclick="document.getElementById('cgEmojiInput').value='${e}'" style="font-size:18px;background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;padding:2px 5px">${e}</button>`).join('')}
+      </div>
+      <div class="form-group" style="margin-bottom:8px">
+        <label style="font-size:12px;font-weight:600">Presupuesto mensual (€)</label>
+        <input type="number" id="cgBudgetInput" placeholder="0 = solo seguimiento" step="5" min="0" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)">
+        <div style="font-size:11px;color:var(--text-secondary);margin-top:3px">Pon 0 para seguimiento visual sin afectar el plan financiero</div>
+      </div>
+      <div class="form-group" style="margin-bottom:8px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px;background:var(--bg);border-radius:8px">
+          <input type="checkbox" id="cgFoodToggle">
+          <div>
+            <div style="font-size:12px;font-weight:700">🍽️ Incluir en plan comida (gasto obligatorio)</div>
+            <div style="font-size:11px;color:var(--text-secondary);margin-top:2px">Actívalo para que el presupuesto del grupo se reste del ingreso semanal como comida/necesidades, liberando el disponible discrecional</div>
+          </div>
+        </label>
+      </div>
+      <div class="form-group">
+        <label style="font-size:12px;font-weight:600">Categorías del grupo</label>
+        <div style="max-height:180px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius);padding:6px">
+          ${allCats.map(c => {
+            const inOtherGroup = usedCats.has(c);
+            const otherGroupName = inOtherGroup ? (groups.find(g => g.categories.includes(c))?.name || '') : '';
+            return `<label style="display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer">
+              <input type="checkbox" class="cg-cat-check" value="${esc(c)}" ${inOtherGroup ? 'disabled' : ''}>
+              <span style="font-size:13px${inOtherGroup ? ';color:var(--text-secondary)' : ''}">${esc(c)}</span>
+              ${inOtherGroup ? `<span style="font-size:10px;color:var(--text-secondary)">(ya en ${esc(otherGroupName)})</span>` : ''}
+            </label>`;
+          }).join('')}
+        </div>
+      </div>
+    `, 'Crear grupo', () => {
+      const name = document.getElementById('cgNameInput')?.value.trim();
+      const emoji = document.getElementById('cgEmojiInput')?.value.trim() || '';
+      const budget = parseFloat(document.getElementById('cgBudgetInput')?.value) || 0;
+      const isFood = document.getElementById('cgFoodToggle')?.checked || false;
+      const cats = [...document.querySelectorAll('.cg-cat-check:checked')].map(el => el.value);
+      if (!name) { App.showToast('⚠️ Indica un nombre para el grupo'); return; }
+      Store.addCategoryGroup(name, { categories: cats, monthlyBudget: budget, isFoodGroup: isFood, emoji });
+      App.showToast(`✅ Grupo "${name}" creado`);
+      this._renderCategoryGroups();
+      this._renderExpensePriorities();
+      App._refreshConfigDependents?.();
+    });
+  },
+
+  _editCategoryGroup(id) {
+    const g = Store.getCategoryGroups().find(x => x.id === id);
+    if (!g) return;
+    const allCats = Store.getCategories();
+    const groups = Store.getCategoryGroups();
+    const otherGroupCats = new Set(groups.filter(x => x.id !== id).flatMap(x => x.categories));
+
+    const emojiPalette2 = ['🍔','🛒','☕','🍕','🏠','🚗','💊','📚','👗','🎮','✈️','🎁','💪','🌟','🔧','📱','🎵','🏋️','🐾','🌿','🎨','🎭','🛍️','🏖️','💡'];
+    App.showCustom(`✏️ Editar grupo "${esc(g.name)}"`, `
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <div class="form-group" style="flex:1;margin-bottom:0">
+          <label style="font-size:12px;font-weight:600">Nombre</label>
+          <input type="text" id="cgNameInput" value="${esc(g.name)}" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)">
+        </div>
+        <div class="form-group" style="width:80px;margin-bottom:0">
+          <label style="font-size:12px;font-weight:600">Emoji</label>
+          <input type="text" id="cgEmojiInput" placeholder="😀" maxlength="2" value="${esc(g.emoji || '')}" style="width:100%;text-align:center;font-size:22px;padding:6px;border:1px solid var(--border);border-radius:var(--radius)">
+        </div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:10px">
+        ${emojiPalette2.map(e => `<button type="button" onclick="document.getElementById('cgEmojiInput').value='${e}'" style="font-size:18px;background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;padding:2px 5px">${e}</button>`).join('')}
+      </div>
+      <div class="form-group" style="margin-bottom:8px">
+        <label style="font-size:12px;font-weight:600">Presupuesto mensual (€)</label>
+        <input type="number" id="cgBudgetInput" value="${g.monthlyBudget || ''}" placeholder="0 = solo seguimiento" step="5" min="0" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)">
+      </div>
+      <div class="form-group" style="margin-bottom:8px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px;background:var(--bg);border-radius:8px">
+          <input type="checkbox" id="cgFoodToggle" ${g.isFoodGroup ? 'checked' : ''}>
+          <div>
+            <div style="font-size:12px;font-weight:700">🍽️ Incluir en plan comida (gasto obligatorio)</div>
+            <div style="font-size:11px;color:var(--text-secondary);margin-top:2px">El presupuesto del grupo se resta como comida del ingreso semanal</div>
+          </div>
+        </label>
+      </div>
+      <div class="form-group">
+        <label style="font-size:12px;font-weight:600">Categorías del grupo</label>
+        <div style="max-height:180px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius);padding:6px">
+          ${allCats.map(c => {
+            const inOther = otherGroupCats.has(c);
+            const otherName = inOther ? (groups.find(x => x.id !== id && x.categories.includes(c))?.name || '') : '';
+            return `<label style="display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer">
+              <input type="checkbox" class="cg-cat-check" value="${esc(c)}" ${g.categories.includes(c) ? 'checked' : ''} ${inOther ? 'disabled' : ''}>
+              <span style="font-size:13px${inOther ? ';color:var(--text-secondary)' : ''}">${esc(c)}</span>
+              ${inOther ? `<span style="font-size:10px;color:var(--text-secondary)">(en ${esc(otherName)})</span>` : ''}
+            </label>`;
+          }).join('')}
+        </div>
+      </div>
+    `, 'Guardar', () => {
+      const name = document.getElementById('cgNameInput')?.value.trim();
+      const emoji = document.getElementById('cgEmojiInput')?.value.trim() || '';
+      const budget = parseFloat(document.getElementById('cgBudgetInput')?.value) || 0;
+      const isFood = document.getElementById('cgFoodToggle')?.checked || false;
+      const cats = [...document.querySelectorAll('.cg-cat-check:checked')].map(el => el.value);
+      if (!name) { App.showToast('⚠️ Indica un nombre para el grupo'); return; }
+      Store.updateCategoryGroup(id, { name, categories: cats, monthlyBudget: budget, isFoodGroup: isFood, emoji });
+      App.showToast(`✅ Grupo "${name}" actualizado`);
+      this._renderCategoryGroups();
+      this._renderExpensePriorities();
+      App._refreshConfigDependents?.();
+    });
+  },
+
+  _deleteCategoryGroup(id) {
+    const g = Store.getCategoryGroups().find(x => x.id === id);
+    if (!g) return;
+    App.showConfirm(`Eliminar grupo "${g.name}"`, '¿Eliminar este grupo? Las categorías quedarán sin grupo asignado.', () => {
+      Store.deleteCategoryGroup(id);
+      this._renderCategoryGroups();
+      this._renderExpensePriorities();
+      App._refreshConfigDependents?.();
+    });
+  },
+
+  // ── Grupos de ingreso ─────────────────────────────────────────────────────
+
+  _renderIncomeGroups() {
+    const el = document.getElementById('incomeGroupsList');
+    if (!el) return;
+    const groups = Store.getIncomeGroups();
+    const month = Store.getCurrentMonth();
+    const monthIncomes = Store.getTransactions().filter(t =>
+      t.month === month && t.type === 'Ingreso' && !Store.isAdjustment(t)
+    );
+
+    if (groups.length === 0) {
+      el.innerHTML = '<div style="font-size:12px;color:var(--text-secondary);padding:6px 0">Sin grupos aún. Crea uno para organizar tus categorías de ingreso.</div>';
+      return;
+    }
+
+    el.innerHTML = groups.map(g => {
+      const spent = monthIncomes
+        .filter(t => g.categories.includes(t.category))
+        .reduce((s, t) => s + t.amount, 0);
+      const target = g.monthlyTarget || 0;
+      const pct = target > 0 ? Math.min(100, (spent / target) * 100) : 0;
+      const barColor = target > 0 && spent >= target ? 'var(--income)' : '#10B981';
+      const emojiDisplay = g.emoji ? `<span style="font-size:18px">${g.emoji}</span>` : '';
+
+      return `<div style="padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            ${emojiDisplay}
+            <span style="font-size:14px;font-weight:700">${esc(g.name)}</span>
+            <span style="font-size:10px;background:#ECFDF5;color:#065F46;padding:2px 6px;border-radius:10px;font-weight:600">💰 Ingreso</span>
+          </div>
+          <div style="display:flex;gap:4px">
+            <button class="btn-sm" style="border:1px solid var(--border);border-radius:4px;background:var(--card);cursor:pointer;font-size:11px;padding:2px 6px" onclick="Categorias._editIncomeGroup('${g.id}')">✏️</button>
+            <button class="delete-cat" onclick="Categorias._deleteIncomeGroup('${g.id}')">✕</button>
+          </div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px">
+          ${g.categories.length ? g.categories.map(c => `<span style="font-size:11px;background:var(--bg);border:1px solid var(--border);padding:2px 8px;border-radius:10px">${esc(c)}</span>`).join('') : '<span style="font-size:11px;color:var(--text-secondary)">Sin categorías asignadas</span>'}
+        </div>
+        ${target > 0 ? `
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-secondary);margin-bottom:3px">
+          <span>${spent.toFixed(0)}€ / ${target.toFixed(0)}€ este mes</span>
+          <span style="color:${barColor};font-weight:600">${spent >= target ? '✅ Objetivo cumplido' : `${(target - spent).toFixed(0)}€ por llegar`}</span>
+        </div>
+        <div style="height:5px;background:var(--bg);border-radius:3px;overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:${barColor};border-radius:3px;transition:width .3s"></div>
+        </div>` : `<div style="font-size:11px;color:var(--text-secondary)">Este mes: <strong style="color:var(--income)">${spent.toFixed(0)} €</strong> · Sin objetivo mensual</div>`}
+      </div>`;
+    }).join('');
+  },
+
+  _incomeGroupForm(existing) {
+    const allCats = Store.getIncomeCategories();
+    const groups = Store.getIncomeGroups();
+    const usedCats = new Set(groups.filter(g => !existing || g.id !== existing.id).flatMap(g => g.categories));
+    const emojiPalette = ['💰','💼','🏦','🎁','📈','🪙','🏠','👨‍👩‍👧','⭐','🌟','💵','🧾'];
+    const g = existing || {};
+    return `
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <div class="form-group" style="flex:1;margin-bottom:0">
+          <label style="font-size:12px;font-weight:600">Nombre del grupo</label>
+          <input type="text" id="igNameInput" placeholder="Ej: Nómina, Extras..." value="${esc(g.name || '')}" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)">
+        </div>
+        <div class="form-group" style="width:80px;margin-bottom:0">
+          <label style="font-size:12px;font-weight:600">Emoji</label>
+          <input type="text" id="igEmojiInput" placeholder="😀" maxlength="2" value="${esc(g.emoji || '')}" style="width:100%;text-align:center;font-size:22px;padding:6px;border:1px solid var(--border);border-radius:var(--radius)">
+        </div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:10px">
+        ${emojiPalette.map(e => `<button type="button" onclick="document.getElementById('igEmojiInput').value='${e}'" style="font-size:18px;background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;padding:2px 5px">${e}</button>`).join('')}
+      </div>
+      <div class="form-group" style="margin-bottom:8px">
+        <label style="font-size:12px;font-weight:600">Objetivo mensual (€)</label>
+        <input type="number" id="igTargetInput" placeholder="0 = solo seguimiento" step="10" min="0" value="${g.monthlyTarget || ''}" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)">
+        <div style="font-size:11px;color:var(--text-secondary);margin-top:3px">Opcional: cuánto esperas ingresar al mes en este grupo</div>
+      </div>
+      <div class="form-group">
+        <label style="font-size:12px;font-weight:600">Categorías del grupo</label>
+        <div style="max-height:180px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius);padding:6px">
+          ${allCats.length ? allCats.map(c => {
+            const inOther = usedCats.has(c);
+            const otherName = inOther ? (groups.find(x => (!existing || x.id !== existing.id) && x.categories.includes(c))?.name || '') : '';
+            const checked = (g.categories || []).includes(c);
+            return `<label style="display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer">
+              <input type="checkbox" class="ig-cat-check" value="${esc(c)}" ${checked ? 'checked' : ''} ${inOther ? 'disabled' : ''}>
+              <span style="font-size:13px${inOther ? ';color:var(--text-secondary)' : ''}">${esc(c)}</span>
+              ${inOther ? `<span style="font-size:10px;color:var(--text-secondary)">(en ${esc(otherName)})</span>` : ''}
+            </label>`;
+          }).join('') : '<p style="font-size:12px;color:var(--text-secondary)">Añade categorías de ingreso primero</p>'}
+        </div>
+      </div>`;
+  },
+
+  _readIncomeGroupForm() {
+    const name = document.getElementById('igNameInput')?.value.trim();
+    const emoji = document.getElementById('igEmojiInput')?.value.trim() || '';
+    const monthlyTarget = parseFloat(document.getElementById('igTargetInput')?.value) || 0;
+    const cats = [...document.querySelectorAll('.ig-cat-check:checked')].map(el => el.value);
+    return { name, emoji, monthlyTarget, categories: cats };
+  },
+
+  _addIncomeGroup() {
+    App.showCustom('💰 Nuevo grupo de ingreso', this._incomeGroupForm(null), 'Crear grupo', () => {
+      const data = this._readIncomeGroupForm();
+      if (!data.name) { App.showToast('⚠️ Indica un nombre para el grupo'); return; }
+      Store.addIncomeGroup(data.name, data);
+      App.showToast(`✅ Grupo "${data.name}" creado`);
+      this._renderIncomeGroups();
+      App._refreshConfigDependents?.();
+    });
+  },
+
+  _editIncomeGroup(id) {
+    const g = Store.getIncomeGroups().find(x => x.id === id);
+    if (!g) return;
+    App.showCustom(`✏️ Editar grupo "${esc(g.name)}"`, this._incomeGroupForm(g), 'Guardar', () => {
+      const data = this._readIncomeGroupForm();
+      if (!data.name) { App.showToast('⚠️ Indica un nombre para el grupo'); return; }
+      Store.updateIncomeGroup(id, data);
+      App.showToast(`✅ Grupo "${data.name}" actualizado`);
+      this._renderIncomeGroups();
+      App._refreshConfigDependents?.();
+    });
+  },
+
+  _deleteIncomeGroup(id) {
+    const g = Store.getIncomeGroups().find(x => x.id === id);
+    if (!g) return;
+    App.showConfirm(`Eliminar grupo "${g.name}"`, '¿Eliminar este grupo? Las categorías quedarán sin grupo.', () => {
+      Store.deleteIncomeGroup(id);
+      this._renderIncomeGroups();
+      App._refreshConfigDependents?.();
+    });
   },
 
   _renderList(listId, items, type) {
     const el = document.getElementById(listId);
     const usedItems = this._getUsedItems(type);
+    const usage = Store.getCatalogUsage();
+    const usageKey = { category: 'category', incomeCategory: 'incomeCategory', type: 'type', method: 'method' }[type];
+    const usageMap = usage[usageKey] || {};
     el.innerHTML = items.map(item => {
       const inUse = usedItems.has(item);
+      const count = usageMap[item] || 0;
       const safeItem = item.replace(/'/g, "\\'");
-      const canEdit = type === 'category' || type === 'incomeCategory';
+      const canEdit = type === 'category' || type === 'incomeCategory' || type === 'type' || type === 'method';
       return `
         <div class="cat-item">
-          <span class="cat-name">${esc(item)}</span>
+          <span class="cat-name">${esc(item)}${count ? ` <span style="font-size:10px;color:var(--text-secondary)">(${count})</span>` : ''}</span>
           <div style="display:flex;gap:4px;align-items:center">
             ${canEdit ? `<button class="btn-sm" style="border:1px solid var(--border);border-radius:4px;background:var(--card);cursor:pointer;font-size:11px;padding:2px 6px" title="Renombrar" onclick="Categorias._rename('${type}', '${safeItem}')">✏️</button>` : ''}
             <button class="delete-cat" onclick="Categorias._delete('${type}', '${safeItem}')"
-              title="${inUse ? 'En uso — al eliminar podrás reasignar los movimientos' : 'Eliminar'}">✕</button>
+              title="${inUse ? 'En uso — al eliminar podrás reasignar' : 'Eliminar'}">✕</button>
           </div>
         </div>
       `;
@@ -164,7 +881,22 @@ const Categorias = {
     transactions.forEach(checkTx);
     Object.values(archives).forEach(txs => txs.forEach(checkTx));
 
+    for (const debt of Store.getDebts() || []) {
+      if (type === 'category' && debt.category) used.add(debt.category);
+    }
+    for (const r of Store.getData().recurringTransactions || []) {
+      if (type === 'category' && r.type !== 'Ingreso') used.add(r.category);
+      else if (type === 'incomeCategory' && r.type === 'Ingreso') used.add(r.category);
+      else if (type === 'type') used.add(r.type);
+      else if (type === 'method') used.add(r.paymentMethod);
+    }
+
     return used;
+  },
+
+  _afterCatalogChange() {
+    this.render();
+    App._refreshConfigDependents?.();
   },
 
   _add(type) {
@@ -179,14 +911,17 @@ const Categorias = {
     else Store.addPaymentMethod(name);
 
     input.value = '';
-    this.render();
-    Registro.render();
+    this._afterCatalogChange();
   },
 
   _rename(type, name) {
     const isIncome = type === 'incomeCategory';
+    const isType = type === 'type';
+    const isMethod = type === 'method';
     const otherCats = isIncome
       ? Store.getIncomeCategories().filter(c => c !== name)
+      : isType ? Store.getTypes().filter(c => c !== name)
+      : isMethod ? Store.getPaymentMethods().filter(c => c !== name)
       : Store.getCategories().filter(c => c !== name);
 
     App.showCustom(`✏️ Renombrar "${name}"`, `
@@ -194,29 +929,23 @@ const Categorias = {
         <label>Nuevo nombre</label>
         <input type="text" id="renameCatInput" value="${esc(name)}"
           style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:15px">
-        <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">Los movimientos existentes se actualizarán automáticamente.${!isIncome ? ' El límite semanal también se renombrará si existe.' : ''}</div>
+        <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">Se actualizará en todos los movimientos y pantallas.</div>
       </div>
     `, 'Renombrar', () => {
       const newName = document.getElementById('renameCatInput')?.value.trim();
       if (!newName || newName === name) return;
-      if (otherCats.includes(newName)) {
-        App.showToast(`⚠️ Ya existe una categoría con ese nombre`);
-        return;
-      }
-      const ok = isIncome ? Store.renameIncomeCategory(name, newName) : Store.renameCategory(name, newName);
+      if (otherCats.includes(newName)) { App.showToast('⚠️ Ya existe ese nombre'); return; }
+      let ok = false;
+      if (isIncome) ok = Store.renameIncomeCategory(name, newName);
+      else if (isType) ok = Store.renameType(name, newName);
+      else if (isMethod) ok = Store.renamePaymentMethod(name, newName);
+      else ok = Store.renameCategory(name, newName);
       if (ok) {
-        App.showToast(`✅ "${name}" renombrado a "${newName}"`);
-        this.render();
-        Registro.render();
-        Presupuesto.render();
-      } else {
-        App.showToast('⚠️ No se pudo renombrar');
-      }
+        App.showToast(`✅ "${name}" → "${newName}"`);
+        this._afterCatalogChange();
+      } else App.showToast('⚠️ No se pudo renombrar');
     });
-    setTimeout(() => {
-      const inp = document.getElementById('renameCatInput');
-      if (inp) { inp.focus(); inp.select(); }
-    }, 80);
+    setTimeout(() => { const inp = document.getElementById('renameCatInput'); if (inp) { inp.focus(); inp.select(); } }, 80);
   },
 
   _delete(type, name) {
@@ -224,15 +953,32 @@ const Categorias = {
     const inUse = usedItems.has(name);
     const isIncome = type === 'incomeCategory';
 
-    if (!inUse || type === 'type' || type === 'method') {
+    if (!inUse) {
       App.showConfirm('Eliminar', `¿Eliminar "${name}"?`, () => {
         if (type === 'category') Store.deleteCategory(name);
         else if (type === 'incomeCategory') Store.deleteIncomeCategory(name);
         else if (type === 'type') Store.deleteType(name);
         else Store.deletePaymentMethod(name);
-        this.render();
-        Registro.render();
-        if (type === 'category') Presupuesto.render();
+        this._afterCatalogChange();
+      });
+      return;
+    }
+
+    if (type === 'type' || type === 'method') {
+      const alternatives = type === 'type'
+        ? Store.getTypes().filter(t => t !== name)
+        : Store.getPaymentMethods().filter(m => m !== name);
+      const defaultTarget = type === 'type' ? 'Gasto' : 'Tarjeta';
+      App.showCustom(`🗑️ Eliminar "${name}"`, `
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:10px">Está en uso. Reasigna los movimientos afectados:</p>
+        <select id="reassignTarget" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)">
+          ${alternatives.map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join('')}
+        </select>`, 'Eliminar', () => {
+        const target = document.getElementById('reassignTarget')?.value || defaultTarget;
+        if (type === 'type') { Store.reassignType(name, target); Store.deleteType(name); }
+        else { Store.reassignPaymentMethod(name, target); Store.deletePaymentMethod(name); }
+        App.showToast(`✅ Reasignado a "${target}"`);
+        this._afterCatalogChange();
       });
       return;
     }
@@ -269,9 +1015,7 @@ const Categorias = {
       if (type === 'category') Store.deleteCategory(name);
       else Store.deleteIncomeCategory(name);
       App.showToast(`✅ "${name}" eliminado. Movimientos → "${target}"`);
-      this.render();
-      Registro.render();
-      if (type === 'category') Presupuesto.render();
+      this._afterCatalogChange();
     });
   },
 
@@ -290,11 +1034,29 @@ const Categorias = {
   },
 
   _setBalance(type) {
-    const computed = type === 'checking' ? (Store.getCheckingBalance() ?? 0) : (Store.getSavingsBalance() || 0);
+    const computed = type === 'checking' ? (Store.getCheckingBalance() ?? 0)
+      : type === 'cash' ? Store.getCashBalance()
+      : (Store.getSavingsBalance() || 0);
+    const label = { checking: 'Cuenta corriente', savings: 'Cuenta ahorro', cash: 'Efectivo' }[type];
+    const icon = { checking: '💳', savings: '🐷', cash: '💵' }[type];
+
+    // Cash: direct set without adjustment transaction system
+    if (type === 'cash') {
+      App.showCustom(`${icon} Efectivo en cartera`, `
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:8px">Indica el efectivo que tienes actualmente. Los movimientos con pago en Efectivo actualizarán este saldo automáticamente.</p>
+        <div class="form-group"><label>Efectivo actual (€)</label>
+          <input type="number" id="cashBalInput" value="${computed.toFixed(2)}" step="0.01"
+            style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:18px;font-weight:700;width:100%">
+        </div>
+      `, 'Guardar', () => {
+        const v = parseFloat(document.getElementById('cashBalInput').value);
+        if (!isNaN(v) && v >= 0) { Store.setCashBalance(v); Categorias.render(); }
+      });
+      return;
+    }
+
     const initialKey = type === 'checking' ? 'Saldo inicial (corriente)' : 'Saldo inicial (ahorro)';
     const initialVal = type === 'checking' ? Store.getInitialCheckingBalance() : Store.getInitialSavingsBalance();
-    const label = type === 'checking' ? 'Cuenta corriente' : 'Cuenta ahorro';
-    const icon = type === 'checking' ? '💳' : '🐷';
 
     App.showCustom(`${icon} Sincronizar ${label}`, `
       <div style="background:var(--bg);border-radius:8px;padding:10px 14px;margin-bottom:14px">
@@ -340,23 +1102,28 @@ const Categorias = {
     const amt = parseFloat(document.getElementById('transferAmount').value);
     const note = document.getElementById('transferNote').value.trim();
     if (!amt || amt <= 0) return;
-    const checking = Store.getCheckingBalance();
-    if (checking !== null && checking !== undefined && amt > checking) {
-      document.getElementById('transferFeedback').style.display = 'block';
-      document.getElementById('transferFeedback').style.color = 'var(--expense)';
-      document.getElementById('transferFeedback').textContent = '❌ No tienes suficiente saldo en la cuenta corriente';
+    const result = Store.createAccountTransfer({
+      amount: amt,
+      description: note || 'Traspaso a ahorro',
+      logNote: note || '',
+      transferType: 'to_savings',
+      emoji: '🐷',
+    });
+    const fb = document.getElementById('transferFeedback');
+    if (result === -1) {
+      fb.style.display = 'block';
+      fb.style.color = 'var(--expense)';
+      fb.textContent = '❌ No tienes suficiente saldo en la cuenta corriente';
       return;
     }
-    Store.addTransfer(amt, note);
-    if (checking !== null && checking !== undefined) {
-      Store.setCheckingBalance(checking - amt);
-    }
+    if (!result) return;
     document.getElementById('transferAmount').value = '';
     document.getElementById('transferNote').value = '';
-    document.getElementById('transferFeedback').style.display = 'block';
-    document.getElementById('transferFeedback').style.color = 'var(--income)';
-    document.getElementById('transferFeedback').textContent = `✅ ${amt.toFixed(2)} € transferidos a la cuenta ahorro`;
+    fb.style.display = 'block';
+    fb.style.color = 'var(--income)';
+    fb.textContent = `✅ ${amt.toFixed(2)} € transferidos a la cuenta ahorro (traspaso)`;
     this.render();
+    App._refreshConfigDependents?.();
   },
 
   _toggleTheme() {
@@ -412,5 +1179,82 @@ const Categorias = {
       }
       Categorias.render();
     });
+  },
+
+  _togglePassphraseVisibility() {
+    const inp = document.getElementById('e2ePassphrase');
+    const btn = document.getElementById('passphraseToggleBtn');
+    if (!inp) return;
+    inp.type = inp.type === 'password' ? 'text' : 'password';
+    if (btn) btn.textContent = inp.type === 'password' ? '👁' : '🙈';
+  },
+
+  _saveSyncSettings() {
+    const url  = document.getElementById('syncServerUrl')?.value.trim() || '';
+    const key  = document.getElementById('syncKey')?.value || '';
+    const pass = document.getElementById('e2ePassphrase')?.value || '';
+    Store.setPassphrase(pass);
+    Store.setSyncSettings(url, key);
+    const enc = Store.isEncryptionEnabled();
+    App.showToast(enc ? '🔐 Configuración guardada con cifrado E2E activo' : '☁️ Configuración de sincronización guardada');
+    this.render();
+  },
+
+  async _testSync() {
+    const url  = document.getElementById('syncServerUrl')?.value.trim() || '';
+    const key  = document.getElementById('syncKey')?.value || '';
+    const pass = document.getElementById('e2ePassphrase')?.value || '';
+    Store.setPassphrase(pass);
+    Store.setSyncSettings(url, key);
+    const result = await Store.testSyncConnection();
+    if (result.ok) App.showToast('✅ ' + result.message);
+    else App.showToast('❌ ' + result.message, 4000);
+    this.render();
+  },
+
+  async _forceSync() {
+    App.showToast('🔄 Sincronizando…');
+    await Store._syncNow();
+    App.showToast(Store.getSyncStatus() === 'synced' ? '✅ Datos sincronizados' : '⚠️ ' + Store.getSyncStatusDetail(), 3500);
+    this.render();
+  },
+
+  _confirmFactoryReset() {
+    const hasServer = !!Store.getSyncSettings().serverUrl;
+    App.openModal({
+      title: '⚠️ Empezar de cero',
+      body: `
+        <p style="font-size:13px;color:var(--text);margin-bottom:10px;line-height:1.6">
+          Esta acción <strong>eliminará todos tus datos</strong> en este dispositivo.<br>
+          Se creará un backup automático en este navegador antes de borrar.
+        </p>
+        ${hasServer ? `
+        <div style="display:flex;align-items:flex-start;gap:8px;padding:10px;background:var(--bg);border-radius:8px;margin-bottom:10px">
+          <input type="checkbox" id="resetServerCheck" style="margin-top:3px;flex-shrink:0">
+          <label for="resetServerCheck" style="font-size:12px;line-height:1.5;cursor:pointer">
+            También borrar los datos del servidor (<strong>${esc(Store.getSyncSettings().serverUrl)}</strong>)
+          </label>
+        </div>` : ''}
+        <p style="font-size:12px;color:var(--expense);font-weight:600">¿Estás seguro? Esta acción no se puede deshacer.</p>`,
+      actions: [
+        { label: 'Cancelar' },
+        { label: '🗑 Sí, borrar todo', primary: true, cb: () => this._doFactoryReset() },
+      ],
+    });
+  },
+
+  async _doFactoryReset() {
+    const deleteServer = !!(document.getElementById('resetServerCheck')?.checked);
+    App.showToast('⏳ Restableciendo…');
+    await Store.factoryReset({ deleteServer });
+    // Re-init con datos vacíos
+    Store._ready = true;
+    App._currentViewMonth = Store.getCurrentMonth();
+    App._isArchived = false;
+    App._renderMonthSelector();
+    App._refreshAll();
+    App.showToast('✅ App restablecida a cero');
+    // Mostrar wizard de primera configuración
+    setTimeout(() => App._showSetupWizard(), 400);
   },
 };

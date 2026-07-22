@@ -21,6 +21,7 @@ const Graficos = {
               <option value="week">Semana</option>
               <option value="month">Mes</option>
               <option value="category">Categoría</option>
+              <option value="group">Grupo</option>
               <option value="method">Método</option>
             </select>
           </div>
@@ -32,6 +33,15 @@ const Graficos = {
               <option value="area">Área</option>
               <option value="pie">Circular</option>
               <option value="doughnut">Anillo</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Saldo en gráfica</label>
+            <select id="gcSaldoView">
+              <option value="none">No mostrar</option>
+              <option value="checking">Cuenta corriente</option>
+              <option value="total_liquid">CC + Ahorro</option>
+              <option value="total_wealth">CC + Ahorro + Efectivo</option>
             </select>
           </div>
           <div class="checkbox-group">
@@ -61,6 +71,7 @@ const Graficos = {
     }));
     document.getElementById('gcGroup').addEventListener('change', () => this._updateChart());
     document.getElementById('gcType').addEventListener('change', () => this._updateChart());
+    document.getElementById('gcSaldoView').addEventListener('change', () => this._updateChart());
     document.querySelectorAll('.gc-metric').forEach(c => c.addEventListener('change', () => this._updateChart()));
     document.getElementById('gcCumulative').addEventListener('change', () => this._updateChart());
     document.getElementById('gcBudgetVsActual').addEventListener('change', () => this._updateChart());
@@ -107,9 +118,10 @@ const Graficos = {
 
     const isPie = type === 'pie' || type === 'doughnut';
     const isArea = type === 'area';
+    const saldoView = (document.getElementById('gcSaldoView') || {}).value || 'none';
     document.getElementById('gcChartContainer').className = 'chart-container' + (isPie ? ' pie-chart' : '');
 
-    document.getElementById('gcBudgetWrap').style.display = group === 'category' ? '' : 'none';
+    document.getElementById('gcBudgetWrap').style.display = (group === 'category' || group === 'group') ? '' : 'none';
 
     const allTx = Store.getTransactions().filter(t => !Store.isAdjustment(t));
     const filtered = allTx.filter(t => {
@@ -129,30 +141,45 @@ const Graficos = {
       this._renderPie(ctx, filtered, type, metrics, group);
     } else if (budgetVsActual && group === 'category') {
       this._renderBudgetVsActual(ctx, filtered, range);
+    } else if (budgetVsActual && group === 'group') {
+      this._renderGroupBudgetVsActual(ctx, filtered, range);
     } else {
-      this._renderBars(ctx, filtered, isArea ? 'line' : type, metrics, group, cumulative, range, isArea);
+      this._renderBars(ctx, filtered, isArea ? 'line' : type, metrics, group, cumulative, range, isArea, saldoView);
     }
   },
 
   _renderStats(tx, range) {
     const el = document.getElementById('gcStats');
     const income = tx.filter(t => t.type === 'Ingreso').reduce((s, t) => s + t.amount, 0);
-    const expense = tx.filter(t => t.type !== 'Ingreso').reduce((s, t) => s + t.amount, 0);
+    const expense = tx.filter(t => Store.isSpendableExpense(t)).reduce((s, t) => s + t.amount, 0);
+    const traspasos = tx.filter(t => Store.isTraspaso(t)).reduce((s, t) => s + t.amount, 0);
     const balance = income - expense;
-    const goals = Store.getSavingGoals();
-    const totalSaved = goals.reduce((s, g) => s + g.currentAmount, 0);
+    const savingsBalance = Store.getSavingsBalance();
+    const checkingBalance = Store.getCheckingBalance();
+    const cashBalance = Store.getCashBalance();
     const days = Math.max(1, Math.ceil((range.end - range.start) / 86400000));
     el.innerHTML = `
       <div class="gc-stat-card"><span class="gc-stat-label">Ingresos</span><span class="gc-stat-val income">+${income.toFixed(0)}€</span></div>
       <div class="gc-stat-card"><span class="gc-stat-label">Gastos</span><span class="gc-stat-val expense">-${expense.toFixed(0)}€</span></div>
       <div class="gc-stat-card"><span class="gc-stat-label">Balance</span><span class="gc-stat-val" style="color:${balance >= 0 ? 'var(--income)' : 'var(--expense)'}">${balance >= 0 ? '+' : ''}${balance.toFixed(0)}€</span></div>
-      <div class="gc-stat-card"><span class="gc-stat-label">Ahorro total</span><span class="gc-stat-val" style="color:var(--primary)">${totalSaved.toFixed(0)}€</span></div>
+      ${checkingBalance !== null ? `<div class="gc-stat-card"><span class="gc-stat-label">💳 Cuenta</span><span class="gc-stat-val" style="color:var(--primary)">${checkingBalance.toFixed(0)}€</span></div>` : ''}
+      <div class="gc-stat-card"><span class="gc-stat-label">🔒 Ahorro</span><span class="gc-stat-val" style="color:var(--primary)">${savingsBalance.toFixed(0)}€</span></div>
+      ${checkingBalance !== null ? `<div class="gc-stat-card"><span class="gc-stat-label">Total disponible</span><span class="gc-stat-val" style="color:#8B5CF6">${(checkingBalance + savingsBalance + cashBalance).toFixed(0)}€</span></div>` : ''}
       <div class="gc-stat-card"><span class="gc-stat-label">Media/día</span><span class="gc-stat-val">${(expense / days).toFixed(1)}€</span></div>
+      ${traspasos > 0 ? `<div class="gc-stat-card"><span class="gc-stat-label">Traspasos</span><span class="gc-stat-val" style="color:#4F46E5">⇄${traspasos.toFixed(0)}€</span></div>` : ''}
     `;
   },
 
   _aggregate(tx, group) {
     const map = {};
+    // Pre-build category → group map for 'group' mode
+    let catToGroup = null;
+    if (group === 'group') {
+      catToGroup = {};
+      Store.getCategoryGroups().forEach(g => {
+        (g.categories || []).forEach(cat => { catToGroup[cat] = (g.emoji ? g.emoji + ' ' : '') + g.name; });
+      });
+    }
     tx.forEach(t => {
       const isIncome = t.type === 'Ingreso';
       let key;
@@ -164,11 +191,12 @@ const Graficos = {
         key = `Sem ${String(mon.getDate()).padStart(2,'0')}/${String(mon.getMonth()+1).padStart(2,'0')}`;
       } else if (group === 'month') key = `${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
       else if (group === 'category') key = t.category || 'Otros';
+      else if (group === 'group') key = (t.category && catToGroup[t.category]) || '📦 Sin grupo';
       else key = t.paymentMethod || 'Sin método';
 
       if (!map[key]) map[key] = { income: 0, expense: 0 };
       if (isIncome) map[key].income += t.amount;
-      else map[key].expense += t.amount;
+      else if (Store.isSpendableExpense(t)) map[key].expense += t.amount;
     });
 
     let labels;
@@ -190,7 +218,7 @@ const Graficos = {
     return result;
   },
 
-  _renderBars(ctx, tx, type, metrics, group, cumulative, range, isArea) {
+  _renderBars(ctx, tx, type, metrics, group, cumulative, range, isArea, saldoView) {
     const data = this._aggregate(tx, group);
     if (!data.labels.length) return;
     const colors = {
@@ -226,6 +254,42 @@ const Graficos = {
       datasets.push(cfg);
     });
 
+    // Add running balance dataset(s) if requested
+    if (saldoView && saldoView !== 'none') {
+      const allTx = Store.getTransactions().filter(t => !Store.isAdjustment(t));
+      const checkingNow = Store.getCheckingBalance();
+      if (checkingNow !== null && checkingNow !== undefined) {
+        const runningChecking = this._computeRunningBalance(data, allTx, range);
+        if (runningChecking) {
+          const savingsBalance = Store.getSavingsBalance();
+          const cashBalance = Store.getCashBalance();
+          const saldoColors = {
+            checking: { border: '#0EA5E9', grad: ['rgba(14,165,233,0.5)','rgba(14,165,233,0.05)'] },
+            total_liquid: { border: '#6366F1', grad: ['rgba(99,102,241,0.5)','rgba(99,102,241,0.05)'] },
+            total_wealth: { border: '#8B5CF6', grad: ['rgba(139,92,246,0.5)','rgba(139,92,246,0.05)'] },
+          };
+          const saldoLabels = { checking: '💳 Cuenta corriente', total_liquid: '💳+🔒 CC + Ahorro', total_wealth: '💳+🔒+💵 Total' };
+          const offset = saldoView === 'total_liquid' ? savingsBalance : saldoView === 'total_wealth' ? savingsBalance + cashBalance : 0;
+          const values = runningChecking.map(v => v + offset);
+          const sc = saldoColors[saldoView];
+          datasets.push({
+            label: saldoLabels[saldoView],
+            data: values,
+            backgroundColor: this._gradient(ctx, sc.grad),
+            borderColor: sc.border,
+            borderWidth: 2,
+            tension: 0.4,
+            fill: true,
+            pointRadius: 2,
+            pointHoverRadius: 6,
+            type: 'line',
+            yAxisID: 'ySaldo',
+          });
+        }
+      }
+    }
+
+    const hasSecondAxis = datasets.some(d => d.yAxisID === 'ySaldo');
     this._chart = new Chart(ctx, {
       type,
       data: { labels: data.labels, datasets },
@@ -252,7 +316,14 @@ const Graficos = {
         },
         scales: {
           y: { beginAtZero: !cumulative, ticks: { callback: v => v.toFixed(0) + '€', font: { size: 11 } }, grid: { color: 'rgba(0,0,0,0.05)' } },
-          x: { grid: { display: false }, ticks: { font: { size: 10 } } }
+          x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+          ...(hasSecondAxis ? {
+            ySaldo: {
+              position: 'right',
+              grid: { display: false },
+              ticks: { callback: v => v.toFixed(0) + '€', font: { size: 10 }, color: '#0EA5E9' },
+            }
+          } : {}),
         }
       }
     });
@@ -265,7 +336,7 @@ const Graficos = {
 
     const periodWeeks = Math.max(1, range.days / 7);
     const spent = {};
-    tx.filter(t => t.type !== 'Ingreso').forEach(t => {
+    tx.filter(t => Store.isSpendableExpense(t)).forEach(t => {
       const cat = t.category || 'Otros';
       spent[cat] = (spent[cat] || 0) + t.amount;
     });
@@ -376,6 +447,91 @@ const Graficos = {
         }
       }
     });
+  },
+
+  _renderGroupBudgetVsActual(ctx, tx, range) {
+    const groups = Store.getCategoryGroups();
+    if (!groups.length) { ctx.getContext('2d').clearRect(0,0,ctx.width,ctx.height); return; }
+    const periodMonths = Math.max(1, range.days / 30);
+    // Build category → group mapping
+    const catToGroup = {};
+    groups.forEach(g => { (g.categories || []).forEach(cat => { catToGroup[cat] = g; }); });
+    // Aggregate actual spend per group
+    const spent = {};
+    tx.filter(t => Store.isSpendableExpense(t)).forEach(t => {
+      const g = catToGroup[t.category];
+      const key = g ? ((g.emoji ? g.emoji + ' ' : '') + g.name) : '📦 Sin grupo';
+      spent[key] = (spent[key] || 0) + t.amount;
+    });
+    // Build labels from groups with monthlyBudget or actual spend
+    const labels = [];
+    const budgeted = [];
+    const actual = [];
+    groups.filter(g => g.monthlyBudget > 0 || spent[(g.emoji ? g.emoji + ' ' : '') + g.name] > 0).forEach(g => {
+      const key = (g.emoji ? g.emoji + ' ' : '') + g.name;
+      labels.push(key);
+      budgeted.push((g.monthlyBudget || 0) * periodMonths);
+      actual.push(spent[key] || 0);
+    });
+    if (!labels.length) { ctx.getContext('2d').clearRect(0,0,ctx.width,ctx.height); return; }
+    const palette = ['#10B981','#EF4444','#3B82F6','#F59E0B','#8B5CF6','#EC4899','#06B6D4','#F97316','#14B8A6','#6366F1'];
+    this._chart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Presupuestado', data: budgeted, backgroundColor: 'rgba(79,70,229,0.15)', borderColor: '#4F46E5', borderWidth: 2, borderRadius: 4, borderSkipped: false },
+          { label: 'Real', data: actual, backgroundColor: labels.map((_, i) => palette[i % palette.length]), borderColor: labels.map((_, i) => palette[i % palette.length]), borderWidth: 1, borderRadius: 4, borderSkipped: false }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: { duration: 500 },
+        plugins: {
+          legend: { position: 'top', labels: { usePointStyle: true, padding: 16, font: { size: 12 } } },
+          tooltip: {
+            backgroundColor: 'rgba(30,41,59,0.95)', padding: 10, cornerRadius: 8,
+            callbacks: {
+              label: (c) => {
+                const diff = budgeted[c.dataIndex] - actual[c.dataIndex];
+                const extra = diff >= 0 ? ` (${diff.toFixed(1)}€ bajo presupuesto)` : ` (${Math.abs(diff).toFixed(1)}€ sobre presupuesto)`;
+                return ` ${c.dataset.label}: ${c.parsed.y.toFixed(2)}€${c.datasetIndex === 1 ? extra : ''}`;
+              }
+            }
+          }
+        },
+        scales: {
+          y: { beginAtZero: true, ticks: { callback: v => v.toFixed(0) + '€', font: { size: 11 } } },
+          x: { grid: { display: false }, ticks: { font: { size: 10 } } }
+        }
+      }
+    });
+  },
+
+  _computeRunningBalance(data, allTx, range) {
+    const checkingNow = Store.getCheckingBalance();
+    if (checkingNow === null || checkingNow === undefined) return null;
+
+    // Compute balance at end of range by undoing transactions that occurred after range.end
+    const txAfterRange = allTx.filter(t => {
+      const d = new Date(t.date + 'T00:00:00');
+      return d > range.end;
+    });
+    let balanceAtRangeEnd = checkingNow;
+    txAfterRange.forEach(t => {
+      if (t.type === 'Ingreso') balanceAtRangeEnd -= t.amount;
+      else if (Store.isSpendableExpense(t)) balanceAtRangeEnd += t.amount;
+    });
+
+    // Work backwards through periods to compute end-of-period balance for each label
+    const labels = data.labels;
+    const balances = new Array(labels.length);
+    balances[labels.length - 1] = balanceAtRangeEnd;
+    for (let i = labels.length - 2; i >= 0; i--) {
+      const nextLabel = labels[i + 1];
+      const delta = data.values[nextLabel].income - data.values[nextLabel].expense;
+      balances[i] = balances[i + 1] - delta;
+    }
+    return balances;
   },
 
   _gradient(ctx, colors) {

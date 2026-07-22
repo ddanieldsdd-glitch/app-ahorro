@@ -68,6 +68,67 @@ const App = {
     this._setupRestore();
     this._setupTipHints();
     this._switchTab('dashboard');
+    if (new URLSearchParams(window.location.search).get('action') === 'add') {
+      setTimeout(() => this._openQuickAdd(), 300);
+    }
+    // Mostrar wizard si es la primera vez (sin datos y sin sync configurado)
+    const hasData = Store.getTransactions().length > 0 || Object.keys(Store.getArchives()).length > 0;
+    const hasSync = !!Store.getSyncSettings().serverUrl;
+    const wizardSeen = localStorage.getItem('ahorro_wizard_seen');
+    if (!hasData && !hasSync && !wizardSeen) {
+      setTimeout(() => this._showSetupWizard(), 800);
+    }
+  },
+
+  _showSetupWizard() {
+    this.openModal({
+      title: '👋 Bienvenido a Presupuesto Personal',
+      body: `
+        <p style="font-size:13px;color:var(--text);margin-bottom:14px;line-height:1.6">
+          Para usar la app en móvil y ordenador sincronizados, configura la nube.<br>
+          Si solo quieres usarla en este dispositivo, pulsa <strong>"Solo aquí"</strong>.
+        </p>
+
+        <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">
+          <button class="btn btn-primary" onclick="App._wizardConfigCloud()" style="font-size:13px;padding:12px">
+            ☁️ Sincronizar en la nube (móvil + PC)
+          </button>
+          <button class="btn btn-secondary" onclick="App._wizardLocalOnly()" style="font-size:13px;padding:12px">
+            📱 Solo en este dispositivo
+          </button>
+        </div>
+
+        <div style="font-size:11px;color:var(--text-secondary);padding:8px;background:var(--bg);border-radius:6px;line-height:1.5;margin-bottom:10px">
+          Con la opción nube, tus datos se cifran en tu dispositivo con <strong>AES-256</strong> antes de subirse.
+          El hosting nunca puede leerlos.
+        </div>
+        <button class="btn btn-secondary" onclick="App._wizardTutorial()" style="width:100%;font-size:12px;padding:10px">
+          📖 Ver tutorial completo primero
+        </button>`,
+      actions: [],
+    });
+  },
+
+  _wizardLocalOnly() {
+    localStorage.setItem('ahorro_wizard_seen', '1');
+    document.getElementById('modalOverlay').style.display = 'none';
+    this.showToast('✅ Listo. Puedes configurar la sincronización en ⚙️ → Sincronización en cualquier momento.');
+  },
+
+  _wizardConfigCloud() {
+    document.getElementById('modalOverlay').style.display = 'none';
+    localStorage.setItem('ahorro_wizard_seen', '1');
+    this._switchTab('categorias');
+    setTimeout(() => {
+      document.getElementById('syncServerUrl')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      this.showToast('👆 Rellena la URL del servidor, la clave y la frase de cifrado', 5000);
+    }, 300);
+  },
+
+  _wizardTutorial() {
+    document.getElementById('modalOverlay').style.display = 'none';
+    localStorage.setItem('ahorro_wizard_seen', '1');
+    setTimeout(() => Tutorial.open(0), 200);
   },
 
   _onRemoteUpdate() {
@@ -110,6 +171,10 @@ const App = {
 
   _setupTabs() {
     document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => this._switchTab(btn.dataset.tab));
+    });
+    // Bottom nav buttons also need click handlers
+    document.querySelectorAll('.bottom-nav-btn[data-tab]').forEach(btn => {
       btn.addEventListener('click', () => this._switchTab(btn.dataset.tab));
     });
   },
@@ -193,9 +258,10 @@ const App = {
 
     form.innerHTML = `
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
-        <div style="flex:1;display:flex;background:var(--bg);border-radius:8px;padding:3px">
-          <button class="qa-type-btn active" data-qa-type="Gasto" style="flex:1;padding:8px;border:none;border-radius:6px;font-weight:700;font-size:14px;cursor:pointer">💸 Gasto</button>
-          <button class="qa-type-btn" data-qa-type="Ingreso" style="flex:1;padding:8px;border:none;border-radius:6px;font-weight:700;font-size:14px;cursor:pointer">💰 Ingreso</button>
+        <div style="flex:1;display:flex;background:var(--bg);border-radius:8px;padding:3px;gap:2px">
+          <button class="qa-type-btn active" data-qa-type="Gasto" style="flex:1;padding:8px;border:none;border-radius:6px;font-weight:700;font-size:13px;cursor:pointer">💸 Gasto</button>
+          <button class="qa-type-btn" data-qa-type="Ingreso" style="flex:1;padding:8px;border:none;border-radius:6px;font-weight:700;font-size:13px;cursor:pointer">💰 Ingreso</button>
+          <button class="qa-type-btn" data-qa-type="Traspaso" style="flex:1;padding:8px;border:none;border-radius:6px;font-weight:700;font-size:13px;cursor:pointer">⇄ Traspaso</button>
         </div>
         <button class="btn btn-secondary" onclick="App._closeQuickAdd()" style="padding:8px 12px">✕</button>
       </div>
@@ -212,22 +278,32 @@ const App = {
           <label>Descripción</label>
           <input type="text" id="qaDesc" placeholder="¿Concepto?" maxlength="100">
         </div>
-        <div class="form-group">
+        <div class="form-group" id="qaCategoryGroup">
           <label>Categoría</label>
           <select id="qaCategory">${expenseCats.map(c => `<option value="${c}">${c}</option>`).join('')}</select>
         </div>
-        <div class="form-group">
+        <div class="form-group" id="qaMethodGroup">
           <label>Pago</label>
           <select id="qaMethod">${methods.map(m => `<option value="${m}">${m}</option>`).join('')}</select>
         </div>
-        <div class="form-group">
+        <div class="form-group" id="qaAccountGroup">
           <label>Cuenta</label>
           <select id="qaAccount">
             <option value="checking">💳 Corriente</option>
             <option value="savings">🐷 Ahorro</option>
-            <option value="cash">💵 Efectivo (no computa)</option>
+            <option value="cash">💵 Efectivo</option>
           </select>
         </div>
+      </div>
+      <div id="qaTransferTypeRow" style="display:none;margin:8px 0;padding:8px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">
+        <div style="font-size:12px;font-weight:600;margin-bottom:6px">Tipo de traspaso:</div>
+        <div style="display:flex;gap:6px">
+          <button type="button" id="qaTransferTo" class="mf-type-btn active" style="flex:1;background:linear-gradient(135deg,#4F46E5,#10B981);color:#fff;border:none;font-size:12px;padding:8px"
+            onclick="App._setQuickTransferType('to_savings')">💸→🐷 Corriente → Ahorro</button>
+          <button type="button" id="qaTransferFrom" class="mf-type-btn" style="flex:1;font-size:12px;padding:8px"
+            onclick="App._setQuickTransferType('from_savings_emergency')">🆘 Ahorro → Corriente</button>
+        </div>
+        <input type="hidden" id="qaTransferType" value="to_savings">
       </div>
       <div id="qaBudgetHint" style="display:none;margin-top:6px;padding:6px 8px;border-radius:4px;font-size:12px"></div>
       <div style="display:flex;gap:8px;margin-top:10px">
@@ -242,8 +318,21 @@ const App = {
         document.querySelectorAll('.qa-type-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         const type = btn.dataset.qaType;
-        const isExpense = type === 'Gasto';
-        document.getElementById('qaSubmit').textContent = isExpense ? '➕ Añadir gasto' : '💰 Añadir ingreso';
+        const isTraspaso = type === 'Traspaso';
+        document.getElementById('qaSubmit').textContent =
+          type === 'Gasto' ? '➕ Añadir gasto' : type === 'Ingreso' ? '💰 Añadir ingreso' : '⇄ Añadir traspaso';
+        ['qaCategoryGroup', 'qaMethodGroup', 'qaAccountGroup'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) el.style.display = isTraspaso ? 'none' : '';
+        });
+        const trRow = document.getElementById('qaTransferTypeRow');
+        if (trRow) trRow.style.display = isTraspaso ? '' : 'none';
+        if (isTraspaso) {
+          const desc = document.getElementById('qaDesc');
+          if (desc && !desc.value) desc.value = 'Traspaso a ahorro';
+          document.getElementById('qaBudgetHint').style.display = 'none';
+          return;
+        }
         const cats = Store.getCategoriesForType(type);
         const defaultCat = type === 'Ingreso'
           ? (cats.includes('Mensualidad') ? 'Mensualidad' : cats[0])
@@ -271,6 +360,33 @@ const App = {
     document.getElementById('qaAmount').addEventListener('keydown', (e) => {
       if (e.key === 'Enter') this._submitQuickAdd();
     });
+  },
+
+  _setQuickTransferType(ttype) {
+    const hidden = document.getElementById('qaTransferType');
+    if (hidden) hidden.value = ttype;
+    const btnTo = document.getElementById('qaTransferTo');
+    const btnFrom = document.getElementById('qaTransferFrom');
+    if (!btnTo || !btnFrom) return;
+    if (ttype === 'to_savings') {
+      btnTo.style.background = 'linear-gradient(135deg,#4F46E5,#10B981)';
+      btnTo.style.color = '#fff';
+      btnTo.style.border = 'none';
+      btnFrom.style.background = '';
+      btnFrom.style.color = '';
+      btnFrom.style.border = '';
+      const desc = document.getElementById('qaDesc');
+      if (desc) desc.value = 'Traspaso a ahorro';
+    } else {
+      btnFrom.style.background = 'linear-gradient(135deg,#EC4899,#EF4444)';
+      btnFrom.style.color = '#fff';
+      btnFrom.style.border = 'none';
+      btnTo.style.background = '';
+      btnTo.style.color = '';
+      btnTo.style.border = '';
+      const desc = document.getElementById('qaDesc');
+      if (desc) desc.value = 'Gasto de ahorro (imprevisto)';
+    }
   },
 
   _checkQuickBudget() {
@@ -304,6 +420,27 @@ const App = {
 
     if (!amount || amount <= 0 || !date) return;
 
+    if (type === 'Traspaso') {
+      const transferType = document.getElementById('qaTransferType')?.value || 'to_savings';
+      const result = Store.createAccountTransfer({
+        amount,
+        date,
+        description: desc || (transferType === 'from_savings_emergency' ? 'Gasto de ahorro (imprevisto)' : 'Traspaso a ahorro'),
+        transferType,
+        emoji: transferType === 'from_savings_emergency' ? '🆘' : '🐷',
+      });
+      if (result === -1) {
+        App.showToast(transferType === 'from_savings_emergency'
+          ? '❌ Saldo insuficiente en ahorro'
+          : '❌ Saldo insuficiente en cuenta corriente');
+        return;
+      }
+      this._closeQuickAdd();
+      this._refreshAll();
+      App.showToast('✅ Traspaso registrado');
+      return;
+    }
+
     Store.addTransaction({ date, amount, description: desc, type, category, paymentMethod: method, account });
     if (type === 'Ingreso') {
       App.suggestSavings(amount);
@@ -322,6 +459,21 @@ const App = {
   _refreshAll() {
     const activeTab = document.querySelector('.tab-btn.active');
     if (activeTab) this._switchTab(activeTab.dataset.tab);
+  },
+
+  _refreshConfigDependents() {
+    this._renderMonthSelector();
+    const tabs = ['registro', 'calendario', 'presupuesto', 'deudas', 'dashboard', 'graficos'];
+    for (const tab of tabs) {
+      if (document.getElementById(`tab-${tab}`)?.classList.contains('active')) {
+        if (tab === 'registro') Registro.render();
+        else if (tab === 'calendario') Calendario.render();
+        else if (tab === 'presupuesto') Presupuesto.render();
+        else if (tab === 'deudas') Deudas.render();
+        else if (tab === 'dashboard') Dashboard.render();
+        else if (tab === 'graficos') Graficos.render();
+      }
+    }
   },
 
   _exportData() {
@@ -417,23 +569,18 @@ const App = {
   /** Performs the actual savings transfer (shared between modal modes). */
   _doSavingsTransfer(val, description) {
     if (!val || val <= 0) return;
-    Store.addTransfer(val, description || 'Ahorro automático');
-    const ck = Store.getCheckingBalance();
-    if (ck !== null) Store.setCheckingBalance(Math.max(0, ck - val));
-    const tx = {
-      id: Date.now().toString(36) + Math.random().toString(36).substr(2, 8),
-      date: new Date().toISOString().split('T')[0],
-      month: Store.getCurrentMonth(),
-      type: 'Gasto', category: 'Ahorro',
+    const result = Store.createAccountTransfer({
       amount: val,
       description: description || 'Ahorro automático desde ingreso',
-      paymentMethod: 'Transferencia',
-      account: 'checking',
-      _noAutoBalance: true,
-    };
-    Store.getData().transactions.push(tx);
-    Store._save();
-    App.showToast(`✅ ${val.toFixed(2)} € transferidos al ahorro`);
+      logNote: description || 'Ahorro automático',
+      transferType: 'to_savings',
+      emoji: '🐷',
+    });
+    if (result === -1) {
+      App.showToast('❌ Saldo insuficiente en cuenta corriente');
+      return;
+    }
+    if (result) App.showToast(`✅ ${val.toFixed(2)} € transferidos al ahorro`);
   },
 
   /** Shared saving-suggestion logic. Safe to call even if Registro tab was never visited. */
@@ -444,11 +591,11 @@ const App = {
 
     // --- Compute average monthly expense from real historical data ---
     const archives = Store.getArchives();
-    const currentTx = Store.getTransactions().filter(t => !Store.isAdjustment(t) && t.type !== 'Ingreso');
+    const currentTx = Store.getTransactions().filter(t => Store.isSpendableExpense(t));
     const byMonth = {};
     for (const t of currentTx) { byMonth[t.month] = (byMonth[t.month] || 0) + t.amount; }
     for (const [month, txs] of Object.entries(archives)) {
-      const exp = txs.filter(t => !Store.isAdjustment(t) && t.type !== 'Ingreso').reduce((s, t) => s + t.amount, 0);
+      const exp = txs.filter(t => Store.isSpendableExpense(t)).reduce((s, t) => s + t.amount, 0);
       if (exp > 0) byMonth[month] = exp;
     }
     const numMonths = Math.max(Object.keys(byMonth).length, 1);

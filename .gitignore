@@ -1,3 +1,16 @@
 ﻿node_modules/
+
+# Datos de usuario — nunca subir al repositorio
+data/data.json
+
+# Builds de Capacitor
+android/
+ios/
+www/
+
+# Backups de aider
 .aider*
-*.log
+
+# Variables de entorno
+.env
+.env.local

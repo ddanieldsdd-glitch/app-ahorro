@@ -1,0 +1,23 @@
+# Configuración para Railway.app (alternativa a Fly.io)
+# Documentación: https://docs.railway.app
+#
+# Despliegue:
+#   1. Crea cuenta en railway.app
+#   2. New Project → Deploy from GitHub (sube el repo antes a GitHub)
+#   3. En Variables añade: SYNC_KEY=tu_clave_secreta
+#   4. En Volumes (pestaña Settings) → Add volume → mount en /app/data
+#   5. Railway gestiona HTTPS automáticamente
+#
+# IMPORTANTE: añade la URL de Railway en Ajustes → Sincronización de la app.
+
+[build]
+  builder = "dockerfile"
+  dockerfilePath = "Dockerfile"
+
+[deploy]
+  startCommand = "node server.js"
+  healthcheckPath = "/api/health"
+  healthcheckTimeout = 300
+
+[[envs]]
+  PORT = "3000"

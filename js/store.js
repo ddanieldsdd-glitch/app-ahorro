@@ -1,5 +1,7 @@
 const STORAGE_KEY = 'ahorro_presupuesto';
 const BACKUP_KEY = 'ahorro_backup';
+const SYNC_SETTINGS_KEY = 'ahorro_sync_settings';
+const PASSPHRASE_KEY = 'ahorro_passphrase';
 const SYNC_INTERVAL = 4000;
 
 // Global utilities (loaded first, available to all modules)
@@ -35,6 +37,7 @@ const defaultData = {
   checkingBalance: null,
   checkingBaseBalance: 0,
   savingsBalance: 0,
+  cashBalance: 0,
   transfers: [],
   pinCode: null,
   plannedExpenses: [],
@@ -43,7 +46,13 @@ const defaultData = {
   lastPEReserveWeek: null,
   savingsDay: 1,
   plannedExpensesReserved: 0,
+  foodCategories: [],
+  categoryGroups: [],
+  incomeGroups: [],
+  expensePriorities: {},
   debts: [],
+  people: [],
+  peopleGroups: [],
   recurringTransactions: [],
   initialCheckingBalance: 0,
   initialSavingsBalance: 0,
@@ -56,24 +65,128 @@ const Store = {
   _ready: false,
   _callbacks: [],
   _saveCallbacks: [],
+  _syncStatusCallbacks: [],
   _syncTimer: null,
+  _syncStatus: 'offline',
+  _syncStatusDetail: 'Iniciando…',
+
+  getSyncSettings() {
+    try {
+      const raw = localStorage.getItem(SYNC_SETTINGS_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch {}
+    return { serverUrl: '', syncKey: '' };
+  },
+
+  setSyncSettings(serverUrl, syncKey) {
+    const clean = (serverUrl || '').trim().replace(/\/+$/, '');
+    localStorage.setItem(SYNC_SETTINGS_KEY, JSON.stringify({ serverUrl: clean, syncKey: syncKey || '' }));
+    this._setSyncStatus('syncing', 'Aplicando nueva configuración…');
+    this._startSync();
+    this._syncNow();
+  },
+
+  // ── Frase de cifrado (E2E) ─────────────────────────────────────────────────
+  getPassphrase() {
+    return localStorage.getItem(PASSPHRASE_KEY) || '';
+  },
+
+  setPassphrase(phrase) {
+    if (phrase) localStorage.setItem(PASSPHRASE_KEY, phrase);
+    else localStorage.removeItem(PASSPHRASE_KEY);
+  },
+
+  clearPassphrase() {
+    localStorage.removeItem(PASSPHRASE_KEY);
+  },
+
+  isEncryptionEnabled() {
+    return !!(this.getPassphrase() && typeof CryptoE2E !== 'undefined' && CryptoE2E.isAvailable());
+  },
+
+  // ── Cifrar antes de enviar / descifrar al recibir ─────────────────────────
+  async _encryptForServer(dataObj) {
+    const phrase = this.getPassphrase();
+    if (!phrase || typeof CryptoE2E === 'undefined') return dataObj;
+    const json = JSON.stringify(dataObj);
+    const payload = await CryptoE2E.encrypt(json, phrase);
+    payload._lastModified = dataObj._lastModified || Date.now();
+    payload._encrypted = true;
+    return payload;
+  },
+
+  async _decryptFromServer(blob) {
+    if (!blob || !blob._encrypted) return blob;  // legacy o sin cifrado
+    const phrase = this.getPassphrase();
+    if (!phrase) throw new Error('Datos cifrados en el servidor pero no hay frase configurada en este dispositivo.');
+    const plain = await CryptoE2E.decrypt(blob, phrase);
+    return JSON.parse(plain);
+  },
+
+  getSyncStatus() { return this._syncStatus; },
+  getSyncStatusDetail() { return this._syncStatusDetail; },
+  onSyncStatusChange(cb) { this._syncStatusCallbacks.push(cb); },
+
+  _setSyncStatus(status, detail) {
+    this._syncStatus = status;
+    this._syncStatusDetail = detail || '';
+    this._syncStatusCallbacks.forEach(cb => cb(status, detail));
+  },
+
+  _apiBase() {
+    const { serverUrl } = this.getSyncSettings();
+    if (serverUrl) return serverUrl;
+    return window.location.origin;
+  },
+
+  _apiHeaders(extra = {}) {
+    const headers = { ...extra };
+    const { syncKey } = this.getSyncSettings();
+    if (syncKey) headers['X-Sync-Key'] = syncKey;
+    return headers;
+  },
+
+  async _apiFetch(path, options = {}) {
+    const url = `${this._apiBase()}${path}`;
+    const headers = this._apiHeaders(options.headers || {});
+    return fetch(url, { ...options, headers });
+  },
 
   async init() {
     let loaded = false;
+    let serverData = null;
 
     try {
-      const res = await fetch('/api/data');
+      const res = await this._apiFetch('/api/data');
       if (res.ok) {
-        this._data = await res.json();
+        serverData = await res.json();
         loaded = true;
+        this._setSyncStatus('synced', 'Conectado al servidor');
+      } else if (res.status === 401) {
+        this._setSyncStatus('local', 'Clave de sincronización incorrecta');
       }
-    } catch {}
+    } catch {
+      this._setSyncStatus('offline', 'Sin conexión al servidor');
+    }
 
-    if (!loaded) {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        try { this._data = JSON.parse(raw); } catch (e) {}
+    const raw = localStorage.getItem(STORAGE_KEY);
+    let localData = null;
+    if (raw) {
+      try { localData = JSON.parse(raw); } catch (e) {}
+    }
+
+    if (loaded && serverData) {
+      if (localData && localData._lastModified > (serverData._lastModified || 0)) {
+        this._data = localData;
+        await this._pushToServer();
+      } else {
+        this._data = serverData;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(serverData));
       }
+    } else if (localData) {
+      this._data = localData;
+      if (navigator.onLine) this._setSyncStatus('local', 'Datos locales — servidor no disponible');
+      else this._setSyncStatus('offline', 'Modo sin conexión');
     }
 
     if (!this._data || !this._data.transactions) {
@@ -85,7 +198,91 @@ const Store = {
     this._migrate();
     this._ready = true;
     this._startSync();
+    this._bindConnectivity();
     return this._data;
+  },
+
+  _bindConnectivity() {
+    window.addEventListener('online', () => this._syncNow());
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') this._syncNow();
+    });
+  },
+
+  async testSyncConnection() {
+    try {
+      const res = await this._apiFetch('/api/health');
+      if (res.status === 401) return { ok: false, message: 'Clave de sincronización incorrecta' };
+      if (!res.ok) return { ok: false, message: `Error del servidor (${res.status})` };
+      const data = await res.json();
+      return { ok: !!data.ok, message: 'Conexión correcta' };
+    } catch {
+      return { ok: false, message: 'No se pudo conectar al servidor' };
+    }
+  },
+
+  async _pushToServer() {
+    if (!this._data) return false;
+    this._setSyncStatus('syncing', 'Enviando cambios…');
+    try {
+      const blob = await this._encryptForServer(this._data);
+      const res = await this._apiFetch('/api/data', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(blob),
+      });
+      if (res.ok) {
+        const enc = this.isEncryptionEnabled();
+        this._setSyncStatus('synced', `Sincronizado${enc ? ' 🔒' : ''} con ${this._apiBase()}`);
+        return true;
+      }
+      if (res.status === 401) {
+        this._setSyncStatus('local', 'Clave de sincronización incorrecta');
+        return false;
+      }
+      this._setSyncStatus('local', 'No se pudo enviar al servidor');
+      return false;
+    } catch (err) {
+      const msg = err?.message?.includes('frase') ? err.message : 'Cambios guardados solo en este dispositivo';
+      this._setSyncStatus(navigator.onLine ? 'local' : 'offline', msg);
+      return false;
+    }
+  },
+
+  async _pullFromServer() {
+    try {
+      const res = await this._apiFetch('/api/data');
+      if (!res.ok) {
+        if (res.status === 401) this._setSyncStatus('local', 'Clave de sincronización incorrecta');
+        return false;
+      }
+      const rawBlob = await res.json();
+      let serverData;
+      try {
+        serverData = await this._decryptFromServer(rawBlob);
+      } catch (decErr) {
+        this._setSyncStatus('local', decErr.message || 'Error al descifrar datos del servidor');
+        return false;
+      }
+      if (!serverData) return false;
+      if (serverData._lastModified > (this._data._lastModified || 0)) {
+        this._data = serverData;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(serverData));
+        this._callbacks.forEach(cb => cb());
+      }
+      const enc = this.isEncryptionEnabled();
+      this._setSyncStatus('synced', `Sincronizado${enc ? ' 🔒' : ''} con ${this._apiBase()}`);
+      return true;
+    } catch {
+      if (!navigator.onLine) this._setSyncStatus('offline', 'Sin conexión');
+      return false;
+    }
+  },
+
+  async _syncNow() {
+    if (!this._ready || !navigator.onLine) return;
+    await this._pushToServer();
+    await this._pullFromServer();
   },
 
   _migrate() {
@@ -107,15 +304,95 @@ const Store = {
     if (!d.imprevistosBudget && d.imprevistosBudget !== 0) d.imprevistosBudget = 0;
     if (d.categories.indexOf('Imprevisto') === -1) d.categories.push('Imprevisto');
     if (!d.checkingBaseBalance && d.checkingBaseBalance !== 0) d.checkingBaseBalance = 0;
+    if (!d.cashBalance && d.cashBalance !== 0) d.cashBalance = 0;
     if (!d.imprevistosSavings && d.imprevistosSavings !== 0) d.imprevistosSavings = 0;
     if (!d.plannedExpensesReserved && d.plannedExpensesReserved !== 0) d.plannedExpensesReserved = 0;
     if (d.lastSavingsWeek === undefined) d.lastSavingsWeek = null;
     if (d.lastPEReserveWeek === undefined) d.lastPEReserveWeek = null;
     if (d.savingsDay === undefined) d.savingsDay = 1;
     if (!d.debts) d.debts = [];
+    if (!d.people) d.people = [];
+    if (!d.peopleGroups) d.peopleGroups = [];
     if (!d.recurringTransactions) d.recurringTransactions = [];
     if (d.initialCheckingBalance === undefined) d.initialCheckingBalance = 0;
     if (d.initialSavingsBalance === undefined) d.initialSavingsBalance = 0;
+
+    // Food category groups migration
+    if (!d.foodCategories || d.foodCategories.length === 0) {
+      const defaultFood = ['Comida', 'Bebida', 'Compra Supermercado', 'Comida fuera', 'Cafetería'];
+      d.foodCategories = defaultFood.filter(c => d.categories.includes(c) || c === 'Comida' || c === 'Bebida');
+      // Also include any category actually used in transactions that looks food-related
+      const allCats = new Set([...d.categories, ...Object.values(d.archives || {}).flatMap(txs => txs.map(t => t.category))]);
+      for (const cat of allCats) {
+        if (!d.foodCategories.includes(cat) &&
+            /superm|comida|cafet|restaur|alimenta|bar |bebida|fruter|panade|carnic/i.test(cat)) {
+          d.foodCategories.push(cat);
+        }
+      }
+    }
+
+    // Category groups migration — create from foodCategories if not present
+    if (!d.categoryGroups) {
+      if (d.foodCategories && d.foodCategories.length > 0) {
+        d.categoryGroups = [{
+          id: 'cgrp_alim',
+          name: 'Alimentación',
+          categories: [...d.foodCategories],
+          monthlyBudget: d.foodBudget || 200,
+          isFoodGroup: true,
+          color: '#F59E0B',
+        }];
+      } else {
+        d.categoryGroups = [];
+      }
+    }
+
+    if (!d.expensePriorities || typeof d.expensePriorities !== 'object') {
+      d.expensePriorities = {};
+    }
+    // Seed sensible defaults once (only for missing keys)
+    const pri = d.expensePriorities;
+    if (pri['__imprevistos__'] == null) pri['__imprevistos__'] = 2;
+    for (const g of d.categoryGroups || []) {
+      const key = 'group:' + g.id;
+      if (pri[key] == null) pri[key] = g.isFoodGroup ? 1 : 3;
+    }
+    const lowPriCats = ['Salidas', 'Caprichos', 'Ocio', 'Otros', 'Comida fuera', 'Cafetería'];
+    const highPriCats = ['Vivienda', 'Salud', 'Transporte', 'Educación'];
+    for (const cat of d.categories || []) {
+      const key = 'cat:' + cat;
+      if (pri[key] != null) continue;
+      if (lowPriCats.includes(cat)) pri[key] = 5;
+      else if (highPriCats.includes(cat)) pri[key] = 2;
+      else if (cat === 'Imprevisto') pri[key] = 2;
+      else pri[key] = 3;
+    }
+
+    if (!d.incomeGroups) d.incomeGroups = [];
+
+    // Migrate legacy "Ahorro" / "Ahorro programado" Gasto → Traspaso (classification only; no balance re-apply)
+    if (!d._ahorroToTraspasoMigrated) {
+      const convert = (t) => {
+        if (t.type !== 'Gasto') return;
+        if (t.category !== 'Ahorro' && t.category !== 'Ahorro programado') return;
+        const wasProgramado = t.category === 'Ahorro programado';
+        t.type = 'Traspaso';
+        t.category = 'Traspaso';
+        t.transferType = t.transferType || 'to_savings';
+        t.paymentMethod = t.paymentMethod || 'Transferencia';
+        t.emoji = t.emoji || (wasProgramado ? '📋' : '🐷');
+        // Keep _noAutoBalance if already set (balances were updated manually at creation time)
+        if (t._noAutoBalance == null) t._noAutoBalance = true;
+        if (wasProgramado && !t.description) t.description = 'Reserva gastos planificados';
+      };
+      for (const t of d.transactions || []) convert(t);
+      for (const month of Object.keys(d.archives || {})) {
+        for (const t of d.archives[month] || []) convert(t);
+      }
+      // Remove pseudo-expense categories from the catalog
+      d.categories = (d.categories || []).filter(c => c !== 'Ahorro' && c !== 'Ahorro programado');
+      d._ahorroToTraspasoMigrated = true;
+    }
 
     if (!d.incomeCategories) d.incomeCategories = ['Mensualidad', 'Paga', 'Extra'];
     const incomeCatNames = ['Mensualidad', 'Paga', 'Extra'];
@@ -163,6 +440,12 @@ const Store = {
         if (t.account !== 'savings') return sum;
         return sum + (t.type === 'Ingreso' ? t.amount : -t.amount);
       }, 0);
+      const computedCash = d.transactions.reduce((sum, t) => {
+        if (t._noAutoBalance) return sum;
+        if (t.account !== 'cash') return sum;
+        return sum + (t.type === 'Ingreso' ? t.amount : -t.amount);
+      }, 0);
+      if (!d.cashBalance && d.cashBalance !== 0) d.cashBalance = Math.max(0, computedCash);
       // initialBalance = currentBalance - what transactions already account for
       if (d.checkingBalance !== null && d.checkingBalance !== undefined) {
         d.initialCheckingBalance = Math.round((d.checkingBalance - computedChecking) * 100) / 100;
@@ -179,6 +462,90 @@ const Store = {
       if (!g.priority && g.priority !== 0) g.priority = 0;
       return g;
     });
+
+    this._syncCatalogFromData();
+    for (const debt of d.debts || []) {
+      if (debt.person) this.rememberPerson(debt.person, false);
+    }
+  },
+
+  /** Ensures config lists include every value used in movements, deudas, etc. */
+  _syncCatalogFromData() {
+    const d = this._data;
+    const addUnique = (arr, val) => {
+      if (!val || val === '__add__' || val === '__ajuste__' || val === 'Traspaso') return;
+      if (!arr.includes(val)) arr.push(val);
+    };
+    const scanTx = (t) => {
+      if (!t) return;
+      if (t.type === 'Ingreso') addUnique(d.incomeCategories, t.category);
+      else if (t.type !== 'Traspaso') addUnique(d.categories, t.category);
+      addUnique(d.types, t.type);
+      if (t.paymentMethod && t.paymentMethod !== 'Ajuste') addUnique(d.paymentMethods, t.paymentMethod);
+    };
+    for (const t of d.transactions) scanTx(t);
+    for (const txs of Object.values(d.archives || {})) txs.forEach(scanTx);
+    for (const r of d.recurringTransactions || []) {
+      if (r.category) {
+        if (r.type === 'Ingreso') addUnique(d.incomeCategories, r.category);
+        else addUnique(d.categories, r.category);
+      }
+      if (r.type) addUnique(d.types, r.type);
+      if (r.paymentMethod) addUnique(d.paymentMethods, r.paymentMethod);
+    }
+    for (const debt of d.debts || []) {
+      if (debt.category) addUnique(d.categories, debt.category);
+    }
+    addUnique(d.incomeCategories, 'Deuda cobrada');
+    addUnique(d.types, 'Ingreso');
+    addUnique(d.types, 'Gasto');
+    addUnique(d.types, 'Traspaso');
+  },
+
+  syncCatalogFromData() {
+    this._syncCatalogFromData();
+    this._save();
+  },
+
+  getCatalogUsage() {
+    const usage = {
+      category: {}, incomeCategory: {}, type: {}, method: {},
+    };
+    const bump = (map, key) => { if (key) map[key] = (map[key] || 0) + 1; };
+    const scan = (t) => {
+      if (!t) return;
+      bump(usage.type, t.type);
+      if (t.paymentMethod) bump(usage.method, t.paymentMethod);
+      if (t.type === 'Ingreso') bump(usage.incomeCategory, t.category);
+      else if (t.type !== 'Traspaso' && t.category !== '__ajuste__') bump(usage.category, t.category);
+    };
+    for (const t of this._data.transactions) scan(t);
+    for (const txs of Object.values(this._data.archives || {})) txs.forEach(scan);
+    for (const r of this._data.recurringTransactions || []) {
+      bump(usage.type, r.type);
+      if (r.paymentMethod) bump(usage.method, r.paymentMethod);
+      if (r.type === 'Ingreso') bump(usage.incomeCategory, r.category);
+      else bump(usage.category, r.category);
+    }
+    return usage;
+  },
+
+  _renameInTransactions(field, oldVal, newVal, filterFn = () => true) {
+    for (const t of this._data.transactions) {
+      if (filterFn(t) && t[field] === oldVal) t[field] = newVal;
+    }
+    for (const month of Object.keys(this._data.archives || {})) {
+      for (const t of this._data.archives[month]) {
+        if (filterFn(t) && t[field] === oldVal) t[field] = newVal;
+      }
+    }
+    for (const r of this._data.recurringTransactions || []) {
+      if (r[field] === oldVal) r[field] = newVal;
+    }
+  },
+
+  _reassignInTransactions(field, oldVal, newVal, filterFn = () => true) {
+    this._renameInTransactions(field, oldVal, newVal, filterFn);
   },
 
   _save() {
@@ -186,12 +553,8 @@ const Store = {
     const data = this._data;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     this._saveCallbacks.forEach(cb => cb());
-    fetch('/api/data', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    }).catch(() => {
-      if (typeof App !== 'undefined' && App.showToast) {
+    this._pushToServer().then((ok) => {
+      if (!ok && typeof App !== 'undefined' && App.showToast) {
         App.showToast('⚡ Cambios guardados solo localmente — sin conexión', 3500);
       }
     });
@@ -199,18 +562,7 @@ const Store = {
 
   _startSync() {
     if (this._syncTimer) clearInterval(this._syncTimer);
-    this._syncTimer = setInterval(async () => {
-      try {
-        const res = await fetch('/api/data');
-        if (!res.ok) return;
-        const serverData = await res.json();
-        if (serverData._lastModified > this._data._lastModified) {
-          this._data = serverData;
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(serverData));
-          this._callbacks.forEach(cb => cb());
-        }
-      } catch {}
-    }, SYNC_INTERVAL);
+    this._syncTimer = setInterval(() => this._pullFromServer(), SYNC_INTERVAL);
   },
 
   onChange(callback) { this._callbacks.push(callback); },
@@ -236,17 +588,25 @@ const Store = {
    *  Skips transactions flagged `_noAutoBalance` (internal system transfers). */
   _applyBalanceDelta(t, sign) {
     if (t._noAutoBalance) return;
-    // Traspaso: debit checking, credit savings
+    // Traspaso semántico: dirección depende de transferType
     if (t.type === 'Traspaso') {
       if (this._data.checkingBalance === null) this._data.checkingBalance = this._data.initialCheckingBalance || 0;
-      this._data.checkingBalance   = Math.round((this._data.checkingBalance   - t.amount * sign) * 100) / 100;
-      this._data.savingsBalance    = Math.round(((this._data.savingsBalance || 0) + t.amount * sign) * 100) / 100;
+      if (t.transferType === 'from_savings_emergency') {
+        // Ahorro → Corriente (gasto imprevisto desde ahorro)
+        this._data.savingsBalance    = Math.round(((this._data.savingsBalance || 0) - t.amount * sign) * 100) / 100;
+        this._data.checkingBalance   = Math.round((this._data.checkingBalance   + t.amount * sign) * 100) / 100;
+      } else {
+        // Corriente → Ahorro (default: to_savings)
+        this._data.checkingBalance   = Math.round((this._data.checkingBalance   - t.amount * sign) * 100) / 100;
+        this._data.savingsBalance    = Math.round(((this._data.savingsBalance || 0) + t.amount * sign) * 100) / 100;
+      }
       return;
     }
     const account = this._resolveAccount(t);
-    if (account === 'cash') return;
     const delta = (t.type === 'Ingreso' ? t.amount : -t.amount) * sign;
-    if (account === 'checking') {
+    if (account === 'cash') {
+      this._data.cashBalance = Math.round(((this._data.cashBalance || 0) + delta) * 100) / 100;
+    } else if (account === 'checking') {
       if (this._data.checkingBalance === null) this._data.checkingBalance = this._data.initialCheckingBalance || 0;
       this._data.checkingBalance = Math.round((this._data.checkingBalance + delta) * 100) / 100;
     } else if (account === 'savings') {
@@ -283,6 +643,15 @@ const Store = {
   deleteTransaction(id) {
     const t = this._data.transactions.find(x => x.id === id);
     if (!t) return;
+    const linkedDebt = (this._data.debts || []).find(d => d.linkedTxId === id && !d.isPaid);
+    if (linkedDebt) {
+      if (linkedDebt.autoCreatedTx) {
+        this._data.debts = this._data.debts.filter(d => d.id !== linkedDebt.id);
+      } else {
+        linkedDebt.linkedTxId = null;
+      }
+      delete t._debtId;
+    }
     this._applyBalanceDelta(t, -1);
     this._data.transactions = this._data.transactions.filter(x => x.id !== id);
     this._save();
@@ -308,7 +677,9 @@ const Store = {
   addAdjustmentTransaction(account, targetBalance, note) {
     const current = account === 'checking'
       ? (this._data.checkingBalance ?? 0)
-      : (this._data.savingsBalance || 0);
+      : account === 'cash'
+        ? (this._data.cashBalance ?? 0)
+        : (this._data.savingsBalance || 0);
     const diff = Math.round((targetBalance - current) * 100) / 100;
     if (diff === 0) return null;
     const t = {
@@ -366,10 +737,22 @@ const Store = {
     if (this._data.budgetConfig?.categoryLimits) {
       delete this._data.budgetConfig.categoryLimits[name];
     }
+    if (this._data.expensePriorities) delete this._data.expensePriorities['cat:' + name];
+    // Remove from category groups
+    for (const g of (this._data.categoryGroups || [])) {
+      g.categories = g.categories.filter(c => c !== name);
+    }
+    // Remove from legacy foodCategories
+    if (this._data.foodCategories) {
+      this._data.foodCategories = this._data.foodCategories.filter(c => c !== name);
+    }
     this._save();
   },
   deleteIncomeCategory(name) {
     this._data.incomeCategories = (this._data.incomeCategories || []).filter(c => c !== name);
+    for (const g of (this._data.incomeGroups || [])) {
+      g.categories = g.categories.filter(c => c !== name);
+    }
     this._save();
   },
 
@@ -393,6 +776,14 @@ const Store = {
       limits[newName] = limits[oldName];
       delete limits[oldName];
     }
+    // Rename in category groups
+    for (const g of (this._data.categoryGroups || [])) {
+      const gi = g.categories.indexOf(oldName);
+      if (gi !== -1) g.categories[gi] = newName;
+    }
+    // Rename in legacy foodCategories
+    const fi = (this._data.foodCategories || []).indexOf(oldName);
+    if (fi !== -1) this._data.foodCategories[fi] = newName;
     this._save();
     return true;
   },
@@ -439,6 +830,20 @@ const Store = {
     this._save();
   },
 
+  renameType(oldName, newName) {
+    if (!this._data.types.includes(oldName) || this._data.types.includes(newName)) return false;
+    const idx = this._data.types.indexOf(oldName);
+    this._data.types[idx] = newName;
+    this._renameInTransactions('type', oldName, newName);
+    this._save();
+    return true;
+  },
+
+  reassignType(oldName, newName) {
+    this._reassignInTransactions('type', oldName, newName || 'Gasto');
+    this._save();
+  },
+
   getPaymentMethods() { return [...this._data.paymentMethods]; },
   addPaymentMethod(name) {
     if (!this._data.paymentMethods.includes(name)) { this._data.paymentMethods.push(name); this._save(); }
@@ -446,6 +851,101 @@ const Store = {
   deletePaymentMethod(name) {
     this._data.paymentMethods = this._data.paymentMethods.filter(p => p !== name);
     this._save();
+  },
+
+  renamePaymentMethod(oldName, newName) {
+    if (!this._data.paymentMethods.includes(oldName) || this._data.paymentMethods.includes(newName)) return false;
+    const idx = this._data.paymentMethods.indexOf(oldName);
+    this._data.paymentMethods[idx] = newName;
+    this._renameInTransactions('paymentMethod', oldName, newName);
+    this._save();
+    return true;
+  },
+
+  reassignPaymentMethod(oldName, newName) {
+    this._reassignInTransactions('paymentMethod', oldName, newName || 'Tarjeta');
+    this._save();
+  },
+
+  // ── People & groups ───────────────────────────────────────────────────────
+  getPeople() { return [...(this._data.people || [])].sort((a, b) => a.localeCompare(b, 'es')); },
+
+  rememberPerson(name, save = true) {
+    const n = (name || '').trim();
+    if (!n) return;
+    if (!this._data.people) this._data.people = [];
+    if (!this._data.people.includes(n)) {
+      this._data.people.push(n);
+      if (save) this._save();
+    }
+  },
+
+  addPerson(name) {
+    this.rememberPerson(name, true);
+  },
+
+  renamePerson(oldName, newName) {
+    const n = (newName || '').trim();
+    if (!n || oldName === n) return false;
+    const idx = (this._data.people || []).indexOf(oldName);
+    if (idx === -1) return false;
+    if (!this._data.people.includes(n)) this._data.people[idx] = n;
+    else this._data.people.splice(idx, 1);
+    for (const d of this._data.debts || []) {
+      if (d.person === oldName) d.person = n;
+    }
+    for (const g of this._data.peopleGroups || []) {
+      g.members = g.members.map(m => m === oldName ? n : m);
+    }
+    this._save();
+    return true;
+  },
+
+  deletePerson(name) {
+    this._data.people = (this._data.people || []).filter(p => p !== name);
+    for (const g of this._data.peopleGroups || []) {
+      g.members = g.members.filter(m => m !== name);
+    }
+    this._data.peopleGroups = (this._data.peopleGroups || []).filter(g => g.members.length > 0);
+    this._save();
+  },
+
+  getPeopleGroups() { return [...(this._data.peopleGroups || [])]; },
+
+  addPeopleGroup(name, members = []) {
+    const g = {
+      id: Date.now().toString(36) + Math.random().toString(36).substr(2, 6),
+      name: (name || '').trim(),
+      members: [...new Set(members.map(m => m.trim()).filter(Boolean))],
+    };
+    if (!g.name) return null;
+    g.members.forEach(m => this.rememberPerson(m, false));
+    if (!this._data.peopleGroups) this._data.peopleGroups = [];
+    this._data.peopleGroups.push(g);
+    this._save();
+    return g;
+  },
+
+  updatePeopleGroup(id, updates) {
+    const g = (this._data.peopleGroups || []).find(x => x.id === id);
+    if (!g) return;
+    if (updates.name) g.name = updates.name.trim();
+    if (updates.members) {
+      g.members = [...new Set(updates.members.map(m => m.trim()).filter(Boolean))];
+      g.members.forEach(m => this.rememberPerson(m, false));
+    }
+    this._save();
+  },
+
+  deletePeopleGroup(id) {
+    this._data.peopleGroups = (this._data.peopleGroups || []).filter(g => g.id !== id);
+    this._save();
+  },
+
+  calcSplitAmount(totalAmount, splitCount) {
+    const total = parseFloat(totalAmount) || 0;
+    const count = Math.max(2, parseInt(splitCount, 10) || 2);
+    return Math.round((total / count) * 100) / 100;
   },
 
   archiveCurrentMonth() {
@@ -477,7 +977,228 @@ const Store = {
   removeCategoryLimit(cat) { delete this._data.budgetConfig.categoryLimits[cat]; this._save(); },
 
   getFoodBudget() { return this._data.foodBudget ?? 200; },
-  setFoodBudget(v) { this._data.foodBudget = v; this._save(); },
+  setFoodBudget(v) {
+    this._data.foodBudget = v;
+    // Also sync to the primary food group budget if it exists
+    const foodGroup = (this._data.categoryGroups || []).find(g => g.isFoodGroup);
+    if (foodGroup) foodGroup.monthlyBudget = v;
+    this._save();
+  },
+
+  /** Returns the effective monthly food budget: sum of food groups' budgets, or legacy value */
+  getEffectiveFoodBudget() {
+    const foodGroups = (this._data.categoryGroups || []).filter(g => g.isFoodGroup);
+    if (foodGroups.length > 0) return foodGroups.reduce((s, g) => s + (g.monthlyBudget || 0), 0);
+    return this.getFoodBudget();
+  },
+
+  getFoodCategories() { return [...(this._data.foodCategories || [])]; },
+  setFoodCategories(arr) { this._data.foodCategories = [...arr]; this._save(); },
+  isFoodCategory(cat) {
+    // Check category groups first
+    const groups = this._data.categoryGroups || [];
+    if (groups.some(g => g.isFoodGroup && g.categories.includes(cat))) return true;
+    // Fall back to legacy foodCategories
+    return (this._data.foodCategories || []).includes(cat);
+  },
+  addFoodCategory(cat) {
+    // Add to the primary food group if it exists, else legacy array
+    const foodGroup = (this._data.categoryGroups || []).find(g => g.isFoodGroup);
+    if (foodGroup) {
+      if (!foodGroup.categories.includes(cat)) { foodGroup.categories.push(cat); this._save(); }
+      return;
+    }
+    if (!this._data.foodCategories) this._data.foodCategories = [];
+    if (!this._data.foodCategories.includes(cat)) { this._data.foodCategories.push(cat); this._save(); }
+  },
+  removeFoodCategory(cat) {
+    // Remove from food groups
+    let changed = false;
+    for (const g of (this._data.categoryGroups || [])) {
+      if (g.isFoodGroup && g.categories.includes(cat)) {
+        g.categories = g.categories.filter(c => c !== cat);
+        changed = true;
+      }
+    }
+    if (!changed) {
+      if (!this._data.foodCategories) return;
+      this._data.foodCategories = this._data.foodCategories.filter(c => c !== cat);
+    }
+    this._save();
+  },
+
+  // ── Category groups ───────────────────────────────────────────────────────
+  getCategoryGroups() { return [...(this._data.categoryGroups || [])]; },
+
+  /** Returns the group that contains a given category name, or null */
+  getCategoryGroup(categoryName) {
+    return (this._data.categoryGroups || []).find(g => g.categories.includes(categoryName)) || null;
+  },
+
+  addCategoryGroup(name, opts = {}) {
+    const g = {
+      id: 'cgrp_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 6),
+      name: (name || '').trim(),
+      categories: [...new Set(opts.categories || [])],
+      monthlyBudget: opts.monthlyBudget || 0,
+      isFoodGroup: opts.isFoodGroup || false,
+      color: opts.color || '#6366F1',
+      emoji: opts.emoji || '',
+    };
+    if (!g.name) return null;
+    if (!this._data.categoryGroups) this._data.categoryGroups = [];
+    this._data.categoryGroups.push(g);
+    if (!this._data.expensePriorities) this._data.expensePriorities = {};
+    if (this._data.expensePriorities['group:' + g.id] == null) {
+      this._data.expensePriorities['group:' + g.id] = g.isFoodGroup ? 1 : 3;
+    }
+    this._save();
+    return g;
+  },
+
+  updateCategoryGroup(id, updates) {
+    const g = (this._data.categoryGroups || []).find(x => x.id === id);
+    if (!g) return;
+    if (updates.name !== undefined) g.name = updates.name.trim();
+    if (updates.categories !== undefined) g.categories = [...new Set(updates.categories)];
+    if (updates.monthlyBudget !== undefined) g.monthlyBudget = updates.monthlyBudget;
+    if (updates.isFoodGroup !== undefined) g.isFoodGroup = updates.isFoodGroup;
+    if (updates.color !== undefined) g.color = updates.color;
+    if (updates.emoji !== undefined) g.emoji = updates.emoji;
+    // Sync legacy foodBudget when updating the food group budget
+    if (updates.isFoodGroup && updates.monthlyBudget !== undefined) {
+      this._data.foodBudget = updates.monthlyBudget;
+    }
+    this._save();
+  },
+
+  deleteCategoryGroup(id) {
+    this._data.categoryGroups = (this._data.categoryGroups || []).filter(g => g.id !== id);
+    if (this._data.expensePriorities) delete this._data.expensePriorities['group:' + id];
+    this._save();
+  },
+
+  // ── Grupos de ingreso ─────────────────────────────────────────────────────
+  getIncomeGroups() { return [...(this._data.incomeGroups || [])]; },
+
+  getIncomeGroup(categoryName) {
+    return (this._data.incomeGroups || []).find(g => g.categories.includes(categoryName)) || null;
+  },
+
+  addIncomeGroup(name, opts = {}) {
+    const g = {
+      id: 'igrp_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 6),
+      name: (name || '').trim(),
+      categories: [...new Set(opts.categories || [])],
+      monthlyTarget: opts.monthlyTarget || 0,
+      color: opts.color || '#10B981',
+      emoji: opts.emoji || '',
+    };
+    if (!g.name) return null;
+    if (!this._data.incomeGroups) this._data.incomeGroups = [];
+    this._data.incomeGroups.push(g);
+    this._save();
+    return g;
+  },
+
+  updateIncomeGroup(id, updates) {
+    const g = (this._data.incomeGroups || []).find(x => x.id === id);
+    if (!g) return;
+    if (updates.name !== undefined) g.name = updates.name.trim();
+    if (updates.categories !== undefined) g.categories = [...new Set(updates.categories)];
+    if (updates.monthlyTarget !== undefined) g.monthlyTarget = updates.monthlyTarget;
+    if (updates.color !== undefined) g.color = updates.color;
+    if (updates.emoji !== undefined) g.emoji = updates.emoji;
+    this._save();
+  },
+
+  deleteIncomeGroup(id) {
+    this._data.incomeGroups = (this._data.incomeGroups || []).filter(g => g.id !== id);
+    this._save();
+  },
+
+  // ── Prioridades de gasto (1=esencial … 5=recortar primero) ────────────────
+  getExpensePriorities() {
+    return { ...(this._data.expensePriorities || {}) };
+  },
+
+  getExpensePriority(key, fallback = 3) {
+    const v = this._data.expensePriorities?.[key];
+    if (v == null) return fallback;
+    return Math.min(5, Math.max(1, Number(v) || fallback));
+  },
+
+  setExpensePriority(key, priority) {
+    if (!key) return;
+    if (!this._data.expensePriorities) this._data.expensePriorities = {};
+    this._data.expensePriorities[key] = Math.min(5, Math.max(1, Number(priority) || 3));
+    this._save();
+  },
+
+  getGroupPriority(groupId) {
+    const g = (this._data.categoryGroups || []).find(x => x.id === groupId);
+    return this.getExpensePriority('group:' + groupId, g?.isFoodGroup ? 1 : 3);
+  },
+
+  getCategoryPriority(categoryName) {
+    const group = this.getCategoryGroup(categoryName);
+    if (group) return this.getGroupPriority(group.id);
+    if (categoryName === 'Imprevisto') return this.getExpensePriority('__imprevistos__', 2);
+    return this.getExpensePriority('cat:' + categoryName, 3);
+  },
+
+  /** Items configurables en Ajustes → Prioridad de gastos */
+  getPriorityConfigItems() {
+    const items = [];
+    for (const g of this.getCategoryGroups()) {
+      items.push({
+        key: 'group:' + g.id,
+        kind: 'group',
+        id: g.id,
+        name: g.name,
+        emoji: g.emoji || (g.isFoodGroup ? '🍽️' : '📂'),
+        hint: g.isFoodGroup ? 'Plan comida' : (g.monthlyBudget > 0 ? `${g.monthlyBudget.toFixed(0)}€/mes` : 'Sin presupuesto'),
+        priority: this.getGroupPriority(g.id),
+      });
+    }
+    items.push({
+      key: '__imprevistos__',
+      kind: 'system',
+      id: '__imprevistos__',
+      name: 'Imprevistos',
+      emoji: '⚠️',
+      hint: `${(this.getImprevistosBudget() || 0).toFixed(0)}€/mes`,
+      priority: this.getExpensePriority('__imprevistos__', 2),
+    });
+    const grouped = new Set(this.getCategoryGroups().flatMap(g => g.categories));
+    const limits = this.getCategoryLimits();
+    const cats = this.getCategories().filter(c => !grouped.has(c) && c !== 'Imprevisto');
+    for (const cat of cats) {
+      const hasLimit = (limits[cat] || 0) > 0;
+      items.push({
+        key: 'cat:' + cat,
+        kind: 'category',
+        id: cat,
+        name: cat,
+        emoji: '🏷️',
+        hint: hasLimit ? `Límite ${limits[cat].toFixed(0)}€/sem` : 'Sin límite semanal',
+        priority: this.getExpensePriority('cat:' + cat, 3),
+      });
+    }
+    // Sort: essential first, then by name
+    items.sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name, 'es'));
+    return items;
+  },
+
+  /** Returns true for internal accounting transactions that should NOT count as spendable expense */
+  isInternalTx(t) {
+    return !!(t._noAutoBalance || t.category === '__ajuste__' || t.type === 'Traspaso');
+  },
+
+  /** Canonical "real spendable expense" filter — use this everywhere for budget calculations */
+  isSpendableExpense(t) {
+    return t.type === 'Gasto' && !this.isInternalTx(t) && !t._debtPending;
+  },
 
   getImprevistosBudget() { return this._data.imprevistosBudget ?? 0; },
   setImprevistosBudget(v) { this._data.imprevistosBudget = v; this._save(); },
@@ -569,6 +1290,8 @@ const Store = {
     return total;
   },
 
+  getCashBalance() { return this._data.cashBalance ?? 0; },
+  setCashBalance(v) { this._data.cashBalance = v; this._save(); },
   getCheckingBalance() { return this._data.checkingBalance; },
   setCheckingBalance(v) { this._data.checkingBalance = v; this._save(); },
   getCheckingBaseBalance() { return this._data.checkingBaseBalance ?? 0; },
@@ -576,16 +1299,89 @@ const Store = {
   getSavingsBalance() { return this._data.savingsBalance || 0; },
   setSavingsBalance(v) { this._data.savingsBalance = v; this._save(); },
   getTransfers() { return [...(this._data.transfers || [])]; },
-  addTransfer(amount, note) {
-    const t = { id: Date.now().toString(36), date: new Date().toISOString().split('T')[0], amount, note: note || '', month: Store.getCurrentMonth() };
-    this._data.transfers.push(t);
-    this._data.savingsBalance = (this._data.savingsBalance || 0) + amount;
-    this._save();
-    return t;
+
+  /**
+   * Traspaso global entre cuentas (misma forma que Movimientos / Calendario).
+   * Actualiza saldos vía _applyBalanceDelta. Opcionalmente registra en transfers[].
+   */
+  createAccountTransfer({
+    amount,
+    description,
+    transferType = 'to_savings',
+    date,
+    logNote,
+    emoji,
+    skipTransferLog = false,
+  } = {}) {
+    const amt = Number(amount);
+    if (!amt || amt <= 0) return null;
+    const dateStr = date || new Date().toISOString().split('T')[0];
+    const isEmergency = transferType === 'from_savings_emergency';
+    const checking = this.getCheckingBalance();
+    const savings = this.getSavingsBalance();
+    if (!isEmergency && checking !== null && checking < amt) return -1;
+    if (isEmergency && savings < amt) return -1;
+
+    const tx = this.addTransaction({
+      date: dateStr,
+      amount: amt,
+      description: description || (isEmergency ? 'Gasto de ahorro (imprevisto)' : 'Traspaso a ahorro'),
+      type: 'Traspaso',
+      category: 'Traspaso',
+      paymentMethod: 'Transferencia',
+      account: 'checking',
+      transferType,
+      emoji: emoji || (isEmergency ? '🆘' : '🐷'),
+    });
+
+    if (!skipTransferLog && !isEmergency) {
+      if (!this._data.transfers) this._data.transfers = [];
+      this._data.transfers.push({
+        id: Date.now().toString(36) + Math.random().toString(36).substr(2, 4),
+        date: dateStr,
+        amount: amt,
+        note: logNote || description || '',
+        month: dateStr.substring(0, 7),
+        txId: tx.id,
+      });
+      this._save();
+    }
+    return tx;
   },
+
+  addTransfer(amount, note) {
+    const result = this.createAccountTransfer({
+      amount,
+      description: note || 'Traspaso a ahorro',
+      logNote: note || '',
+      transferType: 'to_savings',
+    });
+    if (result === -1 || !result) return null;
+    const log = (this._data.transfers || []).find(t => t.txId === result.id);
+    return log || { id: result.id, date: result.date, amount, note: note || '', month: result.month };
+  },
+
   deleteTransfer(id) {
     const t = this._data.transfers.find(x => x.id === id);
-    if (t) { this._data.savingsBalance = Math.max(0, (this._data.savingsBalance || 0) - t.amount); }
+    if (t) {
+      if (t.txId) {
+        const tx = this._data.transactions.find(x => x.id === t.txId);
+        if (tx) this.deleteTransaction(t.txId);
+        else {
+          // Log huérfano: revertir saldos a mano
+          this._data.savingsBalance = Math.max(0, (this._data.savingsBalance || 0) - t.amount);
+          if (this._data.checkingBalance !== null) {
+            this._data.checkingBalance = Math.round(((this._data.checkingBalance || 0) + t.amount) * 100) / 100;
+          }
+        }
+      } else {
+        // Legacy (antes de Traspaso global): solo tocaba ahorro; también devolver a corriente
+        this._data.savingsBalance = Math.max(0, (this._data.savingsBalance || 0) - t.amount);
+        if (this._data.checkingBalance !== null) {
+          this._data.checkingBalance = Math.round(((this._data.checkingBalance || 0) + t.amount) * 100) / 100;
+        }
+      }
+    }
     this._data.transfers = this._data.transfers.filter(x => x.id !== id);
     this._save();
   },
@@ -647,12 +1443,15 @@ const Store = {
     if (active.length === 0) return 0;
     const totalWeekly = this.getRecommendedWeeklySaving(goals);
     if (totalWeekly <= 0) return 0;
-    const checking = this.getCheckingBalance();
-    if (checking !== null && checking < totalWeekly) return -1;
-    const t = { id: Date.now().toString(36), date: new Date().toISOString().split('T')[0], amount: totalWeekly, note: 'Ahorro semanal', month: Store.getCurrentMonth() };
-    this._data.transfers.push(t);
-    this._data.savingsBalance = (this._data.savingsBalance || 0) + totalWeekly;
-    if (checking !== null) this._data.checkingBalance = Math.max(0, checking - totalWeekly);
+    const result = this.createAccountTransfer({
+      amount: totalWeekly,
+      description: 'Ahorro semanal distribuido a metas',
+      logNote: 'Ahorro semanal',
+      transferType: 'to_savings',
+      emoji: '🐷',
+    });
+    if (result === -1) return -1;
+    if (!result) return 0;
     for (const g of active) {
       const remaining = g.targetAmount - g.currentAmount;
       let need = 0;
@@ -667,18 +1466,6 @@ const Store = {
       const goal = this._data.savingGoals.find(x => x.id === g.id);
       if (goal) goal.currentAmount = Math.min(goal.targetAmount, goal.currentAmount + contribution);
     }
-    const tx = {
-      id: Date.now().toString(36) + Math.random().toString(36).substr(2, 8),
-      date: new Date().toISOString().split('T')[0],
-      month: Store.getCurrentMonth(),
-      type: 'Gasto', category: 'Ahorro',
-      amount: totalWeekly,
-      description: 'Ahorro semanal distribuido a metas',
-      paymentMethod: 'Transferencia',
-      account: 'checking',
-      _noAutoBalance: true,   // balance already updated above directly
-    };
-    this._data.transactions.push(tx);
     this._save();
     return totalWeekly;
   },
@@ -743,10 +1530,16 @@ const Store = {
       totalWeekly += remaining / weeksLeft;
     }
     if (totalWeekly <= 0) return 0;
-    const checking = this.getCheckingBalance();
-    if (checking !== null && checking < totalWeekly) return -1;
+    const result = this.createAccountTransfer({
+      amount: totalWeekly,
+      description: 'Reserva semanal para gastos planificados',
+      logNote: 'Ahorro programado',
+      transferType: 'to_savings',
+      emoji: '📋',
+    });
+    if (result === -1) return -1;
+    if (!result) return 0;
     this._data.plannedExpensesReserved = (this._data.plannedExpensesReserved || 0) + totalWeekly;
-    if (checking !== null) this._data.checkingBalance = Math.max(0, checking - totalWeekly);
     for (const p of active) {
       const remaining = p.amount - (p.savedSoFar || 0);
       const tgt = new Date(p.targetDate + 'T23:59:59');
@@ -755,18 +1548,6 @@ const Store = {
       const plannedItem = this._data.plannedExpenses.find(x => x.id === p.id);
       if (plannedItem) plannedItem.savedSoFar = Math.min(p.amount, (plannedItem.savedSoFar || 0) + need);
     }
-    const tx = {
-      id: Date.now().toString(36) + Math.random().toString(36).substr(2, 8),
-      date: new Date().toISOString().split('T')[0],
-      month: Store.getCurrentMonth(),
-      type: 'Gasto', category: 'Ahorro programado',
-      amount: totalWeekly,
-      description: 'Reserva semanal para gastos planificados',
-      paymentMethod: 'Transferencia',
-      account: 'checking',
-      _noAutoBalance: true,
-    };
-    this._data.transactions.push(tx);
     this._save();
     return totalWeekly;
   },
@@ -787,8 +1568,60 @@ const Store = {
   getPendingOwedToMe() { return this.getPendingDebts().filter(d => (d.type || 'owed_to_me') === 'owed_to_me'); },
   getPendingIOwe()     { return this.getPendingDebts().filter(d => d.type === 'i_owe'); },
 
+  getDebtByLinkedTx(txId) {
+    return (this._data.debts || []).find(d => d.linkedTxId === txId && !d.isPaid) || null;
+  },
+
+  getDebtsByLinkedTx(txId) {
+    return (this._data.debts || []).filter(d => d.linkedTxId === txId && !d.isPaid);
+  },
+
+  getDebtById(id) {
+    return (this._data.debts || []).find(d => d.id === id) || null;
+  },
+
+  _createDebtTransaction(debt, opts = {}) {
+    const isOwedToMe = (debt.type || 'owed_to_me') === 'owed_to_me';
+    const txAmount = opts.txAmount || debt.totalAmount || debt.amount;
+    const tx = {
+      id: Date.now().toString(36) + Math.random().toString(36).substr(2, 8),
+      date: debt.date || new Date().toISOString().split('T')[0],
+      month: (debt.date || new Date().toISOString().split('T')[0]).substring(0, 7),
+      type: opts.type || 'Gasto',
+      category: debt.category || 'Otros',
+      amount: txAmount,
+      description: debt.description || (isOwedToMe
+        ? `Gasto pagado por mí (${debt.person} me debe)`
+        : `Debo a ${debt.person}`),
+      paymentMethod: opts.paymentMethod || 'Bizum',
+      account: opts.account || 'checking',
+      _debtId: debt.id,
+    };
+    if (opts._debtPending) tx._debtPending = true;
+    if (opts._noAutoBalance) tx._noAutoBalance = true;
+    if (!tx._noAutoBalance) this._applyBalanceDelta(tx, 1);
+    this._data.transactions.push(tx);
+    return tx;
+  },
+
+  _syncDebtToLinkedTx(debt) {
+    if (!debt.linkedTxId || !debt.autoCreatedTx) return;
+    const tx = this._data.transactions.find(t => t.id === debt.linkedTxId);
+    if (!tx || tx._debtId !== debt.id) return;
+    const isOwedToMe = (debt.type || 'owed_to_me') === 'owed_to_me';
+    this._applyBalanceDelta(tx, -1);
+    tx.amount = debt.amount;
+    tx.date = debt.date || tx.date;
+    tx.month = tx.date.substring(0, 7);
+    tx.category = debt.category || tx.category;
+    tx.description = debt.description || (isOwedToMe
+      ? `Gasto pagado por mí (${debt.person} me debe)`
+      : `Debo a ${debt.person}`);
+    if (!tx._noAutoBalance) this._applyBalanceDelta(tx, 1);
+  },
+
   addDebt(data) {
-    // Accepts object: { person, amount, description, type, category, date, linkedTxId }
+    // Accepts object: { person, amount, description, type, category, date, linkedTxId, skipAutoTx }
     // Or legacy (person, amount, description) for backward compat
     let d;
     if (typeof data === 'object' && data !== null && !Array.isArray(data)) {
@@ -802,9 +1635,13 @@ const Store = {
         category: data.category || 'Otros',
         isPaid: false, paidDate: null, paidTxId: null,
         linkedTxId: data.linkedTxId || null,
+        autoCreatedTx: false,
+        splitCount: data.splitCount || null,
+        totalAmount: data.totalAmount || null,
+        splitGroupId: data.splitGroupId || null,
+        splitLines: data.splitLines || null,
       };
     } else {
-      // Legacy call: addDebt(person, amount, description)
       const [person, amount, description] = arguments;
       d = {
         id: Date.now().toString(36) + Math.random().toString(36).substr(2, 6),
@@ -812,19 +1649,121 @@ const Store = {
         date: new Date().toISOString().split('T')[0],
         type: 'owed_to_me', category: 'Otros',
         isPaid: false, paidDate: null, paidTxId: null, linkedTxId: null,
+        autoCreatedTx: false,
       };
+      data = { skipAutoTx: false };
     }
+
+    if (d.linkedTxId) {
+      const linked = this._data.transactions.find(t => t.id === d.linkedTxId);
+      if (linked) linked._debtId = d.id;
+    } else if (!data.skipAutoTx) {
+      if (d.type === 'owed_to_me') {
+        const tx = this._createDebtTransaction(d, { type: 'Gasto' });
+        d.linkedTxId = tx.id;
+        d.autoCreatedTx = true;
+      } else if (d.type === 'i_owe') {
+        const tx = this._createDebtTransaction(d, {
+          type: 'Gasto', _debtPending: true, _noAutoBalance: true,
+        });
+        d.linkedTxId = tx.id;
+        d.autoCreatedTx = true;
+      }
+    }
+
     this._data.debts.push(d);
+    if (d.person) this.rememberPerson(d.person, false);
     this._save();
     return d;
   },
 
+  /** Create one debt per person. Supports equal split or per-person custom amounts (splitLines mode). */
+  addDebtsForPeople({ persons, amount, amountsByPerson, totalAmount, splitCount, splitLines, type, description, category, date, linkedTxId, skipAutoTx }) {
+    const people = [...new Set((persons || []).map(p => p.trim()).filter(Boolean))];
+    if (people.length === 0) return [];
+    const count = Math.max(people.length + 1, parseInt(splitCount, 10) || 2);
+
+    let share;
+    if (!amountsByPerson) {
+      share = (amount > 0 ? amount : null) || this.calcSplitAmount(totalAmount, count);
+      if (!share || share <= 0) return [];
+    }
+
+    const groupId = people.length > 1 ? Date.now().toString(36) + Math.random().toString(36).substr(2, 6) : null;
+    const created = [];
+    const linkOnce = linkedTxId;
+    let first = true;
+    for (const person of people) {
+      const personAmount = amountsByPerson ? amountsByPerson[person] : share;
+      // In itemized mode, skip people who owe nothing
+      if (amountsByPerson && (!personAmount || personAmount <= 0)) continue;
+      const debt = this.addDebt({
+        person, amount: personAmount, type, description, category, date,
+        linkedTxId: linkOnce,
+        skipAutoTx: skipAutoTx || !!linkOnce || !first,
+        splitCount: count,
+        totalAmount,
+        splitGroupId: groupId,
+        splitLines: splitLines || null,
+      });
+      created.push(debt);
+      first = false;
+    }
+    return created;
+  },
+
+  linkDebtsToTransaction(txId, debtPayload) {
+    const { persons, person, totalAmount, splitCount, ...rest } = debtPayload;
+    if (persons && persons.length > 0) {
+      return this.addDebtsForPeople({
+        persons, totalAmount, splitCount, ...rest,
+        linkedTxId: txId, skipAutoTx: true,
+      });
+    }
+    const debt = this.linkDebtToTransaction(txId, {
+      person, amount: rest.amount, ...rest,
+      splitCount, totalAmount,
+    });
+    return debt ? [debt] : [];
+  },
+
+  linkDebtToTransaction(txId, debtData) {
+    const tx = this._data.transactions.find(t => t.id === txId);
+    if (!tx) return null;
+    const existing = this.getDebtByLinkedTx(txId);
+    if (existing) {
+      this.updateDebt(existing.id, debtData);
+      return existing;
+    }
+    return this.addDebt({ ...debtData, linkedTxId: txId, skipAutoTx: true });
+  },
+
   updateDebt(id, updates) {
     const d = this._data.debts.find(x => x.id === id);
-    if (d) { Object.assign(d, updates); this._save(); }
+    if (d) {
+      Object.assign(d, updates);
+      if (updates.person) this.rememberPerson(updates.person, false);
+      this._syncDebtToLinkedTx(d);
+      if (d.linkedTxId) {
+        const tx = this._data.transactions.find(t => t.id === d.linkedTxId);
+        if (tx) tx._debtId = d.id;
+      }
+      this._save();
+    }
   },
 
   deleteDebt(id) {
+    const debt = this._data.debts.find(d => d.id === id);
+    if (debt?.autoCreatedTx && debt.linkedTxId) {
+      const tx = this._data.transactions.find(t => t.id === debt.linkedTxId);
+      if (tx && tx._debtId === id) {
+        this._applyBalanceDelta(tx, -1);
+        this._data.transactions = this._data.transactions.filter(t => t.id !== debt.linkedTxId);
+      }
+    } else if (debt?.linkedTxId) {
+      const tx = this._data.transactions.find(t => t.id === debt.linkedTxId);
+      if (tx && tx._debtId === id) delete tx._debtId;
+    }
     this._data.debts = this._data.debts.filter(d => d.id !== id);
     this._save();
   },
@@ -835,10 +1774,26 @@ const Store = {
     if (!debt || debt.isPaid) return null;
     const today = new Date().toISOString().split('T')[0];
     const month = today.substring(0, 7);
+    const isOwedToMe = (debt.type || 'owed_to_me') === 'owed_to_me';
+
+    if (!isOwedToMe && debt.linkedTxId && debt.autoCreatedTx) {
+      const pending = this._data.transactions.find(t => t.id === debt.linkedTxId);
+      if (pending && pending._debtPending) {
+        delete pending._debtPending;
+        delete pending._noAutoBalance;
+        pending.description = `Pago a ${debt.person}${debt.description ? ': ' + debt.description : ''}`;
+        this._applyBalanceDelta(pending, 1);
+        debt.isPaid = true;
+        debt.paidDate = today;
+        debt.paidTxId = pending.id;
+        this._save();
+        return pending;
+      }
+    }
+
     debt.isPaid = true;
     debt.paidDate = today;
 
-    const isOwedToMe = (debt.type || 'owed_to_me') === 'owed_to_me';
     const tx = {
       id: Date.now().toString(36) + Math.random().toString(36).substr(2, 8),
       date: today, month,
@@ -861,6 +1816,60 @@ const Store = {
 
   /** Legacy payDebt kept for any existing calls */
   payDebt(id) { return this.settleDebt(id); },
+
+  /**
+   * Calcula el balance neto con una persona.
+   * Positivo: me deben. Negativo: les debo. Cero: a mano.
+   */
+  getNetBalance(person) {
+    const pending = this.getPendingDebts().filter(d => d.person === person);
+    const owedToMe = pending.filter(d => (d.type || 'owed_to_me') === 'owed_to_me').reduce((s, d) => s + d.amount, 0);
+    const iOwe     = pending.filter(d => d.type === 'i_owe').reduce((s, d) => s + d.amount, 0);
+    return Math.round((owedToMe - iOwe) * 100) / 100;
+  },
+
+  /**
+   * Liquida todas las deudas pendientes con una persona creando un único movimiento
+   * por el importe neto. Estilo Tricount.
+   * - net > 0: esa persona me paga la diferencia → Ingreso
+   * - net < 0: yo pago la diferencia → Gasto
+   * - net == 0: marca todo como liquidado sin movimiento de dinero
+   */
+  settlePersonNet(person) {
+    const pending = this.getPendingDebts().filter(d => d.person === person);
+    if (pending.length === 0) return null;
+    const net = this.getNetBalance(person);
+    const today = new Date().toISOString().split('T')[0];
+    const month = today.substring(0, 7);
+    let tx = null;
+
+    if (Math.abs(net) >= 0.01) {
+      const isIncome = net > 0;
+      tx = {
+        id: Date.now().toString(36) + Math.random().toString(36).substr(2, 8),
+        date: today, month,
+        type: isIncome ? 'Ingreso' : 'Gasto',
+        category: isIncome ? 'Deuda cobrada' : (pending.find(d => d.type === 'i_owe')?.category || 'Otros'),
+        amount: Math.abs(net),
+        description: isIncome
+          ? `Saldo neto cobrado a ${person}`
+          : `Saldo neto pagado a ${person}`,
+        paymentMethod: 'Bizum',
+        account: 'checking',
+      };
+      this._applyBalanceDelta(tx, 1);
+      this._data.transactions.push(tx);
+    }
+
+    // Marcar todas las deudas pendientes como liquidadas
+    for (const d of pending) {
+      d.isPaid = true;
+      d.paidDate = today;
+      d.paidTxId = tx ? tx.id : null;
+    }
+    this._save();
+    return tx;
+  },
 
   exportJSON() {
     const d = JSON.parse(JSON.stringify(this._data));
@@ -993,10 +2002,37 @@ const Store = {
       .map(([cat]) => cat);
   },
 
+  /**
+   * Restablece la app a estado de fábrica.
+   * - Limpia localStorage (datos, backups, configuración de sync, frase)
+   * - Opcionalmente borra el blob del servidor (DELETE /api/data)
+   * - Reinicia _data a defaultData vacío
+   */
+  async factoryReset({ deleteServer = false } = {}) {
+    this._backup('pre-factory-reset');
+    if (deleteServer) {
+      try { await this._apiFetch('/api/data', { method: 'DELETE' }); } catch {}
+    }
+    const keysToRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && (k.startsWith('ahorro_') || k === STORAGE_KEY)) keysToRemove.push(k);
+    }
+    keysToRemove.forEach(k => localStorage.removeItem(k));
+    const now = new Date();
+    this._data = JSON.parse(JSON.stringify(defaultData));
+    this._data.currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    this._data._lastModified = 0;
+    this._ready = false;
+    if (this._syncTimer) { clearInterval(this._syncTimer); this._syncTimer = null; }
+    this._setSyncStatus('offline', 'Restablecido — configura la sincronización');
+  },
+
   /** Returns true if a transaction is a balance-sync adjustment (not a real income/expense). */
   isAdjustment(t) { return t.category === '__ajuste__'; },
   isTraspaso(t)   { return t.type === 'Traspaso'; },
-  isExpense(t)    { return t.type !== 'Ingreso' && t.type !== 'Traspaso' && !this.isAdjustment(t); },
+  isExpense(t)    { return t.type !== 'Ingreso' && t.type !== 'Traspaso' && !this.isAdjustment(t) && !t._debtPending; },
+  isDebtExpense(t) { return t.type === 'Gasto' && !this.isAdjustment(t); },
 
   // ── Transaction groups ──────────────────────────────────────────────────────
   getTxGroups() { return this._data.txGroups || {}; },

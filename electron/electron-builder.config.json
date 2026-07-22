@@ -1,0 +1,42 @@
+{
+  "appId": "com.presupuesto.personal",
+  "productName": "Presupuesto Personal",
+  "directories": {
+    "buildResources": "resources",
+    "output": "dist"
+  },
+  "files": [
+    "assets/**/*",
+    "build/**/*",
+    "capacitor.config.*",
+    "app/**/*"
+  ],
+  "publish": null,
+  "nsis": {
+    "oneClick": false,
+    "allowElevation": false,
+    "allowToChangeInstallationDirectory": true,
+    "shortcutName": "Presupuesto Personal",
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true
+  },
+  "win": {
+    "target": [
+      { "target": "nsis", "arch": ["x64"] },
+      { "target": "portable", "arch": ["x64"] }
+    ]
+  },
+  "mac": {
+    "category": "public.app-category.finance",
+    "target": [
+      { "target": "dmg", "arch": ["universal"] }
+    ],
+    "hardenedRuntime": false,
+    "gatekeeperAssess": false,
+    "identity": null
+  },
+  "linux": {
+    "target": ["AppImage"],
+    "category": "Finance"
+  }
+}

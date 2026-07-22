@@ -1,11 +1,37 @@
 {
   "name": "presupuesto-personal",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
+  "description": "App de presupuesto personal con cifrado E2E y sincronización en la nube",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "start:secure": "SYNC_KEY=cambia_esta_clave node server.js",
+    "build:web": "node build-web.js",
+    "cap:sync:android": "node build-web.js && npx cap sync android",
+    "cap:sync:ios": "node build-web.js && npx cap sync ios",
+    "cap:android": "node build-web.js && npx cap sync android && npx cap open android",
+    "cap:ios": "node build-web.js && npx cap sync ios && npx cap open ios",
+    "cap:init": "npx cap init \"Presupuesto\" com.presupuesto.personal --web-dir www",
+    "cap:add:android": "npx cap add android",
+    "cap:add:ios": "npx cap add ios",
+    "docker:build": "docker build -t presupuesto-personal .",
+    "docker:run": "docker run -p 3000:3000 -v presupuesto-data:/app/data -e SYNC_KEY=cambia_esta_clave presupuesto-personal",
+    "installer:windows": "node build-web.js && cd electron && npm run build && npx electron-builder build --win nsis --x64 -c ./electron-builder.config.json",
+    "installer:mac": "node build-web.js && cd electron && npm run build && npx electron-builder build --mac dmg -c ./electron-builder.config.json",
+    "installer:open": "explorer electron\\dist"
   },
   "dependencies": {
     "express": "^4.21.0"
+  },
+  "devDependencies": {
+    "@capacitor-community/electron": "^5.0.1",
+    "@capacitor/android": "^8.4.2",
+    "@capacitor/cli": "^8.4.2",
+    "@capacitor/core": "^8.4.2",
+    "@capacitor/ios": "^8.4.2",
+    "@capacitor/splash-screen": "^6.0.0",
+    "@capacitor/status-bar": "^6.0.0",
+    "electron": "^43.2.0",
+    "electron-builder": "^26.15.3"
   }
 }
