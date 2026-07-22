@@ -110,42 +110,31 @@ const Store = {
     return s.provider === 'supabase' && !!(s.supabaseUrl && s.supabaseAnonKey);
   },
 
-  _supabaseEndpoint() {
-    const { supabaseUrl } = this.getSyncSettings();
-    return `${supabaseUrl}/rest/v1/sync_data`;
-  },
-
-  _supabaseHeaders(extra = {}) {
-    const { supabaseAnonKey } = this.getSyncSettings();
-    return {
-      'apikey': supabaseAnonKey,
-      'Authorization': `Bearer ${supabaseAnonKey}`,
-      'Content-Type': 'application/json',
-      ...extra,
-    };
+  _getSupabaseClient() {
+    const { supabaseUrl, supabaseAnonKey } = this.getSyncSettings();
+    // window.supabase is provided by the CDN script in index.html
+    return window.supabase.createClient(supabaseUrl, supabaseAnonKey);
   },
 
   async _pushToSupabase(blob) {
     const { supabaseRowId } = this.getSyncSettings();
     const id = supabaseRowId || 'default';
-    const res = await fetch(this._supabaseEndpoint(), {
-      method: 'POST',
-      headers: this._supabaseHeaders({ 'Prefer': 'resolution=merge-duplicates' }),
-      body: JSON.stringify({ id, payload: blob }),
-    });
-    return res.ok;
+    const { error } = await this._getSupabaseClient()
+      .from('sync_data')
+      .upsert({ id, payload: blob });
+    return !error;
   },
 
   async _pullFromSupabase() {
     const { supabaseRowId } = this.getSyncSettings();
     const id = supabaseRowId || 'default';
-    const res = await fetch(`${this._supabaseEndpoint()}?id=eq.${encodeURIComponent(id)}&select=payload,updated_at`, {
-      headers: this._supabaseHeaders(),
-    });
-    if (!res.ok) throw new Error(`Supabase error ${res.status}`);
-    const rows = await res.json();
-    if (!rows || rows.length === 0) return null;
-    return rows[0].payload;
+    const { data, error } = await this._getSupabaseClient()
+      .from('sync_data')
+      .select('payload')
+      .eq('id', id)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return data ? data.payload : null;
   },
 
   // ── Frase de cifrado (E2E) ─────────────────────────────────────────────────
