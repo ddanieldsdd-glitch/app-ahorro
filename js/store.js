@@ -100,7 +100,7 @@ const Store = {
         provider: settings.provider || prev.provider || 'supabase',
         serverUrl: (settings.serverUrl || '').trim().replace(/\/+$/, ''),
         syncKey: settings.syncKey || '',
-        supabaseUrl: (settings.supabaseUrl || '').trim().replace(/\/+$/, ''),
+        supabaseUrl: this._normalizeSupabaseUrl(settings.supabaseUrl || ''),
         supabaseAnonKey: settings.supabaseAnonKey || '',
         supabaseRowId: settings.supabaseRowId || prev.supabaseRowId || 'default',
       };
@@ -112,6 +112,34 @@ const Store = {
   },
 
   // ── Supabase helpers ────────────────────────────────────────────────────────
+  /** Accepts API URL, dashboard URL, or bare project ref → https://<ref>.supabase.co */
+  _normalizeSupabaseUrl(raw) {
+    const s = String(raw || '').trim().replace(/\/+$/, '');
+    if (!s) return '';
+    const dash = s.match(/supabase\.com\/(?:dashboard\/)?project\/([a-z0-9]+)/i);
+    if (dash) return `https://${dash[1]}.supabase.co`;
+    if (/^[a-z0-9]{15,}$/i.test(s)) return `https://${s}.supabase.co`;
+    try {
+      const u = new URL(s.startsWith('http') ? s : `https://${s}`);
+      if (u.hostname.endsWith('.supabase.co')) return `https://${u.hostname}`;
+    } catch { /* ignore */ }
+    return s;
+  },
+
+  _supabaseErrorHint(message) {
+    const msg = String(message || '');
+    if (/permission denied|42501/i.test(msg)) {
+      return 'Sin permisos en sync_data. Abre SQL Editor y ejecuta el SQL de configuración (incluye GRANT).';
+    }
+    if (/does not exist|42P01/i.test(msg)) {
+      return 'Falta la tabla sync_data. Ejecuta el SQL de configuración en Supabase → SQL Editor.';
+    }
+    if (/Failed to fetch|NetworkError|Invalid URL|ENOTFOUND/i.test(msg)) {
+      return 'URL incorrecta. Usa https://xxxxx.supabase.co (no el enlace del panel).';
+    }
+    return msg || 'Error de Supabase';
+  },
+
   _isSupabase() {
     const s = this.getSyncSettings();
     return s.provider === 'supabase' && !!(s.supabaseUrl && s.supabaseAnonKey);
@@ -129,7 +157,8 @@ const Store = {
     const { error } = await this._getSupabaseClient()
       .from('sync_data')
       .upsert({ id, payload: blob });
-    return !error;
+    if (error) throw new Error(this._supabaseErrorHint(error.message));
+    return true;
   },
 
   async _pullFromSupabase() {
@@ -140,7 +169,7 @@ const Store = {
       .select('payload')
       .eq('id', id)
       .maybeSingle();
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(this._supabaseErrorHint(error.message));
     return data ? data.payload : null;
   },
 
@@ -289,6 +318,23 @@ const Store = {
   },
 
   async testSyncConnection() {
+    if (this._isSupabase()) {
+      try {
+        const url = this.getSyncSettings().supabaseUrl;
+        if (!/\.supabase\.co$/i.test(new URL(url).hostname)) {
+          return { ok: false, message: 'URL incorrecta. Debe ser https://xxxxx.supabase.co' };
+        }
+        const { error } = await this._getSupabaseClient()
+          .from('sync_data')
+          .select('id')
+          .limit(1);
+        if (error) return { ok: false, message: this._supabaseErrorHint(error.message) };
+        const host = new URL(url).hostname.replace('.supabase.co', '');
+        return { ok: true, message: `Supabase conectado (${host})` };
+      } catch (e) {
+        return { ok: false, message: this._supabaseErrorHint(e.message) };
+      }
+    }
     try {
       const res = await this._apiFetch('/api/health');
       if (res.status === 401) return { ok: false, message: 'Clave de sincronización incorrecta' };
@@ -2000,7 +2046,7 @@ const Store = {
 
   setSharedSyncSettings({ supabaseUrl = '', supabaseAnonKey = '', rowId = '', passphrase = '' } = {}) {
     const obj = {
-      supabaseUrl: supabaseUrl.trim().replace(/\/+$/, ''),
+      supabaseUrl: this._normalizeSupabaseUrl(supabaseUrl),
       supabaseAnonKey: supabaseAnonKey.trim(),
       rowId: rowId.trim() || 'compartido',
       passphrase,

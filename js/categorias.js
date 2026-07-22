@@ -202,6 +202,7 @@ const Categorias = {
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 ALTER TABLE sync_data ENABLE ROW LEVEL SECURITY;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.sync_data TO anon, authenticated;
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -223,6 +224,9 @@ END $$;</code>
             <input type="url" id="supabaseUrl" placeholder="https://xxxxx.supabase.co"
               value="${esc(Store.getSyncSettings().supabaseUrl || '')}"
               style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--card);color:var(--text)">
+            <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">
+              Settings → API → <strong>Project URL</strong> (<code>https://xxxxx.supabase.co</code>). No pegues el enlace del panel.
+            </div>
           </div>
           <div class="form-group" style="margin-bottom:8px">
             <label style="font-size:12px;font-weight:600">2. Publishable key</label>
