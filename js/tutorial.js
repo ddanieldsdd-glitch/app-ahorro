@@ -131,13 +131,48 @@ const Tutorial = {
         <ol style="font-size:12px;line-height:1.9;padding-left:18px;color:var(--text);margin-bottom:12px">
           <li>Ve a <strong>supabase.com</strong> → crea cuenta gratuita y un proyecto nuevo</li>
           <li>En el proyecto → <em>SQL Editor</em> → pega el SQL de <strong>⚙️ → Sincronización → "Cómo configurar Supabase"</strong></li>
-          <li>En <em>Settings → API</em> copia la <strong>Project URL</strong> y la <strong>anon key</strong></li>
-          <li>En <strong>⚙️ → Sincronización</strong> selecciona <em>Supabase</em>, pega URL y clave, pon un ID único y añade tu frase de cifrado</li>
-          <li>Repite en cada dispositivo con los <em>mismos datos</em></li>
+          <li>En el dashboard ve a <strong>Settings → API Keys</strong> y copia:
+            <ul style="margin-top:4px;line-height:1.7">
+              <li><strong>Project URL</strong> — algo como <code>https://xxxxx.supabase.co</code></li>
+              <li><strong>Publishable key</strong> — empieza por <code>sb_publishable_...</code></li>
+            </ul>
+          </li>
+          <li>En <strong>⚙️ → Sincronización</strong> selecciona <em>Supabase</em>, pega URL y clave, pon un ID de fila único y añade tu frase de cifrado</li>
+          <li>Repite en cada dispositivo tuyo con los <em>mismos datos</em></li>
         </ol>
-        <div style="background:var(--bg);padding:10px;border-radius:8px;font-size:11px;color:var(--text-secondary);line-height:1.5">
+        <div style="background:var(--bg);padding:10px;border-radius:8px;font-size:11px;color:var(--text-secondary);line-height:1.6">
           🔐 Supabase nunca ve tus datos en claro — viajan cifrados AES-256 desde tu dispositivo.<br>
-          Exporta a Excel periódicamente como backup adicional.
+          💡 Si aún ves la clave <code>anon</code> clásica (<code>eyJ...</code>), también funciona hasta finales de 2026.
+        </div>`,
+    },
+    {
+      title: '🤝 Espacio compartido con tu pareja',
+      body: `
+        <p style="font-size:13px;line-height:1.7;color:var(--text);margin-bottom:12px">
+          Cada persona tiene su propio perfil <strong>privado e independiente</strong>.
+          Además, podéis compartir un espacio de deudas comunes — estilo Tricount — sin que ninguno vea los gastos del otro.
+        </p>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">
+          <div style="background:var(--bg);padding:10px;border-radius:8px;font-size:12px;line-height:1.6">
+            <strong>👤 Tu perfil</strong><br>
+            ID de fila: <code>yo</code> · Frase: <em>solo la tuya</em><br>
+            <span style="color:var(--text-secondary)">Nadie más puede ver tus gastos e ingresos.</span>
+          </div>
+          <div style="background:var(--bg);padding:10px;border-radius:8px;font-size:12px;line-height:1.6">
+            <strong>👤 Perfil de tu pareja</strong><br>
+            ID de fila: <code>pareja</code> · Frase: <em>solo la suya</em><br>
+            <span style="color:var(--text-secondary)">Configurado en su dispositivo, invisible para ti.</span>
+          </div>
+          <div style="background:var(--bg);padding:10px;border-radius:8px;font-size:12px;line-height:1.6;border:1.5px solid var(--primary)">
+            <strong>🤝 Espacio compartido</strong> (ambos)<br>
+            ID de fila: <code>compartido</code> · Frase: <em>la que acordéis juntos</em><br>
+            <span style="color:var(--text-secondary)">Configúralo en <strong>⚙️ → Espacio compartido con tu pareja</strong>.</span>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;background:var(--bg);padding:10px;border-radius:8px">
+          En la pestaña <strong>💸 Deudas</strong> verás el toggle<br>
+          <strong>👤 Mis deudas</strong> · <strong>🤝 Compartidas</strong><br>
+          Las deudas compartidas se sincronizan en tiempo real y el balance neto Tricount funciona igual que en las personales.
         </div>`,
     },
     {
