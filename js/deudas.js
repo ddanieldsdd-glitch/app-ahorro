@@ -307,27 +307,39 @@ const Deudas = {
       </div>`;
   },
 
-  // ── Split mode: manual exclusions ────────────────────────────────────────
+  // ── Split mode: manual (quick / lines / by-person) ───────────────────────
 
   _getSplitMode(prefix) {
-    return document.getElementById(prefix + 'SplitMode')?.value || 'simple';
+    const m = document.getElementById(prefix + 'SplitMode')?.value || 'simple';
+    return m === 'exclusions' ? 'manual' : m;
+  },
+
+  _personFieldId(prefix, person) {
+    return prefix + 'Amt_' + person.replace(/[^a-zA-Z0-9]/g, '_');
   },
 
   _splitLineId() {
     return Date.now().toString(36) + Math.random().toString(36).substr(2, 4);
   },
 
-  _computeSplitAmounts(lines, persons) {
-    const count = persons.length + 1; // +1 for "me"
+  _computeSplitAmounts(lines, persons, type = 'owed_to_me') {
+    const count = Math.max(persons.length + 1, 2);
+    const isOwed = type === 'owed_to_me';
     const result = {};
     for (const person of persons) {
       let owed = 0;
       for (const line of lines) {
         const amt = parseFloat(line.amount) || 0;
+        if (amt <= 0) continue;
         if (line.mode === 'equal') {
           owed += amt / count;
-        } else if (line.mode === 'sole' && line.payer === person) {
-          owed += amt;
+        } else if (line.mode === 'custom' && line.assignments) {
+          owed += parseFloat(line.assignments[person]) || 0;
+        } else if (line.mode === 'sole') {
+          if (isOwed && line.payer === person) owed += amt;
+          else if (!isOwed && line.payer === 'me') {
+            owed += persons.length === 1 ? amt : amt / persons.length;
+          }
         }
       }
       result[person] = Math.round(owed * 100) / 100;
@@ -335,173 +347,479 @@ const Deudas = {
     return result;
   },
 
-  _recalcExclusions(prefix) {
-    const total    = parseFloat(document.getElementById(prefix + 'ExclTotal')?.value) || 0;
-    const soloYo   = parseFloat(document.getElementById(prefix + 'SoloYo')?.value) || 0;
-    const soloPer  = parseFloat(document.getElementById(prefix + 'SoloPersona')?.value) || 0;
-    const persons  = this._getSelectedPeople(prefix);
-    const type     = document.getElementById(prefix + 'Type')?.value || 'owed_to_me';
-    const isOwed   = type === 'owed_to_me';
-    const N        = persons.length + 1;
+  _getManualSubMode(prefix) {
+    return document.getElementById(prefix + 'ManualSubMode')?.value || 'quick';
+  },
 
-    const shared       = Math.max(0, total - soloYo - soloPer);
-    const sharedShare  = shared / N;
-    const result       = isOwed ? soloPer + sharedShare : soloYo + sharedShare;
-    const resultRound  = Math.round(result * 100) / 100;
+  _switchManualSubMode(prefix, mode) {
+    const el = document.getElementById(prefix + 'ManualSubMode');
+    if (el) el.value = mode;
+    const sections = { quick: 'Quick', lines: 'Lines', byperson: 'ByPerson' };
+    const buttons = { quick: 'Quick', lines: 'Lines', byperson: 'Byperson' };
+    for (const [m, suffix] of Object.entries(sections)) {
+      const sec = document.getElementById(prefix + 'Manual' + suffix);
+      if (sec) sec.style.display = m === mode ? '' : 'none';
+      document.getElementById(prefix + 'ManualBtn' + buttons[m])?.classList.toggle('active', m === mode);
+    }
+    if (mode === 'lines') this._ensureDefaultLines(prefix);
+    if (mode === 'byperson') this._renderByPersonGrid(prefix);
+    this._recalcManualSplit(prefix);
+  },
 
-    const summaryEl = document.getElementById(prefix + 'ExclusionSummary');
-    if (!summaryEl) return;
-    if (total <= 0) { summaryEl.innerHTML = ''; return; }
+  _ensureDefaultLines(prefix) {
+    const container = document.getElementById(prefix + 'LinesContainer');
+    if (!container || container.children.length) return;
+    this._addSplitLine(prefix, { mode: 'equal', amount: document.getElementById(prefix + 'ManualTotal')?.value || '' });
+  },
 
-    const personName = persons[0] || '[persona]';
-    const breakdownParts = [];
-    if (sharedShare > 0) breakdownParts.push(`${sharedShare.toFixed(2)} € (su mitad de ${shared.toFixed(2)} €)`);
-    if (isOwed && soloPer > 0) breakdownParts.push(`${soloPer.toFixed(2)} € (solo ${esc(personName)})`);
-    if (!isOwed && soloYo > 0) breakdownParts.push(`${soloYo.toFixed(2)} € (solo yo)`);
+  _linesFromDom(prefix) {
+    const container = document.getElementById(prefix + 'LinesContainer');
+    if (!container) return [];
+    const persons = this._getSelectedPeople(prefix);
+    const lines = [];
+    container.querySelectorAll('.split-line-row').forEach(row => {
+      const amount = parseFloat(row.querySelector('.split-line-amt')?.value) || 0;
+      const mode = row.querySelector('.split-line-mode')?.value || 'equal';
+      const payer = row.querySelector('.split-line-payer')?.value || '';
+      const id = row.dataset.lineId || this._splitLineId();
+      const line = { id, amount, mode: mode === 'sole_me' ? 'sole' : mode, payer: mode === 'sole_me' ? 'me' : payer, label: '' };
+      if (mode === 'custom') {
+        line.mode = 'custom';
+        line.assignments = {};
+        row.querySelectorAll('.split-line-custom-amt').forEach(inp => {
+          const p = inp.dataset.person;
+          if (p) line.assignments[p] = parseFloat(inp.value) || 0;
+        });
+        line.amount = Object.values(line.assignments).reduce((s, a) => s + a, 0);
+      }
+      if (amount > 0 || mode === 'custom') lines.push(line);
+    });
+    return lines;
+  },
 
-    summaryEl.innerHTML = `
-      <div class="exclusion-summary">
-        <div class="excl-row">
-          <span>Resto a dividir</span>
-          <span><strong>${shared.toFixed(2)} €</strong> ÷ ${N} = ${sharedShare.toFixed(2)} € c/u</span>
+  _splitLineRowHtml(prefix, line, persons, type) {
+    const id = line.id || this._splitLineId();
+    const mode = line.mode === 'sole' && line.payer === 'me' ? 'sole_me' : (line.mode || 'equal');
+    const isOwed = type === 'owed_to_me';
+    const payerOpts = persons.map(p =>
+      `<option value="${esc(p)}"${line.payer === p ? ' selected' : ''}>Solo ${esc(p)}</option>`
+    ).join('');
+    const customBlock = mode === 'custom' && persons.length ? `
+      <div class="split-line-custom-grid">
+        ${persons.map(p => `
+          <label class="split-custom-cell">
+            <span>${esc(p)}</span>
+            <input type="number" class="split-line-custom-amt" data-person="${esc(p)}" step="0.01" min="0"
+              value="${line.assignments?.[p] > 0 ? line.assignments[p] : ''}" placeholder="0"
+              oninput="Deudas._recalcManualSplit('${prefix}')">
+          </label>`).join('')}
+      </div>` : '';
+    return `
+      <div class="split-line-row" data-line-id="${id}">
+        <div class="split-line-main">
+          <input type="number" class="split-line-amt" step="0.01" min="0"
+            value="${line.amount > 0 ? line.amount : ''}" placeholder="€"
+            oninput="Deudas._recalcManualSplit('${prefix}')">
+          <select class="split-line-mode" onchange="Deudas._onSplitLineModeChange('${prefix}','${id}')">
+            <option value="equal"${mode === 'equal' ? ' selected' : ''}>A medias (todos)</option>
+            <option value="sole_me"${mode === 'sole_me' ? ' selected' : ''}>Solo yo</option>
+            ${persons.length ? `<option value="sole"${mode === 'sole' && line.payer !== 'me' ? ' selected' : ''}>Solo una persona</option>` : ''}
+            ${persons.length > 1 ? `<option value="custom"${mode === 'custom' ? ' selected' : ''}>Cada uno su parte</option>` : ''}
+          </select>
+          <select class="split-line-payer" style="${mode === 'sole' ? '' : 'display:none'}"
+            onchange="Deudas._recalcManualSplit('${prefix}')">
+            ${payerOpts || '<option value="">—</option>'}
+          </select>
+          <button type="button" class="split-line-remove" onclick="Deudas._removeSplitLine('${prefix}','${id}')" title="Quitar">✕</button>
         </div>
-        <div class="excl-result ${isOwed ? 'income' : 'expense'}">
-          <span>${isOwed ? `${esc(personName)} te debe` : `Debes a ${esc(personName)}`}</span>
-          <strong>${isOwed ? '+' : '-'}${resultRound.toFixed(2)} €</strong>
-        </div>
-        ${breakdownParts.length > 1 ? `<div class="excl-breakdown">${breakdownParts.join(' + ')}</div>` : ''}
+        ${customBlock}
+        <div class="split-line-hint">${mode === 'equal' ? (isOwed ? 'Se divide entre tú y las personas seleccionadas' : 'Tu parte de este importe') : mode === 'sole_me' ? (isOwed ? 'Lo pagas tú, no entra en el reparto' : 'Solo tú lo consumes') : mode === 'custom' ? 'Indica cuánto debe cada persona de esta partida' : 'Esa persona debe/consumió todo este importe'}</div>
       </div>`;
   },
 
+  _onSplitLineModeChange(prefix, lineId) {
+    const container = document.getElementById(prefix + 'LinesContainer');
+    const row = container?.querySelector(`[data-line-id="${lineId}"]`);
+    if (!row) return;
+    const mode = row.querySelector('.split-line-mode')?.value;
+    const payerSel = row.querySelector('.split-line-payer');
+    if (payerSel) payerSel.style.display = mode === 'sole' ? '' : 'none';
+    const persons = this._getSelectedPeople(prefix);
+    const type = document.getElementById(prefix + 'Type')?.value || 'owed_to_me';
+    const amount = parseFloat(row.querySelector('.split-line-amt')?.value) || 0;
+    const line = { id: lineId, amount, mode: mode === 'sole_me' ? 'sole' : mode, payer: mode === 'sole_me' ? 'me' : (row.querySelector('.split-line-payer')?.value || persons[0] || '') };
+    if (mode === 'custom' && line.assignments) line.assignments = line.assignments;
+    row.outerHTML = this._splitLineRowHtml(prefix, line, persons, type);
+    this._recalcManualSplit(prefix);
+  },
+
+  _addSplitLine(prefix, init = {}) {
+    const container = document.getElementById(prefix + 'LinesContainer');
+    if (!container) return;
+    const persons = this._getSelectedPeople(prefix);
+    const type = document.getElementById(prefix + 'Type')?.value || 'owed_to_me';
+    const line = { id: this._splitLineId(), mode: init.mode || 'equal', amount: init.amount || '', payer: init.payer || persons[0] || '' };
+    container.insertAdjacentHTML('beforeend', this._splitLineRowHtml(prefix, line, persons, type));
+    this._recalcManualSplit(prefix);
+  },
+
+  _removeSplitLine(prefix, lineId) {
+    document.getElementById(prefix + 'LinesContainer')?.querySelector(`[data-line-id="${lineId}"]`)?.remove();
+    this._recalcManualSplit(prefix);
+  },
+
+  _applyManualPreset(prefix, preset) {
+    const totalEl = document.getElementById(prefix + 'ManualTotal');
+    const total = parseFloat(totalEl?.value) || 0;
+    const soloYoEl = document.getElementById(prefix + 'SoloYo');
+    const soloPerEl = document.getElementById(prefix + 'SoloPersona');
+    const container = document.getElementById(prefix + 'LinesContainer');
+
+    if (preset === 'all_equal') {
+      this._switchManualSubMode(prefix, 'lines');
+      if (container) {
+        container.innerHTML = '';
+        if (total > 0) this._addSplitLine(prefix, { mode: 'equal', amount: total });
+      }
+      if (soloYoEl) soloYoEl.value = '';
+      if (soloPerEl) soloPerEl.value = '';
+    } else if (preset === 'my_part_rest') {
+      this._switchManualSubMode(prefix, 'quick');
+      soloYoEl?.focus();
+    } else if (preset === 'half_half') {
+      this._switchManualSubMode(prefix, 'quick');
+      if (soloYoEl) soloYoEl.value = '';
+      if (soloPerEl) soloPerEl.value = '';
+    }
+    this._recalcManualSplit(prefix);
+  },
+
+  _renderByPersonGrid(prefix) {
+    const grid = document.getElementById(prefix + 'ByPersonGrid');
+    if (!grid) return;
+    const persons = this._getSelectedPeople(prefix);
+    const type = document.getElementById(prefix + 'Type')?.value || 'owed_to_me';
+    const isOwed = type === 'owed_to_me';
+    if (!persons.length) {
+      grid.innerHTML = '<div class="split-empty-hint">Selecciona al menos una persona abajo para asignar importes.</div>';
+      return;
+    }
+    grid.innerHTML = persons.map(p => `
+      <div class="split-byperson-row">
+        <span class="split-byperson-name">${esc(p)}</span>
+        <div class="split-byperson-input-wrap">
+          <input type="number" id="${this._personFieldId(prefix, p)}" class="split-byperson-amt" step="0.01" min="0"
+            placeholder="0.00" oninput="Deudas._recalcManualSplit('${prefix}')">
+          <span class="split-byperson-suffix">€</span>
+        </div>
+        <span class="split-byperson-label">${isOwed ? 'te debe' : 'le debes'}</span>
+      </div>`).join('');
+  },
+
+  _recalcManualSplit(prefix) {
+    const subMode = this._getManualSubMode(prefix);
+    const total = parseFloat(document.getElementById(prefix + 'ManualTotal')?.value) || parseFloat(document.getElementById(prefix + 'ExclTotal')?.value) || 0;
+    const persons = this._getSelectedPeople(prefix);
+    const type = document.getElementById(prefix + 'Type')?.value || 'owed_to_me';
+    const isOwed = type === 'owed_to_me';
+    const N = Math.max(persons.length + 1, 2);
+    const summaryEl = document.getElementById(prefix + 'ManualSummary');
+    if (!summaryEl) return;
+
+    let amountsByPerson = {};
+    let linesSum = 0;
+    let lines = [];
+
+    if (subMode === 'byperson') {
+      for (const p of persons) {
+        const v = parseFloat(document.getElementById(this._personFieldId(prefix, p))?.value) || 0;
+        if (v > 0) amountsByPerson[p] = Math.round(v * 100) / 100;
+      }
+      linesSum = Object.values(amountsByPerson).reduce((s, a) => s + a, 0);
+    } else if (subMode === 'lines') {
+      lines = this._linesFromDom(prefix);
+      linesSum = lines.reduce((s, l) => s + (parseFloat(l.amount) || 0), 0);
+      amountsByPerson = this._computeSplitAmounts(lines, persons, type);
+    } else {
+      const soloYo = parseFloat(document.getElementById(prefix + 'SoloYo')?.value) || 0;
+      const soloPer = parseFloat(document.getElementById(prefix + 'SoloPersona')?.value) || 0;
+      const shared = Math.max(0, total - soloYo - soloPer);
+      lines = [];
+      if (shared > 0) lines.push({ mode: 'equal', amount: shared, payer: '' });
+      if (soloYo > 0) lines.push({ mode: 'sole', amount: soloYo, payer: 'me' });
+      if (soloPer > 0 && persons[0]) lines.push({ mode: 'sole', amount: soloPer, payer: persons[0] });
+      linesSum = total;
+      amountsByPerson = this._computeSplitAmounts(lines, persons, type);
+
+      const quickHint = document.getElementById(prefix + 'QuickHint');
+      if (quickHint && total > 0) {
+        const sharedShare = shared / N;
+        quickHint.innerHTML = shared > 0
+          ? `Resto compartido: <strong>${shared.toFixed(2)} €</strong> → ${sharedShare.toFixed(2)} € por persona (${N} personas)`
+          : (soloYo > 0 || soloPer > 0 ? 'Todo asignado a partes personales' : 'Introduce las partes o deja todo a medias');
+      }
+    }
+
+    const sumMismatch = subMode === 'lines' && total > 0 && Math.abs(linesSum - total) > 0.02;
+    const personRows = persons.map(p => {
+      const amt = amountsByPerson[p] || 0;
+      return `<div class="split-preview-row">
+        <span>${esc(p)}</span>
+        <strong class="${isOwed ? 'income' : 'expense'}">${isOwed ? '+' : '-'}${amt.toFixed(2)} €</strong>
+      </div>`;
+    }).join('');
+
+    const myShare = subMode === 'quick' && total > 0
+      ? Math.round((total - (Object.values(amountsByPerson).reduce((s, a) => s + a, 0))) * 100) / 100
+      : null;
+
+    summaryEl.innerHTML = total <= 0 && !persons.length ? '' : `
+      <div class="manual-split-summary${sumMismatch ? ' has-error' : ''}">
+        ${subMode === 'lines' ? `
+          <div class="split-sum-bar">
+            <span>Suma partidas</span>
+            <span><strong>${linesSum.toFixed(2)} €</strong> / ${total.toFixed(2)} €</span>
+          </div>
+          ${sumMismatch ? '<div class="split-error">⚠️ La suma de partidas no coincide con el total</div>' : ''}` : ''}
+        ${subMode === 'byperson' && total > 0 ? `
+          <div class="split-sum-bar">
+            <span>Total asignado</span>
+            <span><strong>${linesSum.toFixed(2)} €</strong> / ${total.toFixed(2)} €</span>
+          </div>` : ''}
+        ${persons.length ? `
+          <div class="split-preview-title">Resumen por persona</div>
+          <div class="split-preview-grid">${personRows || '<div class="split-empty-hint">Sin importes aún</div>'}</div>
+          ${myShare != null && subMode === 'quick' ? `<div class="split-preview-me">Tu parte del gasto: <strong>${myShare.toFixed(2)} €</strong></div>` : ''}
+        ` : '<div class="split-empty-hint">Selecciona persona(s) para ver el reparto</div>'}
+      </div>`;
+
+    if (subMode === 'lines') {
+      const sumEl = document.getElementById(prefix + 'LinesSum');
+      if (sumEl) sumEl.textContent = linesSum.toFixed(2);
+      const totEl = document.getElementById(prefix + 'LinesTotal');
+      if (totEl) totEl.textContent = total.toFixed(2);
+    }
+  },
+
   _updateExclusionsPersonLabel(prefix, persons) {
-    const card  = document.getElementById(prefix + 'SoloPersonaCard');
+    const card = document.getElementById(prefix + 'SoloPersonaCard');
     const label = document.getElementById(prefix + 'SoloPersonaLabel');
     if (!card) return;
     if (persons.length > 0) {
       card.style.display = '';
       if (label) label.textContent = persons[0];
+      document.querySelectorAll(`#${prefix}LinesContainer .split-line-payer`).forEach(sel => {
+        const cur = sel.value;
+        sel.innerHTML = persons.map(p => `<option value="${esc(p)}"${p === cur ? ' selected' : ''}>${esc(p)}</option>`).join('');
+      });
     } else {
       card.style.display = 'none';
     }
+    this._renderByPersonGrid(prefix);
+    this._recalcManualSplit(prefix);
   },
 
-  _exclusionsModeHtml(prefix, total, soloYo, soloPersona, persons, type) {
+  _manualSplitHtml(prefix, total, soloYo, soloPersona, initLines, type) {
     const isOwed = (type || 'owed_to_me') === 'owed_to_me';
-    const personName = persons[0] || '';
-    const showPersonCard = persons.length > 0;
+    const personName = '';
+    const lines = initLines && initLines.length ? initLines : [];
+    const hasCustomLines = lines.some(l => l.mode === 'custom') || lines.length > 2;
+    const subMode = hasCustomLines ? 'lines' : 'quick';
+
+    const linesHtml = lines.length
+      ? lines.map(l => this._splitLineRowHtml(prefix, l, [], type)).join('')
+      : '';
+
     return `
-      <div class="form-group">
-        <label>Total del gasto (€)</label>
-        <input type="number" id="${prefix}ExclTotal" step="0.01" min="0.01"
-          value="${total > 0 ? total : ''}" placeholder="0.00"
-          oninput="Deudas._recalcExclusions('${prefix}')"
-          style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:16px;font-weight:700;background:var(--card);color:var(--text)">
-      </div>
-      <div class="excl-grid">
-        <div class="excl-card excl-yo">
-          <div class="excl-card-label">Solo yo</div>
-          <div class="excl-card-hint">${isOwed ? 'Lo pago solo yo, sin incluir en el reparto' : 'Lo consumo solo yo'}</div>
-          <input type="number" id="${prefix}SoloYo" class="excl-input" step="0.01" min="0"
-            value="${soloYo > 0 ? soloYo : ''}" placeholder="0.00"
-            oninput="Deudas._recalcExclusions('${prefix}')">
+      <div class="manual-split">
+        <div class="form-group">
+          <label>Total del gasto (€)</label>
+          <input type="number" id="${prefix}ManualTotal" step="0.01" min="0.01"
+            value="${total > 0 ? total : ''}" placeholder="0.00"
+            oninput="Deudas._recalcManualSplit('${prefix}')"
+            style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:18px;font-weight:700;background:var(--card);color:var(--text)">
         </div>
-        <div class="excl-card excl-otro" id="${prefix}SoloPersonaCard" style="${showPersonCard ? '' : 'display:none'}">
-          <div class="excl-card-label">Solo <span id="${prefix}SoloPersonaLabel">${esc(personName)}</span></div>
-          <div class="excl-card-hint">${isOwed ? 'Ella lo consume, tú pagaste → te lo debe entero' : 'Ella lo paga → no te incluye'}</div>
-          <input type="number" id="${prefix}SoloPersona" class="excl-input" step="0.01" min="0"
-            value="${soloPersona > 0 ? soloPersona : ''}" placeholder="0.00"
-            oninput="Deudas._recalcExclusions('${prefix}')">
+
+        <div class="manual-preset-chips">
+          <button type="button" class="preset-chip" onclick="Deudas._applyManualPreset('${prefix}','my_part_rest')">⚡ Mi parte + resto a medias</button>
+          <button type="button" class="preset-chip" onclick="Deudas._applyManualPreset('${prefix}','all_equal')">➗ Todo a medias</button>
         </div>
-      </div>
-      <div id="${prefix}ExclusionSummary"></div>`;
+
+        <input type="hidden" id="${prefix}ManualSubMode" value="${subMode}">
+        <div class="manual-sub-toggle">
+          <button type="button" class="cal-type-btn${subMode === 'quick' ? ' active' : ''}" id="${prefix}ManualBtnQuick"
+            onclick="Deudas._switchManualSubMode('${prefix}','quick')">⚡ Rápido</button>
+          <button type="button" class="cal-type-btn${subMode === 'lines' ? ' active' : ''}" id="${prefix}ManualBtnLines"
+            onclick="Deudas._switchManualSubMode('${prefix}','lines')">📝 Partidas</button>
+          <button type="button" class="cal-type-btn${subMode === 'byperson' ? ' active' : ''}" id="${prefix}ManualBtnByperson"
+            onclick="Deudas._switchManualSubMode('${prefix}','byperson')">👥 Por persona</button>
+        </div>
+
+        <div id="${prefix}ManualQuick" style="${subMode === 'quick' ? '' : 'display:none'}">
+          <div class="excl-grid">
+            <div class="excl-card excl-yo">
+              <div class="excl-card-label">Solo yo</div>
+              <div class="excl-card-hint">${isOwed ? 'Lo consumo/pago solo yo — no se reparte' : 'Mi parte personal'}</div>
+              <input type="number" id="${prefix}SoloYo" class="excl-input" step="0.01" min="0"
+                value="${soloYo > 0 ? soloYo : ''}" placeholder="ej: 20"
+                oninput="Deudas._recalcManualSplit('${prefix}')">
+            </div>
+            <div class="excl-card excl-otro" id="${prefix}SoloPersonaCard" style="display:none">
+              <div class="excl-card-label">Solo <span id="${prefix}SoloPersonaLabel">${esc(personName)}</span></div>
+              <div class="excl-card-hint">${isOwed ? 'Esa persona lo consume entero → te lo debe' : 'Esa persona lo paga sola'}</div>
+              <input type="number" id="${prefix}SoloPersona" class="excl-input" step="0.01" min="0"
+                value="${soloPersona > 0 ? soloPersona : ''}" placeholder="0.00"
+                oninput="Deudas._recalcManualSplit('${prefix}')">
+            </div>
+            <div class="excl-card excl-shared">
+              <div class="excl-card-label">Resto a medias</div>
+              <div class="excl-card-hint">Total − solo yo − solo otra persona</div>
+              <div id="${prefix}QuickHint" class="excl-quick-result">—</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="${prefix}ManualLines" style="${subMode === 'lines' ? '' : 'display:none'}">
+          <div class="split-lines-header">
+            <span>Añade partidas que sumen el total</span>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="Deudas._addSplitLine('${prefix}')">+ Partida</button>
+          </div>
+          <div id="${prefix}LinesContainer" class="split-lines-container">${linesHtml}</div>
+          <div class="split-sum-bar subtle">
+            <span>Suma</span>
+            <span><strong id="${prefix}LinesSum">0.00</strong> / <span id="${prefix}LinesTotal">${total > 0 ? total.toFixed(2) : '0.00'}</span> €</span>
+          </div>
+        </div>
+
+        <div id="${prefix}ManualByPerson" style="${subMode === 'byperson' ? '' : 'display:none'}">
+          <div class="split-byperson-hint">Indica cuánto debe cada persona del total del gasto.</div>
+          <div id="${prefix}ByPersonGrid" class="split-byperson-grid"></div>
+        </div>
+
+        <div id="${prefix}ManualSummary"></div>
+      </div>`;
   },
 
   _splitModeHtml(prefix, totalStr, splitCount, splitMode, initLines, type) {
-    const isExcl = splitMode === 'exclusions';
-    // Reconstruct exclusion amounts from stored splitLines (for edit)
+    const isManual = splitMode === 'exclusions' || splitMode === 'manual';
     let soloYo = 0, soloPersona = 0, exclTotal = parseFloat(totalStr) || 0;
     if (initLines && initLines.length) {
       soloYo = initLines.filter(l => l.mode === 'sole' && l.payer === 'me').reduce((s, l) => s + (parseFloat(l.amount) || 0), 0);
-      soloPersona = initLines.filter(l => l.mode === 'sole' && l.payer !== 'me').reduce((s, l) => s + (parseFloat(l.amount) || 0), 0);
+      soloPersona = initLines.filter(l => l.mode === 'sole' && l.payer && l.payer !== 'me').reduce((s, l) => s + (parseFloat(l.amount) || 0), 0);
       exclTotal = initLines.reduce((s, l) => s + (parseFloat(l.amount) || 0), 0) || exclTotal;
     }
+    const modeVal = isManual ? 'manual' : 'simple';
 
     return `
-      <input type="hidden" id="${prefix}SplitMode" value="${splitMode}">
+      <input type="hidden" id="${prefix}SplitMode" value="${modeVal}">
       <div class="split-mode-toggle">
-        <button type="button" class="cal-type-btn${!isExcl ? ' active' : ''}" id="${prefix}ModeBtnSimple"
+        <button type="button" class="cal-type-btn${!isManual ? ' active' : ''}" id="${prefix}ModeBtnSimple"
           onclick="Deudas._switchSplitMode('${prefix}','simple')">A partes iguales</button>
-        <button type="button" class="cal-type-btn${isExcl ? ' active' : ''}" id="${prefix}ModeBtnExcl"
-          onclick="Deudas._switchSplitMode('${prefix}','exclusions')">Dividir manualmente</button>
+        <button type="button" class="cal-type-btn${isManual ? ' active' : ''}" id="${prefix}ModeBtnExcl"
+          onclick="Deudas._switchSplitMode('${prefix}','manual')">Dividir manualmente</button>
       </div>
-      <div id="${prefix}SimpleSplitSection" style="${isExcl ? 'display:none' : ''}">
+      <div id="${prefix}SimpleSplitSection" style="${isManual ? 'display:none' : ''}">
         ${this.splitFieldsHtml(prefix, totalStr, splitCount)}
       </div>
-      <div id="${prefix}ExclusionsSplitSection" style="${isExcl ? '' : 'display:none'}">
-        ${this._exclusionsModeHtml(prefix, exclTotal, soloYo, soloPersona, [], type || 'owed_to_me')}
+      <div id="${prefix}ExclusionsSplitSection" style="${isManual ? '' : 'display:none'}">
+        ${this._manualSplitHtml(prefix, exclTotal, soloYo, soloPersona, initLines, type || 'owed_to_me')}
       </div>`;
   },
 
   _switchSplitMode(prefix, mode) {
+    const normalized = mode === 'exclusions' ? 'manual' : mode;
     const modeEl = document.getElementById(prefix + 'SplitMode');
-    if (modeEl) modeEl.value = mode;
+    if (modeEl) modeEl.value = normalized;
 
     const simpleSection = document.getElementById(prefix + 'SimpleSplitSection');
     const exclSection   = document.getElementById(prefix + 'ExclusionsSplitSection');
     const btnSimple     = document.getElementById(prefix + 'ModeBtnSimple');
     const btnExcl       = document.getElementById(prefix + 'ModeBtnExcl');
 
-    if (simpleSection) simpleSection.style.display = mode === 'exclusions' ? 'none' : '';
-    if (exclSection)   exclSection.style.display   = mode === 'exclusions' ? '' : 'none';
-    if (btnSimple) btnSimple.classList.toggle('active', mode !== 'exclusions');
-    if (btnExcl)   btnExcl.classList.toggle('active', mode === 'exclusions');
+    if (simpleSection) simpleSection.style.display = normalized === 'manual' ? 'none' : '';
+    if (exclSection)   exclSection.style.display   = normalized === 'manual' ? '' : 'none';
+    if (btnSimple) btnSimple.classList.toggle('active', normalized !== 'manual');
+    if (btnExcl)   btnExcl.classList.toggle('active', normalized === 'manual');
 
-    if (mode === 'exclusions') {
-      // Carry over total from simple mode
+    if (normalized === 'manual') {
       const simpleTotalEl = document.getElementById(prefix + 'Total');
-      const exclTotalEl   = document.getElementById(prefix + 'ExclTotal');
-      if (simpleTotalEl?.value && exclTotalEl && !exclTotalEl.value) {
-        exclTotalEl.value = simpleTotalEl.value;
+      const manualTotalEl = document.getElementById(prefix + 'ManualTotal');
+      if (simpleTotalEl?.value && manualTotalEl && !manualTotalEl.value) {
+        manualTotalEl.value = simpleTotalEl.value;
       }
       this._updateExclusionsPersonLabel(prefix, this._getSelectedPeople(prefix));
-      this._recalcExclusions(prefix);
+      if (this._getManualSubMode(prefix) === 'lines') this._ensureDefaultLines(prefix);
+      this._recalcManualSplit(prefix);
     } else {
-      // Carry back computed total to simple mode
-      const exclTotalEl  = document.getElementById(prefix + 'ExclTotal');
+      const manualTotalEl = document.getElementById(prefix + 'ManualTotal');
       const simpleTotalEl = document.getElementById(prefix + 'Total');
-      if (exclTotalEl?.value && simpleTotalEl) {
-        simpleTotalEl.value = exclTotalEl.value;
+      if (manualTotalEl?.value && simpleTotalEl) {
+        simpleTotalEl.value = manualTotalEl.value;
         this._recalcSplit(prefix);
       }
     }
   },
 
-  _readDebtFormFromExclusions(prefix, persons) {
-    const total     = parseFloat(document.getElementById(prefix + 'ExclTotal')?.value) || 0;
-    const soloYo    = parseFloat(document.getElementById(prefix + 'SoloYo')?.value) || 0;
-    const soloPer   = parseFloat(document.getElementById(prefix + 'SoloPersona')?.value) || 0;
-    const N         = persons.length + 1;
-    const shared    = Math.max(0, total - soloYo - soloPer);
+  _readDebtFormFromManual(prefix, persons) {
+    const subMode = this._getManualSubMode(prefix);
+    const total = parseFloat(document.getElementById(prefix + 'ManualTotal')?.value) || 0;
+    const type = document.getElementById(prefix + 'Type')?.value || 'owed_to_me';
+    const N = Math.max(persons.length + 1, 2);
+    let splitLines = [];
+    let amountsByPerson = {};
 
-    // Build splitLines for storage (backwards compatible)
-    const splitLines = [];
-    if (shared > 0)  splitLines.push({ id: this._splitLineId(), label: 'A medias', amount: Math.round(shared * 100) / 100, mode: 'equal', payer: '' });
-    if (soloYo > 0)  splitLines.push({ id: this._splitLineId(), label: 'Solo yo', amount: Math.round(soloYo * 100) / 100, mode: 'sole', payer: 'me' });
-    if (soloPer > 0 && persons[0]) splitLines.push({ id: this._splitLineId(), label: `Solo ${persons[0]}`, amount: Math.round(soloPer * 100) / 100, mode: 'sole', payer: persons[0] });
+    if (subMode === 'byperson') {
+      for (const p of persons) {
+        const v = parseFloat(document.getElementById(this._personFieldId(prefix, p))?.value) || 0;
+        if (v > 0) amountsByPerson[p] = Math.round(v * 100) / 100;
+      }
+      splitLines = Object.entries(amountsByPerson).map(([p, a]) => ({
+        id: this._splitLineId(), label: p, amount: a, mode: 'custom', assignments: { [p]: a },
+      }));
+    } else if (subMode === 'lines') {
+      splitLines = this._linesFromDom(prefix).map(l => ({
+        ...l,
+        amount: Math.round((parseFloat(l.amount) || 0) * 100) / 100,
+        label: l.label || (l.mode === 'equal' ? 'A medias' : l.mode === 'sole' && l.payer === 'me' ? 'Solo yo' : `Solo ${l.payer}`),
+      }));
+      amountsByPerson = this._computeSplitAmounts(splitLines, persons, type);
+    } else {
+      const soloYo = parseFloat(document.getElementById(prefix + 'SoloYo')?.value) || 0;
+      const soloPer = parseFloat(document.getElementById(prefix + 'SoloPersona')?.value) || 0;
+      const shared = Math.max(0, total - soloYo - soloPer);
+      if (shared > 0) splitLines.push({ id: this._splitLineId(), label: 'A medias', amount: Math.round(shared * 100) / 100, mode: 'equal', payer: '' });
+      if (soloYo > 0) splitLines.push({ id: this._splitLineId(), label: 'Solo yo', amount: Math.round(soloYo * 100) / 100, mode: 'sole', payer: 'me' });
+      if (soloPer > 0 && persons[0]) splitLines.push({ id: this._splitLineId(), label: `Solo ${persons[0]}`, amount: Math.round(soloPer * 100) / 100, mode: 'sole', payer: persons[0] });
+      amountsByPerson = this._computeSplitAmounts(splitLines, persons, type);
+    }
 
-    const amtByPerson = this._computeSplitAmounts(splitLines, persons);
-    const totalOwed   = Object.values(amtByPerson).reduce((s, a) => s + a, 0);
+    const totalOwed = Object.values(amountsByPerson).reduce((s, a) => s + a, 0);
+    if (totalOwed <= 0 && persons.length) {
+      App.showToast('Indica al menos un importe en el reparto', 4000);
+      return null;
+    }
+    if (subMode === 'lines' && total > 0) {
+      const linesSum = splitLines.reduce((s, l) => s + (parseFloat(l.amount) || 0), 0);
+      if (Math.abs(linesSum - total) > 0.02) {
+        App.showToast('⚠️ La suma de partidas debe coincidir con el total', 4000);
+        return null;
+      }
+    }
 
     return {
       persons,
       person: persons[0] || '',
-      amount: persons.length === 1 ? (amtByPerson[persons[0]] || 0) : totalOwed,
+      amount: persons.length === 1 ? (amountsByPerson[persons[0]] || 0) : totalOwed,
       totalAmount: total || null,
       splitCount: N,
-      amountsByPerson: amtByPerson,
+      amountsByPerson,
       splitLines: splitLines.length ? splitLines : null,
     };
   },
+
+  // Legacy alias
+  _recalcExclusions(prefix) { this._recalcManualSplit(prefix); },
+  _readDebtFormFromExclusions(prefix, persons) { return this._readDebtFormFromManual(prefix, persons); },
 
   personPickerHtml(prefix, selected = []) {
     const people = Store.getPeople();
@@ -580,9 +898,8 @@ const Deudas = {
   _syncSplitCount(prefix) {
     const selected = this._getSelectedPeople(prefix);
     const mode = this._getSplitMode(prefix);
-    if (mode === 'exclusions') {
+    if (mode === 'manual') {
       this._updateExclusionsPersonLabel(prefix, selected);
-      this._recalcExclusions(prefix);
       return;
     }
     const splitEl = document.getElementById(prefix + 'SplitCount');
@@ -613,8 +930,8 @@ const Deudas = {
     const selected = this._getSelectedPeople(prefix);
     const persons = [...new Set(selected)];
 
-    if (this._getSplitMode(prefix) === 'exclusions') {
-      return this._readDebtFormFromExclusions(prefix, persons);
+    if (this._getSplitMode(prefix) === 'manual') {
+      return this._readDebtFormFromManual(prefix, persons);
     }
 
     const totalAmount = parseFloat(document.getElementById(prefix + 'Total')?.value) || null;
@@ -730,7 +1047,9 @@ const Deudas = {
   },
 
   _saveDebtsFromForm(prefix, extra = {}) {
-    const { persons, amount, totalAmount, splitCount, amountsByPerson, splitLines } = this._readDebtForm(prefix);
+    const formData = this._readDebtForm(prefix);
+    if (!formData || formData === null) return null;
+    const { persons, amount, totalAmount, splitCount, amountsByPerson, splitLines } = formData;
     if (persons.length === 0) { App.showToast('Indica al menos una persona'); return null; }
     if (!amountsByPerson && (!amount || amount <= 0)) { App.showToast('Importe inválido'); return null; }
     const type = extra.type || document.getElementById(prefix + 'Type')?.value || 'owed_to_me';
@@ -915,6 +1234,14 @@ const Deudas = {
     </div>`;
   },
 
+  _formatSplitBreakdown(splitLines) {
+    if (!splitLines?.length) return '';
+    return `<div class="split-breakdown-tags">${splitLines.map(l => {
+      const label = l.label || (l.mode === 'equal' ? 'A medias' : l.mode === 'sole' && l.payer === 'me' ? 'Solo yo' : 'Partida');
+      return `<span class="split-tag">${esc(label)} · ${(parseFloat(l.amount) || 0).toFixed(2)} €</span>`;
+    }).join('')}</div>`;
+  },
+
   _renderDebtGroupCard(group, isOwedToMe) {
     const expanded = !this._collapsedGroups.has(group.key);
     const { dateLabel, daysAgo, urgency } = this._dateMeta(group.date);
@@ -936,6 +1263,7 @@ const Deudas = {
               ${multi ? `<span class="tx-adj-badge">${group.debts.length} personas</span>` : ''}
               ${group.totalAmount ? `<span class="tx-adj-badge">Total ${group.totalAmount.toFixed(2)}€</span>` : ''}
             </div>
+            ${this._formatSplitBreakdown(group.primary.splitLines)}
           </div>
           <div class="debt-amount ${isOwedToMe ? 'income' : 'expense'}">${isOwedToMe ? '+' : '-'}${group.total.toFixed(2)}€</div>
           <span class="debt-chevron">${expanded ? '▾' : '▸'}</span>
@@ -1057,8 +1385,8 @@ const Deudas = {
     if (!t) return;
     const totalEl = document.getElementById(prefix + 'Total');
     if (totalEl) { totalEl.value = t.amount; this._recalcSplit(prefix); }
-    const exclTotalEl = document.getElementById(prefix + 'ExclTotal');
-    if (exclTotalEl) { exclTotalEl.value = t.amount; this._recalcExclusions(prefix); }
+    const manualTotalEl = document.getElementById(prefix + 'ManualTotal');
+    if (manualTotalEl) { manualTotalEl.value = t.amount; this._recalcManualSplit(prefix); }
   },
 
   _switchDebtType(type, prefix = 'debt') {
@@ -1081,13 +1409,13 @@ const Deudas = {
     const linkGroup = document.getElementById(prefix + 'LinkGroup');
     if (linkGroup) linkGroup.style.display = type === 'owed_to_me' ? '' : 'none';
     // keep exclusions section in sync with type
-    if (this._getSplitMode(prefix) === 'exclusions') {
+    if (this._getSplitMode(prefix) === 'manual') {
       const isOwed = type === 'owed_to_me';
       const yoHint = document.querySelector(`#${prefix}ExclusionsSplitSection .excl-yo .excl-card-hint`);
       const otrHint = document.querySelector(`#${prefix}ExclusionsSplitSection .excl-otro .excl-card-hint`);
-      if (yoHint) yoHint.textContent = isOwed ? 'Lo pago solo yo, sin incluir en el reparto' : 'Lo consumo solo yo';
-      if (otrHint) otrHint.textContent = isOwed ? 'Ella lo consume, tú pagaste → te lo debe entero' : 'Ella lo paga → no te incluye';
-      this._recalcExclusions(prefix);
+      if (yoHint) yoHint.textContent = isOwed ? 'Lo consumo/pago solo yo — no se reparte' : 'Mi parte personal';
+      if (otrHint) otrHint.textContent = isOwed ? 'Esa persona lo consume entero → te lo debe' : 'Esa persona lo paga sola';
+      this._recalcManualSplit(prefix);
     }
   },
 
@@ -1160,7 +1488,7 @@ const Deudas = {
     const splitCount = d.splitCount || Math.max(2, selected.length + 1);
     const totalAmount = d.totalAmount || d.amount * splitCount;
     const splitLines = d.splitLines || null;
-    const splitMode = splitLines ? 'exclusions' : 'simple';
+    const splitMode = splitLines ? 'manual' : 'simple';
 
     App.openModal({
       title: `✏️ Editar deuda${related.length > 1 ? ` (${related.length})` : ''}`,
@@ -1191,9 +1519,22 @@ const Deudas = {
     setTimeout(() => {
       Deudas._setSelectedPeople(prefix, selected);
       Deudas._switchDebtType(d.type || 'owed_to_me', prefix);
-      if (splitMode === 'exclusions') {
+      if (splitMode === 'manual') {
+        Deudas._switchSplitMode(prefix, 'manual');
         Deudas._updateExclusionsPersonLabel(prefix, selected);
-        Deudas._recalcExclusions(prefix);
+        const allCustom = splitLines?.every(l => l.mode === 'custom');
+        if (allCustom && splitLines?.length) {
+          Deudas._switchManualSubMode(prefix, 'byperson');
+          related.forEach(r => {
+            const inp = document.getElementById(Deudas._personFieldId(prefix, r.person));
+            if (inp) inp.value = r.amount;
+          });
+        } else if (splitLines?.some(l => l.mode === 'custom') || splitLines?.length > 2) {
+          Deudas._switchManualSubMode(prefix, 'lines');
+        } else if (splitLines?.length) {
+          Deudas._switchManualSubMode(prefix, 'quick');
+        }
+        Deudas._recalcManualSplit(prefix);
       }
       document.getElementById(prefix + 'Person')?.focus();
     }, 80);
@@ -1297,6 +1638,10 @@ const Deudas = {
     const selected = debts.map(d => d.person);
     const total = debts[0]?.totalAmount || defaultAmount || '';
     const splitCount = debts[0]?.splitCount || Math.max(2, selected.length + 1);
+    const splitLines = debts[0]?.splitLines || null;
+    const isManual = !!splitLines;
+    const amountsByPerson = {};
+    debts.forEach(d => { amountsByPerson[d.person] = d.amount; });
     return `
       <div class="debt-inline-block" id="${prefix}DebtBlock">
         <label class="debt-inline-toggle" onclick="Deudas.toggleInlineDebt('${prefix}')">
@@ -1310,12 +1655,13 @@ const Deudas = {
             <button type="button" class="cal-type-btn${debtType === 'i_owe' ? ' active' : ''}" id="${prefix}DebtTypeIOwe" onclick="Deudas._toggleInlineType('${prefix}','i_owe')">🔴 Debo yo</button>
           </div>
           <input type="hidden" id="${prefix}DebtType" value="${debtType}">
+          <input type="hidden" id="${prefix}Type" value="${debtType}">
           <div id="${prefix}DebtHint" class="debt-type-hint ${debtType === 'owed_to_me' ? 'owed-hint' : 'iowe-hint'}" style="margin-bottom:8px;font-size:12px">
             ${debtType === 'owed_to_me'
               ? 'Pagaste tú el gasto. Cuando te lo devuelvan, márcalo como cobrado en Deudas.'
               : 'Alguien pagó por ti. El gasto NO se descuenta hasta que lo pagues en Deudas.'}
           </div>
-          ${this.splitFieldsHtml(prefix, total, splitCount)}
+          ${this._splitModeHtml(prefix, total, splitCount, isManual ? 'manual' : 'simple', splitLines, debtType)}
           ${this.personPickerHtml(prefix, selected)}
           ${enabled ? `<button type="button" class="btn btn-sm btn-danger" style="margin-top:8px;width:100%" onclick="Deudas._unlinkInlineDebts('${prefix}')">✕ Quitar vinculación</button>` : ''}
         </div>
@@ -1342,6 +1688,8 @@ const Deudas = {
 
   _toggleInlineType(prefix, type) {
     document.getElementById(prefix + 'DebtType').value = type;
+    const typeEl = document.getElementById(prefix + 'Type');
+    if (typeEl) typeEl.value = type;
     document.getElementById(prefix + 'DebtTypeOwed').classList.toggle('active', type === 'owed_to_me');
     document.getElementById(prefix + 'DebtTypeIOwe').classList.toggle('active', type === 'i_owe');
     const hint = document.getElementById(prefix + 'DebtHint');

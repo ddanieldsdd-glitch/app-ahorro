@@ -4,6 +4,8 @@ const SYNC_SETTINGS_KEY = 'ahorro_sync_settings';
 const SYNC_CONFLICT_KEY = 'ahorro_sync_conflict';
 const PASSPHRASE_KEY = 'ahorro_passphrase';
 const SYNC_INTERVAL = 4000;
+const REALTIME_FALLBACK_INTERVAL = 30000;
+const DEVICE_ID_KEY = 'ahorro_device_id';
 const SHARED_SYNC_KEY    = 'ahorro_shared_sync';
 const SHARED_STORAGE_KEY = 'ahorro_shared_debts';
 
@@ -75,6 +77,13 @@ const Store = {
   _syncStatus: 'offline',
   _syncStatusDetail: 'Iniciando…',
   _syncConflict: null,
+  _cloudDiff: null,
+  _cloudDiffCallbacks: [],
+  _realtimeChannel: null,
+  _realtimeDebounce: null,
+  _localDirty: false,
+  _lastPushedFingerprint: '',
+  _pushInFlight: false,
 
   // ── Shared space (partner debts) ───────────────────────────────────────────
   _sharedData: { debts: [], _lastModified: 0 },
@@ -251,6 +260,117 @@ const Store = {
     return parts.join(' · ') || 'sin datos (estado base)';
   },
 
+  _formatSyncTime(ts) {
+    if (!ts) return '—';
+    try {
+      return new Date(ts).toLocaleString('es', { dateStyle: 'short', timeStyle: 'short' });
+    } catch {
+      return '—';
+    }
+  },
+
+  _dataFingerprint(data) {
+    if (!data) return '';
+    const ids = [
+      ...(data.transactions || []).map(t => t.id),
+      ...Object.values(data.archives || {}).flat().map(t => t.id),
+    ].filter(Boolean).sort();
+    return [
+      this._countMovements(data),
+      this._dataScore(data),
+      data._lastModified || 0,
+      ids.length,
+      ids.slice(0, 40).join('|'),
+    ].join(':');
+  },
+
+  _contentDiffers(localData, remoteData) {
+    if (!localData || !remoteData) return false;
+    if (this._dataFingerprint(localData) === this._dataFingerprint(remoteData)) return false;
+    return true;
+  },
+
+  onCloudDiffChange(cb) { this._cloudDiffCallbacks.push(cb); },
+
+  _notifyCloudDiff() {
+    this._cloudDiffCallbacks.forEach(cb => cb(this._cloudDiff));
+  },
+
+  getCloudDiff() {
+    return this._cloudDiff;
+  },
+
+  /** Compara dispositivo vs nube sin aplicar cambios. */
+  async detectCloudDifference() {
+    const s = this.getSyncSettings();
+    const hasBackend = this._isSupabase() || !!s.serverUrl;
+    if (!hasBackend || !navigator.onLine) {
+      this._cloudDiff = null;
+      this._notifyCloudDiff();
+      return null;
+    }
+    const remote = await this._fetchRemoteData();
+    const local = this._data;
+    if (!remote) {
+      this._cloudDiff = null;
+      this._notifyCloudDiff();
+      return null;
+    }
+    if (!this._contentDiffers(local, remote)) {
+      this._cloudDiff = null;
+      this._notifyCloudDiff();
+      return null;
+    }
+    const localTs = this._dataTimestamp(local);
+    const remoteTs = this._dataTimestamp(remote);
+    this._cloudDiff = {
+      local,
+      remote,
+      localSummary: this._describeDataBrief(local),
+      remoteSummary: this._describeDataBrief(remote),
+      localTs,
+      remoteTs,
+      localNewer: localTs > remoteTs,
+      remoteNewer: remoteTs > localTs,
+      detectedAt: Date.now(),
+    };
+    this._notifyCloudDiff();
+    return this._cloudDiff;
+  },
+
+  /** Sube los datos locales a la nube (reemplaza la copia remota). */
+  async pushLocalToCloud() {
+    if (!this._data) return { ok: false, message: 'Sin datos locales' };
+    this._backup('pre-cloud-upload');
+    this._data._lastModified = Date.now();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(this._data));
+    const ok = await this._pushToServer({ force: true, allowOverwrite: true });
+    if (ok) {
+      this.clearSyncConflict();
+      this._cloudDiff = null;
+      this._notifyCloudDiff();
+      this._setSyncStatus('synced', 'Datos de este dispositivo subidos a la nube');
+      this._callbacks.forEach(cb => cb());
+      return { ok: true, message: 'Datos subidos a la nube' };
+    }
+    return { ok: false, message: this.getSyncStatusDetail() || 'No se pudo subir a la nube' };
+  },
+
+  /** Descarga datos de la nube a este dispositivo. */
+  async pullCloudToDevice() {
+    const remote = await this._fetchRemoteData();
+    if (!remote) return { ok: false, message: 'No hay datos en la nube' };
+    this._backup('pre-cloud-download');
+    this._applyLocalData(remote);
+    this._localDirty = false;
+    this._lastPushedFingerprint = this._dataFingerprint(remote);
+    this.clearSyncConflict();
+    this._cloudDiff = null;
+    this._notifyCloudDiff();
+    this._setSyncStatus('synced', 'Datos de la nube aplicados en este dispositivo');
+    return { ok: true, message: 'Datos de la nube descargados' };
+  },
+
   _tryRestoreFromBackup() {
     const candidates = [];
     for (let i = 0; i < localStorage.length; i++) {
@@ -307,21 +427,18 @@ const Store = {
 
   async resolveSyncConflict(choice) {
     const conflict = this.getSyncConflict();
-    if (!conflict) return false;
-    this._backup('pre-sync-conflict');
-    if (choice === 'remote') {
-      this._applyLocalData(conflict.remote);
-      this._setSyncStatus('synced', 'Datos de la nube aplicados en este dispositivo');
-    } else if (choice === 'local') {
-      this._applyLocalData(conflict.local);
-      await this._pushToServer({ force: true, allowOverwrite: true });
-      this._setSyncStatus('synced', 'Tus datos locales se han subido a la nube');
-    } else {
-      return false;
+    if (conflict) {
+      this._backup('pre-sync-conflict');
     }
-    this.clearSyncConflict();
-    this._callbacks.forEach(cb => cb());
-    return true;
+    if (choice === 'remote') {
+      const result = await this.pullCloudToDevice();
+      return result.ok;
+    }
+    if (choice === 'local') {
+      const result = await this.pushLocalToCloud();
+      return result.ok;
+    }
+    return false;
   },
 
   /** Elige la copia más reciente; nunca pisa datos reales con estado base sin preguntar. */
@@ -347,16 +464,12 @@ const Store = {
       return { winner: localData, shouldPush: true };
     }
     // Ambos con datos distintos → preguntar antes de sobrescribir
-    if (localScore > 0 && remoteScore > 0 && localScore !== remoteScore) {
-      const scoreGap = Math.abs(localScore - remoteScore) / Math.max(localScore, remoteScore);
-      const tsGap = Math.abs(localTs - remoteTs);
-      if (scoreGap > 0.25 || (tsGap > 0 && tsGap < 86400000)) {
-        return {
-          winner: null,
-          shouldPush: false,
-          conflict: { reason: 'both_substantial', local: localData, remote: remoteData },
-        };
-      }
+    if (localScore > 0 && remoteScore > 0 && this._contentDiffers(localData, remoteData)) {
+      return {
+        winner: null,
+        shouldPush: false,
+        conflict: { reason: 'diverged', local: localData, remote: remoteData },
+      };
     }
     // Nube vacía intentando pisar local con datos
     if (localScore > 0 && remoteScore === 0 && remoteTs > localTs) {
@@ -372,6 +485,127 @@ const Store = {
     if (remoteScore > localScore) return { winner: remoteData, shouldPush: false };
     if (localScore > remoteScore) return { winner: localData, shouldPush: true };
     return { winner: remoteData, shouldPush: false };
+  },
+
+  _getDeviceId() {
+    let id = localStorage.getItem(DEVICE_ID_KEY);
+    if (!id) {
+      id = Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+      localStorage.setItem(DEVICE_ID_KEY, id);
+    }
+    return id;
+  },
+
+  /** Aplica cambios remotos si este dispositivo no está editando; si no, pide al usuario. */
+  async _handleIncomingRemote(serverData, { source = 'poll', silent = false } = {}) {
+    if (!serverData || !this._ready) return false;
+    if (this.getSyncConflict()) return false;
+
+    const remoteFp = this._dataFingerprint(serverData);
+    const localFp = this._dataFingerprint(this._data);
+    if (remoteFp === localFp) {
+      this._localDirty = false;
+      this._cloudDiff = null;
+      this._notifyCloudDiff();
+      return false;
+    }
+    if (remoteFp === this._lastPushedFingerprint) return false;
+
+    const remoteTs = this._dataTimestamp(serverData);
+    const localTs = this._dataTimestamp(this._data);
+    const differs = this._contentDiffers(this._data, serverData);
+
+    if (this._localDirty && differs) {
+      this._registerSyncConflict({ reason: 'simultaneous', local: this._data, remote: serverData });
+      this._cloudDiff = {
+        local: this._data,
+        remote: serverData,
+        localSummary: this._describeDataBrief(this._data),
+        remoteSummary: this._describeDataBrief(serverData),
+        localTs,
+        remoteTs,
+        localNewer: localTs > remoteTs,
+        remoteNewer: remoteTs > localTs,
+        detectedAt: Date.now(),
+      };
+      this._notifyCloudDiff();
+      this._setSyncStatus('local', 'Otro dispositivo editó mientras tú también — elige qué conservar');
+      if (source === 'realtime' && typeof App !== 'undefined') {
+        App.showToast?.('⚠️ Otro dispositivo cambió la nube', 4500);
+        setTimeout(() => App._checkSyncConflict?.(), 600);
+      }
+      return false;
+    }
+
+    if (!differs) return false;
+
+    if (remoteTs >= localTs || !this._hasSubstantialData(this._data)) {
+      this._applyLocalData(serverData);
+      this._lastPushedFingerprint = remoteFp;
+      this._localDirty = false;
+      this._cloudDiff = null;
+      this._notifyCloudDiff();
+      const enc = this.isEncryptionEnabled();
+      const live = source === 'realtime';
+      this._setSyncStatus('synced', `${live ? 'Actualizado en vivo' : 'Sincronizado'}${enc ? ' 🔒' : ''}`);
+      if (live && !silent && typeof App !== 'undefined') {
+        App.showToast?.('🔄 Cambios de otro dispositivo aplicados', 3000);
+      }
+      return true;
+    }
+
+    if (localTs > remoteTs && !this._localDirty) {
+      await this._pushToServer({ force: true, allowOverwrite: true });
+      return true;
+    }
+
+    return false;
+  },
+
+  _stopRealtimeSync() {
+    if (this._realtimeDebounce) {
+      clearTimeout(this._realtimeDebounce);
+      this._realtimeDebounce = null;
+    }
+    if (this._realtimeChannel) {
+      try {
+        const client = this._isSupabase() ? this._getSupabaseClient() : null;
+        if (client) client.removeChannel(this._realtimeChannel);
+      } catch { /* ignore */ }
+      this._realtimeChannel = null;
+    }
+  },
+
+  _startRealtimeSync() {
+    this._stopRealtimeSync();
+    if (!this._isSupabase()) return;
+
+    const { supabaseRowId } = this.getSyncSettings();
+    const id = supabaseRowId || 'default';
+    const client = this._getSupabaseClient();
+
+    this._realtimeChannel = client
+      .channel(`sync-live-${id}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'sync_data',
+        filter: `id=eq.${id}`,
+      }, () => this._onRealtimeSyncSignal())
+      .subscribe();
+  },
+
+  _onRealtimeSyncSignal() {
+    if (!this._ready || this.getSyncConflict()) return;
+    if (this._realtimeDebounce) clearTimeout(this._realtimeDebounce);
+    this._realtimeDebounce = setTimeout(async () => {
+      const remote = await this._fetchRemoteData();
+      if (remote) await this._handleIncomingRemote(remote, { source: 'realtime' });
+    }, 350);
+  },
+
+  isRealtimeActive() {
+    return !!this._realtimeChannel;
   },
 
   _applyLocalData(data, notify = true) {
@@ -536,6 +770,9 @@ const Store = {
 
     this._migrate();
     this._ready = true;
+    this._localDirty = false;
+    if (this._data) this._lastPushedFingerprint = this._dataFingerprint(this._data);
+    this._getDeviceId();
     this._startSync();
     this._bindConnectivity();
     // Init shared space (non-blocking, fires in background)
@@ -638,6 +875,8 @@ const Store = {
       if (this._isSupabase()) {
         const ok = await this._pushToSupabase(blob);
         if (ok) {
+          this._localDirty = false;
+          this._lastPushedFingerprint = this._dataFingerprint(this._data);
           const { supabaseUrl } = this.getSyncSettings();
           const host = new URL(supabaseUrl).hostname.replace('.supabase.co', '');
           this._setSyncStatus('synced', `Sincronizado${enc ? ' 🔒' : ''} con Supabase (${host})`);
@@ -653,6 +892,8 @@ const Store = {
         body: JSON.stringify(blob),
       });
       if (res.ok) {
+        this._localDirty = false;
+        this._lastPushedFingerprint = this._dataFingerprint(this._data);
         this._setSyncStatus('synced', `Sincronizado${enc ? ' 🔒' : ''} con ${this._apiBase()}`);
         return true;
       }
@@ -702,23 +943,7 @@ const Store = {
         return false;
       }
       if (!serverData) return false;
-      const pullResult = this._pickSyncWinner(this._data, serverData);
-      if (pullResult.conflict) {
-        this._registerSyncConflict(pullResult.conflict);
-        return false;
-      }
-      if (pullResult.winner && pullResult.winner !== this._data) {
-        this._applyLocalData(pullResult.winner);
-      }
-      const enc = this.isEncryptionEnabled();
-      if (this._isSupabase()) {
-        const { supabaseUrl } = this.getSyncSettings();
-        const host = new URL(supabaseUrl).hostname.replace('.supabase.co', '');
-        this._setSyncStatus('synced', `Sincronizado${enc ? ' 🔒' : ''} con Supabase (${host})`);
-      } else {
-        this._setSyncStatus('synced', `Sincronizado${enc ? ' 🔒' : ''} con ${this._apiBase()}`);
-      }
-      return true;
+      return await this._handleIncomingRemote(serverData, { source: 'poll', silent: true });
     } catch {
       if (!navigator.onLine) this._setSyncStatus('offline', 'Sin conexión');
       return false;
@@ -728,7 +953,16 @@ const Store = {
   async _syncNow() {
     if (!this._ready || !navigator.onLine) return;
     if (this.getSyncConflict()) return;
-    const remote = await this._fetchRemoteData();
+
+    const diff = await this.detectCloudDifference();
+    const remote = diff?.remote || await this._fetchRemoteData();
+
+    if (diff && this._hasSubstantialData(this._data) && this._hasSubstantialData(remote)) {
+      this._registerSyncConflict({ reason: 'diverged', local: this._data, remote });
+      this._setSyncStatus('local', 'La nube tiene datos distintos — elige subir o descargar');
+      return;
+    }
+
     const result = this._pickSyncWinner(this._data, remote);
     if (result.conflict) {
       this._registerSyncConflict(result.conflict);
@@ -738,6 +972,7 @@ const Store = {
     if (result.winner && result.winner !== this._data) this._applyLocalData(result.winner);
     if (result.shouldPush) {
       await this._pushToServer({ force: true, allowOverwrite: true });
+      await this.detectCloudDifference();
     } else if (remote) {
       const enc = this.isEncryptionEnabled();
       if (this._isSupabase()) {
@@ -747,8 +982,10 @@ const Store = {
       } else {
         this._setSyncStatus('synced', `Sincronizado${enc ? ' 🔒' : ''} con ${this._apiBase()}`);
       }
+      await this.detectCloudDifference();
     } else if (this._hasSubstantialData(this._data)) {
       await this._pushToServer({ force: true, allowOverwrite: true });
+      await this.detectCloudDifference();
     }
   },
 
@@ -1031,6 +1268,7 @@ const Store = {
   },
 
   _save({ awaitSync = false, forcePush = false } = {}) {
+    this._localDirty = true;
     this._data._lastModified = Date.now();
     const data = this._data;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -1046,10 +1284,16 @@ const Store = {
 
   _startSync() {
     if (this._syncTimer) clearInterval(this._syncTimer);
+    this._stopRealtimeSync();
     const s = this.getSyncSettings();
     const hasBackend = this._isSupabase() || !!s.serverUrl;
-    if (!hasBackend) return; // static-only mode (e.g. Vercel without backend), no polling needed
-    this._syncTimer = setInterval(() => this._pullFromServer(), SYNC_INTERVAL);
+    if (!hasBackend) return;
+    if (this._isSupabase()) {
+      this._startRealtimeSync();
+      this._syncTimer = setInterval(() => this._pullFromServer(), REALTIME_FALLBACK_INTERVAL);
+    } else {
+      this._syncTimer = setInterval(() => this._pullFromServer(), SYNC_INTERVAL);
+    }
   },
 
   onChange(callback) { this._callbacks.push(callback); },

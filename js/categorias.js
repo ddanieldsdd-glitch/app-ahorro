@@ -209,7 +209,7 @@ const Categorias = {
             <span style="font-size:24px">✅</span>
             <div style="flex:1;min-width:0">
               <div style="font-size:13px;font-weight:700;color:var(--income)">Sincronización configurada</div>
-              <div style="font-size:11px;color:var(--text-secondary)">${host ? esc(host) + ' · ' : ''}Perfil <strong>${esc(s.supabaseRowId || 'default')}</strong>${enc ? ' · Cifrado ✓' : ''}</div>
+              <div style="font-size:11px;color:var(--text-secondary)">${host ? esc(host) + ' · ' : ''}Perfil <strong>${esc(s.supabaseRowId || 'default')}</strong>${enc ? ' · Cifrado ✓' : ''}${Store.isRealtimeActive?.() ? ' · <span style="color:var(--income)">Tiempo real ✓</span>' : ''}</div>
             </div>
             <button type="button" class="btn btn-secondary btn-sm" onclick="Categorias._toggleSettingsExpand('sync')">${expanded ? 'Ocultar' : 'Editar'}</button>
           </div>` : '';
@@ -222,7 +222,9 @@ const Categorias = {
         <div id="syncSettingsBody" style="${bodyHidden ? 'display:none' : ''}">
         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;line-height:1.6">
           Conecta tus dispositivos con la misma nube gratuita.
-          Los datos se <strong>cifran en tu móvil/PC</strong> (AES-256) antes de subir — Supabase solo guarda un blob ilegible.
+          Los datos se <strong>cifran en tu móvil/PC</strong> (AES-256) antes de subir — Supabase solo guarda un blob ilegible.<br>
+          <span style="color:var(--income)">Con un solo dispositivo activo, los demás se actualizan solos en directo.</span>
+          Si dos dispositivos editan a la vez, la app te preguntará qué copia conservar.
         </p>
 
         <div class="form-group" style="margin-bottom:10px">
@@ -255,6 +257,8 @@ const Categorias = {
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 ALTER TABLE sync_data ENABLE ROW LEVEL SECURITY;
+ALTER TABLE sync_data REPLICA IDENTITY FULL;
+ALTER PUBLICATION supabase_realtime ADD TABLE sync_data;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.sync_data TO anon, authenticated;
 DO $$
 BEGIN
@@ -331,16 +335,30 @@ END $$;</code>
           <button class="btn btn-primary btn-sm" onclick="Categorias._saveSyncSettings()">💾 Guardar y sincronizar</button>
           <button class="btn btn-secondary btn-sm" onclick="Categorias._testSync()">🔌 Probar conexión</button>
           <button class="btn btn-secondary btn-sm" onclick="Categorias._forceSync()">🔄 Sincronizar ahora</button>
+          <button class="btn btn-secondary btn-sm" onclick="Categorias._compareCloud()">🔍 Comparar con nube</button>
         </div>
         ${Store.getSyncConflict?.() ? `
         <div style="margin-top:10px;padding:10px;border-radius:8px;background:rgba(239,68,68,.08);border:1px solid var(--expense);font-size:12px;line-height:1.5">
-          <strong style="color:var(--expense)">⚠️ Conflicto de datos pendiente</strong><br>
-          Este dispositivo y la nube tienen información distinta. No se sobrescribirá nada hasta que elijas.
-          <button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="App._checkSyncConflict()">Elegir qué conservar</button>
+          <strong style="color:var(--expense)">⚠️ Datos distintos entre dispositivo y nube</strong><br>
+          No se sobrescribirá nada hasta que elijas qué copia conservar.
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+            <button class="btn btn-primary btn-sm" onclick="Categorias._uploadToCloud()">⬆ Subir a la nube</button>
+            <button class="btn btn-secondary btn-sm" onclick="Categorias._downloadFromCloud()">⬇ Usar la nube</button>
+            <button class="btn btn-secondary btn-sm" onclick="App._checkSyncConflict()">Ver detalle</button>
+          </div>
+        </div>` : (Store.getCloudDiff?.() ? `
+        <div style="margin-top:10px;padding:10px;border-radius:8px;background:rgba(245,158,11,.08);border:1px solid var(--warning,#f59e0b);font-size:12px;line-height:1.5">
+          <strong style="color:var(--warning,#d97706)">☁️ La nube tiene contenido distinto</strong><br>
+          📱 ${esc(Store.getCloudDiff().localSummary)} · ☁️ ${esc(Store.getCloudDiff().remoteSummary)}
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+            <button class="btn btn-primary btn-sm" onclick="Categorias._uploadToCloud()">⬆ Subir datos de aquí</button>
+            <button class="btn btn-secondary btn-sm" onclick="Categorias._downloadFromCloud()">⬇ Descargar de la nube</button>
+          </div>
         </div>` : `
         <div style="font-size:11px;color:var(--text-secondary);margin-top:8px;line-height:1.5">
-          Un dispositivo nuevo adoptará los datos de la nube. Nunca se borrarán datos reales sin preguntarte.
-        </div>`}
+          Si editas sin conexión, usa <strong>Comparar con nube</strong> o <strong>Subir a la nube</strong> para actualizar otros dispositivos.
+          Con Supabase, los cambios se propagan en directo cuando solo un dispositivo está editando.
+        </div>`)}
 
         <details style="margin-top:14px">
           <summary style="font-size:11px;color:var(--text-secondary);cursor:pointer">Modo experto (no recomendado)</summary>
@@ -1700,8 +1718,37 @@ END $$;</code>
     }
     App.showToast('🔄 Sincronizando…');
     await Store._syncNow();
-    App.showToast(Store.getSyncStatus() === 'synced' ? '✅ Datos sincronizados' : '⚠️ ' + Store.getSyncStatusDetail(), 3500);
+    if (Store.getSyncConflict?.()) {
+      App._checkSyncConflict();
+    } else if (Store.getCloudDiff?.()) {
+      App._showCloudDiffBanner(Store.getCloudDiff());
+    } else {
+      App.showToast(Store.getSyncStatus() === 'synced' ? '✅ Datos sincronizados' : '⚠️ ' + Store.getSyncStatusDetail(), 3500);
+    }
     this.render();
+  },
+
+  async _compareCloud() {
+    App.showToast('🔍 Comparando con la nube…');
+    const diff = await Store.detectCloudDifference?.();
+    if (!diff) {
+      App.showToast('✅ Este dispositivo y la nube coinciden');
+      this.render();
+      return;
+    }
+    if (Store._hasSubstantialData?.(diff.local) && Store._hasSubstantialData?.(diff.remote)) {
+      Store._registerSyncConflict?.({ reason: 'diverged', local: diff.local, remote: diff.remote });
+    }
+    App._showCloudDiffBanner(diff);
+    this.render();
+  },
+
+  _uploadToCloud() {
+    App._confirmCloudAction('local');
+  },
+
+  _downloadFromCloud() {
+    App._confirmCloudAction('remote');
   },
 
   _confirmFactoryReset() {

@@ -51,6 +51,11 @@ const App = {
     this._currentViewMonth = Store.getCurrentMonth();
     this._isArchived = false;
     Store.onChange(() => this._onRemoteUpdate());
+    Store.onCloudDiffChange?.(() => {
+      if (this._activeTabName?.() === 'categorias' && typeof Categorias !== 'undefined') {
+        Categorias.render();
+      }
+    });
     Store.onSharedChange(() => { if (Deudas.scope === 'shared') Deudas.render(); });
     this._renderMonthSelector();
     this._setupTabs();
@@ -73,6 +78,45 @@ const App = {
       this._runStartupTasks();
     }
     setTimeout(() => this._checkSyncConflict(), 900);
+    setTimeout(() => this._checkCloudDifference(), 1400);
+  },
+
+  async _checkCloudDifference() {
+    if (!this._isCloudConfigured() || Store.getSyncConflict?.()) return;
+    const diff = await Store.detectCloudDifference?.();
+    if (!diff) return;
+    this._showCloudDiffBanner(diff);
+  },
+
+  _showCloudDiffBanner(diff) {
+    const preferLocal = diff.localNewer;
+    this.openModal({
+      title: '☁️ La nube tiene datos distintos',
+      body: `
+        <p style="font-size:13px;color:var(--text);margin-bottom:12px;line-height:1.6">
+          Este dispositivo y la nube <strong>no coinciden</strong>.
+          Si editaste aquí sin conexión, puedes <strong>subir tus cambios</strong> para actualizar el móvil, el PC u otros dispositivos.
+        </p>
+        <div style="display:grid;gap:8px;margin-bottom:12px">
+          <div style="padding:10px;background:var(--bg);border-radius:8px;font-size:12px;line-height:1.5">
+            <strong>📱 Este dispositivo</strong><br>${esc(diff.localSummary)}<br>
+            <span style="color:var(--text-secondary)">Última modificación: ${esc(Store._formatSyncTime(diff.localTs))}</span>
+          </div>
+          <div style="padding:10px;background:var(--bg);border-radius:8px;font-size:12px;line-height:1.5">
+            <strong>☁️ Nube</strong><br>${esc(diff.remoteSummary)}<br>
+            <span style="color:var(--text-secondary)">Última modificación: ${esc(Store._formatSyncTime(diff.remoteTs))}</span>
+          </div>
+        </div>`,
+      actions: [
+        { label: 'Decidir más tarde' },
+        { label: '⬇ Usar datos de la nube', cb: () => this._confirmCloudAction('remote') },
+        {
+          label: preferLocal ? '⬆ Subir a la nube (recomendado)' : '⬆ Subir a la nube',
+          primary: true,
+          cb: () => this._confirmCloudAction('local'),
+        },
+      ],
+    });
   },
 
   _checkSyncConflict() {
@@ -80,46 +124,81 @@ const App = {
     if (!conflict) return;
     const localBrief = Store._describeDataBrief(conflict.local);
     const remoteBrief = Store._describeDataBrief(conflict.remote);
-    const preferRemote = Store._dataScore(conflict.remote) >= Store._dataScore(conflict.local);
+    const localTs = Store._dataTimestamp(conflict.local);
+    const remoteTs = Store._dataTimestamp(conflict.remote);
+    const preferLocal = localTs >= remoteTs;
 
     this.openModal({
       title: '⚠️ ¿Qué datos quieres conservar?',
       body: `
         <p style="font-size:13px;color:var(--text);margin-bottom:12px;line-height:1.6">
           Hay datos distintos en <strong>este dispositivo</strong> y en la <strong>nube</strong>.
-          No se borrará nada hasta que elijas. Recomendamos usar la nube si este es un dispositivo nuevo.
+          ${conflict.reason === 'simultaneous'
+            ? 'Parece que <strong>dos dispositivos editaron a la vez</strong>. Elige qué copia quieres conservar.'
+            : 'No se borrará nada hasta que elijas.'}
         </p>
         <div style="display:grid;gap:8px;margin-bottom:12px">
           <div style="padding:10px;background:var(--bg);border-radius:8px;font-size:12px;line-height:1.5">
-            <strong>📱 Este dispositivo</strong><br>${esc(localBrief)}
+            <strong>📱 Este dispositivo</strong><br>${esc(localBrief)}<br>
+            <span style="color:var(--text-secondary)">Modificado: ${esc(Store._formatSyncTime(localTs))}</span>
           </div>
           <div style="padding:10px;background:var(--bg);border-radius:8px;font-size:12px;line-height:1.5">
-            <strong>☁️ Nube</strong><br>${esc(remoteBrief)}
+            <strong>☁️ Nube</strong><br>${esc(remoteBrief)}<br>
+            <span style="color:var(--text-secondary)">Modificado: ${esc(Store._formatSyncTime(remoteTs))}</span>
           </div>
         </div>
         <p style="font-size:11px;color:var(--text-secondary);line-height:1.5">
-          Actualizar la app <strong>no borra</strong> tus datos guardados en el dispositivo.
+          <strong>Subir a la nube</strong> actualiza los otros dispositivos con lo que tienes aquí.
+          <strong>Usar la nube</strong> reemplaza lo de este dispositivo con la copia remota.
         </p>`,
       actions: [
         { label: 'Decidir más tarde' },
-        { label: '📱 Mantener los de aquí', cb: () => this._resolveSyncConflict('local') },
+        { label: '⬇ Usar datos de la nube', cb: () => this._resolveSyncConflict('remote') },
         {
-          label: preferRemote ? '☁️ Usar los de la nube (recomendado)' : '☁️ Usar los de la nube',
+          label: preferLocal ? '⬆ Subir a la nube (recomendado)' : '⬆ Subir a la nube',
           primary: true,
-          cb: () => this._resolveSyncConflict('remote'),
+          cb: () => this._resolveSyncConflict('local'),
         },
       ],
     });
   },
 
-  async _resolveSyncConflict(choice) {
+  _confirmCloudAction(choice) {
+    const isUpload = choice === 'local';
+    this.openModal({
+      title: isUpload ? '⬆ ¿Subir a la nube?' : '⬇ ¿Descargar de la nube?',
+      body: `
+        <p style="font-size:13px;color:var(--text);line-height:1.6">
+          ${isUpload
+            ? 'La copia de la <strong>nube se reemplazará</strong> con los datos de este dispositivo. Los otros dispositivos recibirán estos cambios al sincronizar.'
+            : 'Los datos de <strong>este dispositivo se reemplazarán</strong> con la copia de la nube. Se guardará una copia de seguridad local antes.'}
+        </p>`,
+      actions: [
+        { label: 'Cancelar' },
+        {
+          label: isUpload ? 'Sí, subir a la nube' : 'Sí, usar la nube',
+          primary: true,
+          cb: () => this._applyCloudChoice(choice),
+        },
+      ],
+    });
+  },
+
+  async _applyCloudChoice(choice) {
     const ok = await Store.resolveSyncConflict(choice);
     if (ok) {
       this._currentViewMonth = Store.getCurrentMonth();
       this._renderMonthSelector();
       this._refreshAll();
-      this.showToast(choice === 'remote' ? '✅ Datos de la nube restaurados' : '✅ Datos locales conservados y subidos');
+      this.showToast(choice === 'remote' ? '✅ Datos de la nube aplicados' : '✅ Datos subidos a la nube');
+      if (typeof Categorias !== 'undefined') Categorias.render?.();
+    } else {
+      this.showToast('❌ No se pudo completar la operación', 4000);
     }
+  },
+
+  async _resolveSyncConflict(choice) {
+    await this._applyCloudChoice(choice);
   },
 
   _runStartupTasks() {
