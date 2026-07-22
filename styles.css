@@ -190,17 +190,25 @@ html {
 /* Tabs */
 .tabs {
   display: flex;
-  gap: 3px;
+  gap: 2px;
   margin-bottom: 16px;
   background: var(--card);
   border-radius: var(--radius-lg);
   padding: 3px;
   box-shadow: var(--shadow);
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  container-type: inline-size;
+  container-name: main-tabs;
 }
 
 .tab-btn {
-  padding: 10px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 8px 6px;
   border: none;
   background: transparent;
   border-radius: var(--radius);
@@ -210,8 +218,19 @@ html {
   cursor: pointer;
   transition: all 0.15s;
   white-space: nowrap;
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 44px;
   text-align: center;
+  touch-action: manipulation;
+}
+.tab-icon { font-size: 20px; line-height: 1; }
+.tab-label { font-size: 10px; line-height: 1.1; letter-spacing: 0.1px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+@container main-tabs (max-width: 720px) {
+  .tab-label { display: none; }
+  .tab-btn { padding: 10px 4px; }
+}
+@container main-tabs (max-width: 480px) {
+  .tab-icon { font-size: 22px; }
 }
 .tab-btn:hover { background: var(--bg); color: var(--text); }
 .tab-btn.active { background: var(--primary); color: white; }
@@ -1328,12 +1347,16 @@ html {
   align-items: stretch;
   box-shadow: 0 -2px 12px rgba(0,0,0,0.07);
   padding-bottom: env(safe-area-inset-bottom, 0px);
-  min-height: calc(56px + env(safe-area-inset-bottom, 0px));
+  min-height: calc(52px + env(safe-area-inset-bottom, 0px));
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
+  container-type: inline-size;
+  container-name: bottom-nav;
 }
 .bottom-nav-btn {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 72px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1342,44 +1365,32 @@ html {
   border: none;
   background: none;
   color: var(--text-secondary);
-  font-size: 18px;
   cursor: pointer;
   transition: color 0.15s;
-  padding: 6px 4px 8px;
+  padding: 6px 2px 8px;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
-  min-height: 56px;
+  min-height: 52px;
 }
-.bottom-nav-btn span { font-size: 9px; font-weight: 600; letter-spacing: 0.2px; }
-.bottom-nav-btn.active { color: var(--primary); }
-.bottom-nav-btn:active { transform: scale(0.92); opacity: 0.85; }
-
-.bottom-nav-menu {
-  position: fixed;
-  bottom: calc(56px + env(safe-area-inset-bottom, 0px));
-  right: 0;
-  left: 0;
-  background: var(--card);
-  border-top: 1px solid var(--border);
-  z-index: 199;
-  flex-direction: column;
-  padding: 8px 0;
-  box-shadow: 0 -4px 20px rgba(0,0,0,0.1);
-  padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
-}
-.bottom-nav-menu-item {
-  padding: 14px 20px;
-  border: none;
-  background: none;
-  text-align: left;
-  font-size: 15px;
+.nav-icon { font-size: 20px; line-height: 1; }
+.nav-label {
+  font-size: 9px;
   font-weight: 600;
-  color: var(--text);
-  cursor: pointer;
-  width: 100%;
-  transition: background 0.1s;
+  letter-spacing: 0.1px;
+  line-height: 1.1;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.bottom-nav-menu-item:hover { background: var(--bg); }
+@container bottom-nav (max-width: 520px) {
+  .nav-label { display: none; }
+  .nav-icon { font-size: 22px; }
+  .bottom-nav-btn { padding: 8px 1px; }
+}
+.bottom-nav-btn.active { color: var(--primary); }
+.bottom-nav-btn.active .nav-icon { transform: scale(1.08); }
+.bottom-nav-btn:active { transform: scale(0.92); opacity: 0.85; }
 /* Touch phones — force bottom nav even in desktop mode on iPhone */
 body.mobile-nav .bottom-nav { display: flex !important; }
 body.mobile-nav .tabs { display: none !important; }

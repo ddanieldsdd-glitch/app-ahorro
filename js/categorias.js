@@ -1528,7 +1528,8 @@ END $$;</code>
     App._renderMonthSelector();
     App._refreshAll();
     App.showToast('✅ App restablecida a cero');
-    // Mostrar wizard de primera configuración
-    setTimeout(() => App._showSetupWizard(), 400);
+    if (App._shouldShowSetupWizard && App._shouldShowSetupWizard()) {
+      setTimeout(() => App._showSetupWizard(), 400);
+    }
   },
 };

@@ -33,17 +33,6 @@ const App = {
     }
   },
 
-  _toggleMoreMenu() {
-    const menu = document.getElementById('bottomNavMenu');
-    if (!menu) return;
-    const open = menu.style.display !== 'none';
-    menu.style.display = open ? 'none' : 'flex';
-    if (!open) {
-      const close = (e) => { if (!e.target.closest('#bottomNavMenu, .bottom-nav-more')) { menu.style.display = 'none'; document.removeEventListener('click', close); } };
-      setTimeout(() => document.addEventListener('click', close), 10);
-    }
-  },
-
   _setupTipHints() {
     document.addEventListener('touchstart', (e) => {
       const tip = e.target.closest('.tip-hint');
@@ -73,13 +62,28 @@ const App = {
     if (new URLSearchParams(window.location.search).get('action') === 'add') {
       setTimeout(() => this._openQuickAdd(), 300);
     }
-    // Mostrar wizard si es la primera vez (sin datos y sin sync configurado)
+    // Mostrar wizard solo si no hay datos ni sincronización configurada
     const hasData = Store.getTransactions().length > 0 || Object.keys(Store.getArchives()).length > 0;
-    const hasSync = !!Store.getSyncSettings().serverUrl;
+    const hasSync = this._isCloudConfigured();
     const wizardSeen = localStorage.getItem('ahorro_wizard_seen');
+    if (hasSync) localStorage.setItem('ahorro_wizard_seen', '1');
     if (!hasData && !hasSync && !wizardSeen) {
       setTimeout(() => this._showSetupWizard(), 800);
     }
+  },
+
+  _isCloudConfigured() {
+    if (typeof Store === 'undefined') return false;
+    if (Store._isSupabase && Store._isSupabase()) return true;
+    const s = Store.getSyncSettings();
+    return !!(s.serverUrl && s.syncKey);
+  },
+
+  _shouldShowSetupWizard() {
+    if (localStorage.getItem('ahorro_wizard_seen')) return false;
+    if (this._isCloudConfigured()) return false;
+    const hasData = Store.getTransactions().length > 0 || Object.keys(Store.getArchives()).length > 0;
+    return !hasData;
   },
 
   _showSetupWizard() {
@@ -189,11 +193,6 @@ const App = {
     if (tb) tb.classList.add('active');
     const bnb = document.querySelector(`.bottom-nav-btn[data-tab="${tab}"]`);
     if (bnb) bnb.classList.add('active');
-    else if (['deudas', 'graficos', 'categorias'].includes(tab)) {
-      document.querySelector('.bottom-nav-more')?.classList.add('active');
-    }
-    const menu = document.getElementById('bottomNavMenu');
-    if (menu) menu.style.display = 'none';
     const tc = document.getElementById(`tab-${tab}`);
     if (tc) tc.classList.add('active');
     if (tab === 'dashboard') Dashboard.render();
