@@ -61,6 +61,7 @@ const defaultData = {
   peopleGroups: [],
   recurringTransactions: [],
   catalogEmojis: { category: {}, incomeCategory: {}, type: {}, method: {} },
+  emojiLibrary: { custom: [], usage: {} },
   initialCheckingBalance: 0,
   initialSavingsBalance: 0,
   _balanceMigrated: false,
@@ -1071,6 +1072,16 @@ const Store = {
       if (!d.catalogEmojis[k] || typeof d.catalogEmojis[k] !== 'object') d.catalogEmojis[k] = {};
     }
 
+    if (!d.emojiLibrary || typeof d.emojiLibrary !== 'object') {
+      d.emojiLibrary = { custom: [], usage: {} };
+    }
+    if (!Array.isArray(d.emojiLibrary.custom)) d.emojiLibrary.custom = [];
+    if (!d.emojiLibrary.usage || typeof d.emojiLibrary.usage !== 'object') d.emojiLibrary.usage = {};
+    if (!d._emojiUsageSeeded) {
+      d._emojiUsageSeeded = true;
+      this._seedEmojiUsageFromData(d);
+    }
+
     // Migrate legacy "Ahorro" / "Ahorro programado" Gasto → Traspaso (classification only; no balance re-apply)
     if (!d._ahorroToTraspasoMigrated) {
       const convert = (t) => {
@@ -1333,6 +1344,7 @@ const Store = {
     t.id = Date.now().toString(36) + Math.random().toString(36).substr(2, 8);
     t.month = t.date.substring(0, 7);
     if (!t.account) t.account = this._resolveAccount(t);
+    if (t.emoji) this.trackEmoji(t.emoji);
     this._applyBalanceDelta(t, 1);
     this._data.transactions.push(t);
     this._save();
@@ -1347,6 +1359,7 @@ const Store = {
     const updated = { ...old, ...updates };
     if (!updated.account) updated.account = this._resolveAccount(updated);
     if (updates.date) updated.month = updated.date.substring(0, 7);
+    if (updates.emoji !== undefined && updates.emoji) this.trackEmoji(updates.emoji);
     this._applyBalanceDelta(updated, 1);           // apply new effect
     this._data.transactions[idx] = updated;
     this._save();
@@ -1379,6 +1392,7 @@ const Store = {
       if (!t.account) t.account = this._resolveAccount(t);
       if (applyBalance) this._applyBalanceDelta(t, 1);
       this._data.transactions.push(t);
+      if (t.emoji) this.trackEmoji(t.emoji);
       added.push(t);
     }
     this._save();
@@ -1451,9 +1465,59 @@ const Store = {
   setCatalogEmoji(kind, name, emoji) {
     const map = this._catalogEmojiMap(kind);
     const v = (emoji || '').trim();
-    if (v) map[name] = v;
-    else delete map[name];
+    if (v) {
+      map[name] = v;
+      this.trackEmoji(v);
+    } else delete map[name];
     this._save();
+  },
+
+  _ensureEmojiLibrary() {
+    if (!this._data.emojiLibrary) this._data.emojiLibrary = { custom: [], usage: {} };
+    if (!Array.isArray(this._data.emojiLibrary.custom)) this._data.emojiLibrary.custom = [];
+    if (!this._data.emojiLibrary.usage || typeof this._data.emojiLibrary.usage !== 'object') {
+      this._data.emojiLibrary.usage = {};
+    }
+  },
+
+  getEmojiLibrary() {
+    this._ensureEmojiLibrary();
+    return this._data.emojiLibrary;
+  },
+
+  trackEmoji(emoji) {
+    if (typeof EmojiUtils === 'undefined') return;
+    const e = EmojiUtils.normalize(emoji);
+    if (!e) return;
+    this._ensureEmojiLibrary();
+    const lib = this._data.emojiLibrary;
+    lib.usage[e] = (lib.usage[e] || 0) + 1;
+    if (!lib.custom.includes(e)) {
+      lib.custom.unshift(e);
+      if (lib.custom.length > 64) lib.custom.length = 64;
+    } else {
+      lib.custom.splice(lib.custom.indexOf(e), 1);
+      lib.custom.unshift(e);
+    }
+  },
+
+  _seedEmojiUsageFromData(d) {
+    if (typeof EmojiUtils === 'undefined') return;
+    const bump = (emoji) => {
+      const e = EmojiUtils.normalize(emoji);
+      if (!e) return;
+      d.emojiLibrary.usage[e] = (d.emojiLibrary.usage[e] || 0) + 1;
+      if (!d.emojiLibrary.custom.includes(e)) d.emojiLibrary.custom.push(e);
+    };
+    const scanTx = (t) => { if (t?.emoji) bump(t.emoji); };
+    for (const t of d.transactions || []) scanTx(t);
+    for (const txs of Object.values(d.archives || {})) txs.forEach(scanTx);
+    for (const g of d.categoryGroups || []) { if (g.emoji) bump(g.emoji); }
+    for (const g of d.incomeGroups || []) { if (g.emoji) bump(g.emoji); }
+    for (const kind of ['category', 'incomeCategory', 'type', 'method']) {
+      for (const emoji of Object.values(d.catalogEmojis?.[kind] || {})) bump(emoji);
+    }
+    if (d.emojiLibrary.custom.length > 64) d.emojiLibrary.custom = d.emojiLibrary.custom.slice(-64);
   },
 
   getCatalogDisplayEmoji(kind, name) {
@@ -1834,7 +1898,10 @@ const Store = {
     if (updates.monthlyBudget !== undefined) g.monthlyBudget = updates.monthlyBudget;
     if (updates.isFoodGroup !== undefined) g.isFoodGroup = updates.isFoodGroup;
     if (updates.color !== undefined) g.color = updates.color;
-    if (updates.emoji !== undefined) g.emoji = updates.emoji;
+    if (updates.emoji !== undefined) {
+      g.emoji = updates.emoji;
+      if (updates.emoji) this.trackEmoji(updates.emoji);
+    }
     // Sync legacy foodBudget when updating the food group budget
     if (updates.isFoodGroup && updates.monthlyBudget !== undefined) {
       this._data.foodBudget = updates.monthlyBudget;
@@ -1880,7 +1947,10 @@ const Store = {
     if (updates.categories !== undefined) g.categories = [...new Set(updates.categories)];
     if (updates.monthlyTarget !== undefined) g.monthlyTarget = updates.monthlyTarget;
     if (updates.color !== undefined) g.color = updates.color;
-    if (updates.emoji !== undefined) g.emoji = updates.emoji;
+    if (updates.emoji !== undefined) {
+      g.emoji = updates.emoji;
+      if (updates.emoji) this.trackEmoji(updates.emoji);
+    }
     this._save();
   },
 
