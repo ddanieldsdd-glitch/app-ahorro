@@ -1,9 +1,9 @@
-const CACHE = 'presupuesto-v25';
+const CACHE = 'presupuesto-v27';
 
 const ASSETS = [
   '/', '/index.html', '/styles.css', '/manifest.json', '/icon.svg', '/version.json',
   '/icons/icon-192.png', '/icons/icon-512.png',
-  '/js/crypto-e2e.js', '/js/store.js', '/js/budget-engine.js', '/js/install.js',
+  '/js/crypto-e2e.js', '/js/store.js', '/js/emoji-utils.js', '/js/budget-engine.js', '/js/install.js',
   '/js/presupuesto.js', '/js/dashboard.js', '/js/registro.js', '/js/calendario.js',
   '/js/semanas.js', '/js/graficos.js', '/js/movement-form.js', '/js/categorias.js',
   '/js/deudas.js', '/js/excel-io.js', '/js/backup-io.js', '/js/tutorial.js', '/js/vercel-analytics.js', '/js/app.js',

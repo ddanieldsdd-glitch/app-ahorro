@@ -477,6 +477,57 @@ html {
 .cat-item .cat-name { font-weight: 500; }
 .cat-item .delete-cat { background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 14px; padding: 2px 4px; border-radius: 4px; }
 .cat-item .delete-cat:hover { background: var(--expense-bg); color: var(--expense); }
+.cat-emoji-btn {
+  border: 1px solid var(--border);
+  background: var(--card);
+  border-radius: 8px;
+  font-size: 18px;
+  line-height: 1;
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+}
+.cat-emoji-btn:hover { border-color: var(--primary); background: var(--primary-light); }
+
+.emoji-picker-wrap { margin-top: 4px; }
+.emoji-picker-input {
+  width: 100%;
+  text-align: center;
+  font-size: 24px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 8px;
+  background: var(--card);
+  color: var(--text);
+  box-sizing: border-box;
+}
+.emoji-picker-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.emoji-pick-btn {
+  font-size: 18px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  padding: 4px 6px;
+  line-height: 1;
+}
+.emoji-pick-btn:hover { border-color: var(--primary); background: var(--primary-light); }
+.emoji-picker-more summary {
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--primary);
+  margin-bottom: 6px;
+}
+.emoji-picker-clear { margin-top: 4px; }
 .add-cat-form { display: flex; gap: 6px; margin-top: 8px; }
 .add-cat-form input { flex: 1; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 13px; }
 .add-cat-form input:focus { outline: none; border-color: var(--primary); }
@@ -859,6 +910,25 @@ html {
 }
 .prio-btn:hover { border-color: var(--primary); color: var(--primary); }
 .prio-btn.active { color: #fff; }
+.prio-section-label { font-size: 11px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.4px; margin: 12px 0 8px; }
+.prio-kind-tag { font-size: 9px; font-weight: 600; color: var(--text-secondary); background: var(--bg); padding: 1px 6px; border-radius: 8px; vertical-align: middle; }
+.prio-row-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.prio-remove-btn { border: none; background: none; color: var(--text-secondary); cursor: pointer; font-size: 14px; padding: 4px; border-radius: 4px; }
+.prio-remove-btn:hover { background: var(--expense-bg); color: var(--expense); }
+.prio-missing-alert { padding: 12px; border-radius: 10px; background: #FEF3C7; border: 1px solid #FCD34D; margin-bottom: 12px; }
+.prio-missing-title { font-size: 13px; font-weight: 700; color: #92400E; margin-bottom: 4px; }
+.prio-missing-sub { font-size: 11px; color: #B45309; margin-bottom: 8px; line-height: 1.4; }
+.prio-missing-list { display: flex; flex-direction: column; gap: 6px; }
+.prio-missing-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 6px 8px; background: rgba(255,255,255,0.5); border-radius: 8px; }
+.prio-missing-cat { font-size: 12px; font-weight: 600; color: #78350F; }
+.prio-missing-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+.prio-missing-btn { font-size: 10px !important; padding: 4px 8px !important; }
+.prio-complete-banner { padding: 10px 12px; border-radius: 8px; background: var(--income-bg); border: 1px solid var(--income); color: var(--income); font-size: 12px; font-weight: 600; margin-bottom: 12px; }
+.prio-add-section { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.prio-add-group { margin-bottom: 10px; }
+.prio-add-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.prio-add-chip { border: 1px dashed var(--border); background: var(--bg); border-radius: 16px; padding: 5px 10px; font-size: 11px; font-weight: 600; cursor: pointer; color: var(--text); }
+.prio-add-chip:hover { border-color: var(--primary); background: var(--primary-light); color: var(--primary); }
 .prio-mini {
   display: inline-block; font-size: 9px; font-weight: 800; color: #fff;
   padding: 1px 5px; border-radius: 8px; vertical-align: middle; letter-spacing: 0.2px;

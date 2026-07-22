@@ -52,10 +52,12 @@ const defaultData = {
   categoryGroups: [],
   incomeGroups: [],
   expensePriorities: {},
+  priorityIncludes: { groups: [], categories: [], customized: false },
   debts: [],
   people: [],
   peopleGroups: [],
   recurringTransactions: [],
+  catalogEmojis: { category: {}, incomeCategory: {}, type: {}, method: {} },
   initialCheckingBalance: 0,
   initialSavingsBalance: 0,
   _balanceMigrated: false,
@@ -530,6 +532,21 @@ const Store = {
 
     if (!d.incomeGroups) d.incomeGroups = [];
 
+    if (!d.priorityIncludes || typeof d.priorityIncludes !== 'object') {
+      d.priorityIncludes = { groups: [], categories: [], customized: false };
+    }
+    if (!Array.isArray(d.priorityIncludes.groups)) d.priorityIncludes.groups = [];
+    if (!Array.isArray(d.priorityIncludes.categories)) d.priorityIncludes.categories = [];
+    if (d.priorityIncludes.customized == null) d.priorityIncludes.customized = false;
+    this._syncPriorityIncludesAuto();
+
+    if (!d.catalogEmojis || typeof d.catalogEmojis !== 'object') {
+      d.catalogEmojis = { category: {}, incomeCategory: {}, type: {}, method: {} };
+    }
+    for (const k of ['category', 'incomeCategory', 'type', 'method']) {
+      if (!d.catalogEmojis[k] || typeof d.catalogEmojis[k] !== 'object') d.catalogEmojis[k] = {};
+    }
+
     // Migrate legacy "Ahorro" / "Ahorro programado" Gasto → Traspaso (classification only; no balance re-apply)
     if (!d._ahorroToTraspasoMigrated) {
       const convert = (t) => {
@@ -887,6 +904,50 @@ const Store = {
   getCategoriesForType(type) {
     return type === 'Ingreso' ? this.getIncomeCategories() : this.getCategories();
   },
+
+  _catalogEmojiMap(kind) {
+    if (!this._data.catalogEmojis) this._data.catalogEmojis = { category: {}, incomeCategory: {}, type: {}, method: {} };
+    if (!this._data.catalogEmojis[kind]) this._data.catalogEmojis[kind] = {};
+    return this._data.catalogEmojis[kind];
+  },
+
+  getCatalogEmoji(kind, name) {
+    return this._catalogEmojiMap(kind)[name] || '';
+  },
+
+  setCatalogEmoji(kind, name, emoji) {
+    const map = this._catalogEmojiMap(kind);
+    const v = (emoji || '').trim();
+    if (v) map[name] = v;
+    else delete map[name];
+    this._save();
+  },
+
+  getCatalogDisplayEmoji(kind, name) {
+    const stored = this.getCatalogEmoji(kind, name);
+    if (stored) return stored;
+    return typeof EmojiUtils !== 'undefined' ? EmojiUtils.inferDefault(name, kind) : '🏷️';
+  },
+
+  getGroupDisplayEmoji(group, income = false) {
+    if (group?.emoji) return group.emoji;
+    const kind = income ? 'incomeGroup' : 'expenseGroup';
+    if (group?.isFoodGroup) return '🍽️';
+    return typeof EmojiUtils !== 'undefined' ? EmojiUtils.inferDefault(group?.name || '', kind) : '📂';
+  },
+
+  _moveCatalogEmoji(kind, oldName, newName) {
+    const map = this._catalogEmojiMap(kind);
+    if (map[oldName]) {
+      map[newName] = map[oldName];
+      delete map[oldName];
+    }
+  },
+
+  _deleteCatalogEmoji(kind, name) {
+    delete this._catalogEmojiMap(kind)[name];
+  },
+
   addCategory(name) {
     if (!this._data.categories.includes(name)) { this._data.categories.push(name); this._save(); }
   },
@@ -896,11 +957,14 @@ const Store = {
   },
   deleteCategory(name) {
     this._data.categories = this._data.categories.filter(c => c !== name);
+    this._deleteCatalogEmoji('category', name);
     // Clean up any weekly limit associated with this category
     if (this._data.budgetConfig?.categoryLimits) {
       delete this._data.budgetConfig.categoryLimits[name];
     }
     if (this._data.expensePriorities) delete this._data.expensePriorities['cat:' + name];
+    const inc = this.getPriorityIncludes();
+    inc.categories = inc.categories.filter(c => c !== name);
     // Remove from category groups
     for (const g of (this._data.categoryGroups || [])) {
       g.categories = g.categories.filter(c => c !== name);
@@ -913,6 +977,7 @@ const Store = {
   },
   deleteIncomeCategory(name) {
     this._data.incomeCategories = (this._data.incomeCategories || []).filter(c => c !== name);
+    this._deleteCatalogEmoji('incomeCategory', name);
     for (const g of (this._data.incomeGroups || [])) {
       g.categories = g.categories.filter(c => c !== name);
     }
@@ -947,6 +1012,7 @@ const Store = {
     // Rename in legacy foodCategories
     const fi = (this._data.foodCategories || []).indexOf(oldName);
     if (fi !== -1) this._data.foodCategories[fi] = newName;
+    this._moveCatalogEmoji('category', oldName, newName);
     this._save();
     return true;
   },
@@ -964,6 +1030,7 @@ const Store = {
         if (t.type === 'Ingreso' && t.category === oldName) t.category = newName;
       }
     }
+    this._moveCatalogEmoji('incomeCategory', oldName, newName);
     this._save();
     return true;
   },
@@ -990,6 +1057,7 @@ const Store = {
   },
   deleteType(name) {
     this._data.types = this._data.types.filter(t => t !== name);
+    this._deleteCatalogEmoji('type', name);
     this._save();
   },
 
@@ -998,6 +1066,7 @@ const Store = {
     const idx = this._data.types.indexOf(oldName);
     this._data.types[idx] = newName;
     this._renameInTransactions('type', oldName, newName);
+    this._moveCatalogEmoji('type', oldName, newName);
     this._save();
     return true;
   },
@@ -1013,6 +1082,7 @@ const Store = {
   },
   deletePaymentMethod(name) {
     this._data.paymentMethods = this._data.paymentMethods.filter(p => p !== name);
+    this._deleteCatalogEmoji('method', name);
     this._save();
   },
 
@@ -1021,6 +1091,7 @@ const Store = {
     const idx = this._data.paymentMethods.indexOf(oldName);
     this._data.paymentMethods[idx] = newName;
     this._renameInTransactions('paymentMethod', oldName, newName);
+    this._moveCatalogEmoji('method', oldName, newName);
     this._save();
     return true;
   },
@@ -1215,6 +1286,9 @@ const Store = {
     if (this._data.expensePriorities['group:' + g.id] == null) {
       this._data.expensePriorities['group:' + g.id] = g.isFoodGroup ? 1 : 3;
     }
+    if (!this.getPriorityIncludes().customized) {
+      this.getPriorityIncludes().groups.push(g.id);
+    }
     this._save();
     return g;
   },
@@ -1238,6 +1312,8 @@ const Store = {
   deleteCategoryGroup(id) {
     this._data.categoryGroups = (this._data.categoryGroups || []).filter(g => g.id !== id);
     if (this._data.expensePriorities) delete this._data.expensePriorities['group:' + id];
+    const inc = this.getPriorityIncludes();
+    inc.groups = inc.groups.filter(gid => gid !== id);
     this._save();
   },
 
@@ -1304,24 +1380,116 @@ const Store = {
   },
 
   getCategoryPriority(categoryName) {
+    const includes = this.getPriorityIncludes();
+    if (includes.categories.includes(categoryName)) {
+      return this.getExpensePriority('cat:' + categoryName, 3);
+    }
     const group = this.getCategoryGroup(categoryName);
-    if (group) return this.getGroupPriority(group.id);
+    if (group && includes.groups.includes(group.id)) {
+      return this.getGroupPriority(group.id);
+    }
     if (categoryName === 'Imprevisto') return this.getExpensePriority('__imprevistos__', 2);
-    return this.getExpensePriority('cat:' + categoryName, 3);
+    return 3;
+  },
+
+  getPriorityIncludes() {
+    if (!this._data.priorityIncludes) {
+      this._data.priorityIncludes = { groups: [], categories: [], customized: false };
+    }
+    return this._data.priorityIncludes;
+  },
+
+  /** Si el usuario no personalizó, mantener todos los grupos + categorías sueltas */
+  _syncPriorityIncludesAuto() {
+    const inc = this.getPriorityIncludes();
+    if (inc.customized) return;
+    const grouped = new Set((this._data.categoryGroups || []).flatMap(g => g.categories));
+    inc.groups = (this._data.categoryGroups || []).map(g => g.id);
+    inc.categories = (this._data.categories || []).filter(c => !grouped.has(c) && c !== 'Imprevisto');
+  },
+
+  _markPriorityIncludesCustomized() {
+    this.getPriorityIncludes().customized = true;
+    this._save();
+  },
+
+  getPriorityCoverage() {
+    this._syncPriorityIncludesAuto();
+    const inc = this.getPriorityIncludes();
+    const allCats = (this._data.categories || []).filter(c => c !== 'Imprevisto');
+    const covered = new Set();
+    for (const gid of inc.groups) {
+      const g = (this._data.categoryGroups || []).find(x => x.id === gid);
+      if (g) g.categories.forEach(c => covered.add(c));
+    }
+    for (const cat of inc.categories) covered.add(cat);
+    const missing = allCats.filter(c => !covered.has(c)).map(cat => {
+      const group = this.getCategoryGroup(cat);
+      return {
+        cat,
+        group,
+        groupIncluded: group ? inc.groups.includes(group.id) : false,
+      };
+    });
+    const availableGroups = (this._data.categoryGroups || []).filter(g => !inc.groups.includes(g.id));
+    const availableCategories = allCats.filter(c => !inc.categories.includes(c) && !covered.has(c));
+    return { covered, missing, includes: inc, availableGroups, availableCategories };
+  },
+
+  addPriorityIncludeGroup(groupId) {
+    const inc = this.getPriorityIncludes();
+    if (!inc.groups.includes(groupId)) {
+      inc.groups.push(groupId);
+      const g = (this._data.categoryGroups || []).find(x => x.id === groupId);
+      if (g) {
+        inc.categories = inc.categories.filter(c => !g.categories.includes(c));
+      }
+      this._markPriorityIncludesCustomized();
+    }
+  },
+
+  removePriorityIncludeGroup(groupId) {
+    const inc = this.getPriorityIncludes();
+    inc.groups = inc.groups.filter(id => id !== groupId);
+    this._markPriorityIncludesCustomized();
+  },
+
+  addPriorityIncludeCategory(categoryName) {
+    const inc = this.getPriorityIncludes();
+    if (!inc.categories.includes(categoryName)) {
+      inc.categories.push(categoryName);
+      this._markPriorityIncludesCustomized();
+    }
+  },
+
+  removePriorityIncludeCategory(categoryName) {
+    const inc = this.getPriorityIncludes();
+    inc.categories = inc.categories.filter(c => c !== categoryName);
+    this._markPriorityIncludesCustomized();
+  },
+
+  includeAllMissingPriorityCategories() {
+    const { missing } = this.getPriorityCoverage();
+    for (const m of missing) this.addPriorityIncludeCategory(m.cat);
   },
 
   /** Items configurables en Ajustes → Prioridad de gastos */
   getPriorityConfigItems() {
+    this._syncPriorityIncludesAuto();
+    const inc = this.getPriorityIncludes();
     const items = [];
-    for (const g of this.getCategoryGroups()) {
+    for (const gid of inc.groups) {
+      const g = (this._data.categoryGroups || []).find(x => x.id === gid);
+      if (!g) continue;
       items.push({
         key: 'group:' + g.id,
         kind: 'group',
         id: g.id,
         name: g.name,
-        emoji: g.emoji || (g.isFoodGroup ? '🍽️' : '📂'),
-        hint: g.isFoodGroup ? 'Plan comida' : (g.monthlyBudget > 0 ? `${g.monthlyBudget.toFixed(0)}€/mes` : 'Sin presupuesto'),
+        emoji: this.getGroupDisplayEmoji(g),
+        hint: `${g.categories.length ? g.categories.length + ' cat.' : 'Sin categorías'} · ${g.isFoodGroup ? 'Plan comida' : (g.monthlyBudget > 0 ? `${g.monthlyBudget.toFixed(0)}€/mes` : 'Sin presupuesto')}`,
         priority: this.getGroupPriority(g.id),
+        removable: true,
       });
     }
     items.push({
@@ -1332,24 +1500,31 @@ const Store = {
       emoji: '⚠️',
       hint: `${(this.getImprevistosBudget() || 0).toFixed(0)}€/mes`,
       priority: this.getExpensePriority('__imprevistos__', 2),
+      removable: false,
     });
-    const grouped = new Set(this.getCategoryGroups().flatMap(g => g.categories));
     const limits = this.getCategoryLimits();
-    const cats = this.getCategories().filter(c => !grouped.has(c) && c !== 'Imprevisto');
-    for (const cat of cats) {
+    for (const cat of inc.categories) {
+      if (!(this._data.categories || []).includes(cat)) continue;
       const hasLimit = (limits[cat] || 0) > 0;
+      const inGroup = this.getCategoryGroup(cat);
       items.push({
         key: 'cat:' + cat,
         kind: 'category',
         id: cat,
         name: cat,
-        emoji: '🏷️',
-        hint: hasLimit ? `Límite ${limits[cat].toFixed(0)}€/sem` : 'Sin límite semanal',
+        emoji: this.getCatalogDisplayEmoji('category', cat),
+        hint: `${hasLimit ? `Límite ${limits[cat].toFixed(0)}€/sem` : 'Sin límite semanal'}${inGroup ? ` · también en grupo ${inGroup.name}` : ''}`,
         priority: this.getExpensePriority('cat:' + cat, 3),
+        removable: true,
       });
     }
-    // Sort: essential first, then by name
-    items.sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name, 'es'));
+    items.sort((a, b) => {
+      const order = { group: 0, category: 1, system: 2 };
+      const ka = order[a.kind] ?? 1;
+      const kb = order[b.kind] ?? 1;
+      if (ka !== kb) return ka - kb;
+      return a.priority - b.priority || a.name.localeCompare(b.name, 'es');
+    });
     return items;
   },
 

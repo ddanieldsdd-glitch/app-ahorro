@@ -420,7 +420,7 @@ const BudgetEngine = {
       return {
         id: g.id,
         name: g.name,
-        emoji: g.emoji || (g.isFoodGroup ? '🍽️' : '📂'),
+        emoji: Store.getGroupDisplayEmoji(g),
         isFoodGroup: !!g.isFoodGroup,
         spent,
         budget,

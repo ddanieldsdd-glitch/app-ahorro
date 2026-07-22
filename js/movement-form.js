@@ -8,11 +8,11 @@
  *   MovementForm.validate(values)    → '' | error string
  */
 const MovementForm = {
-  // Quick emoji palette for picker
-  _EMOJI_PALETTE: ['😀','🎉','🛒','🍔','🍕','☕','🚗','🏠','💊','📚','👗','🎮','✈️','🎁','💪','🌟','🔧','📱','🎵','🏋️','🐷','💸','🆘','⚠️','✅','❤️','🌈','🔑','📋','💡'],
+  _EMOJI_PALETTE: typeof EmojiUtils !== 'undefined' ? EmojiUtils.PALETTE : ['😀','🎉','🛒','🍔','🍕','☕','🚗','🏠','💊','📚','👗','🎮','✈️','🎁','💪','🌟','🔧','📱','🎵','🏋️','🐷','💸','🆘','⚠️','✅','❤️','🌈','🔑','📋','💡'],
 
   buildHTML({ cats = [], methods = [], defaultType = 'Gasto', defaultDate = '', defaultAccount = 'checking', prefix = 'mf', showTraspaso = true } = {}) {
     const today = defaultDate || new Date().toISOString().split('T')[0];
+    const catKind = defaultType === 'Ingreso' ? 'incomeCategory' : 'category';
     return `
       <div class="mf-type-row">
         <button type="button" class="mf-type-btn ${defaultType === 'Gasto' ? 'active expense' : ''}" data-mf-type="Gasto"
@@ -47,7 +47,7 @@ const MovementForm = {
         <div id="${prefix}CategoryRow" class="form-group" style="${defaultType === 'Traspaso' ? 'display:none' : ''}">
           <label>Categoría</label>
           <select id="${prefix}Category">
-            ${cats.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}
+            ${cats.map(c => `<option value="${esc(c)}">${Store.getCatalogDisplayEmoji(catKind, c)} ${esc(c)}</option>`).join('')}
           </select>
         </div>
         <div id="${prefix}MethodRow" class="form-group" style="${defaultType === 'Traspaso' ? 'display:none' : ''}">
@@ -69,16 +69,7 @@ const MovementForm = {
           <label style="display:flex;align-items:center;gap:6px">
             Emoticono <span style="font-size:10px;color:var(--text-secondary)">(opcional)</span>
           </label>
-          <div style="display:flex;gap:6px;align-items:center">
-            <input type="text" id="${prefix}Emoji" placeholder="😀" style="width:48px;text-align:center;font-size:20px;padding:4px;border:1px solid var(--border);border-radius:6px">
-            <div style="display:flex;flex-wrap:wrap;gap:3px;max-width:240px">
-              ${this._EMOJI_PALETTE.slice(0,15).map(e => `<button type="button" onclick="document.getElementById('${prefix}Emoji').value='${e}'" style="font-size:16px;background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;padding:2px 4px;line-height:1">${e}</button>`).join('')}
-              <button type="button" onclick="MovementForm._toggleMoreEmoji('${prefix}')" style="font-size:11px;background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;padding:2px 4px;color:var(--primary)">+más</button>
-            </div>
-          </div>
-          <div id="${prefix}MoreEmoji" style="display:none;flex-wrap:wrap;gap:3px;margin-top:4px">
-            ${this._EMOJI_PALETTE.slice(15).map(e => `<button type="button" onclick="document.getElementById('${prefix}Emoji').value='${e}'" style="font-size:16px;background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;padding:2px 4px;line-height:1">${e}</button>`).join('')}
-          </div>
+          ${typeof EmojiUtils !== 'undefined' ? EmojiUtils.renderPicker(`${prefix}Emoji`, { compact: true }) : `<input type="text" id="${prefix}Emoji" placeholder="😀" style="width:48px;text-align:center;font-size:20px">`}
         </div>
       </div>
       <div id="${prefix}BudgetHint" style="display:none;margin-top:6px;padding:6px 8px;border-radius:4px;font-size:12px"></div>
@@ -176,7 +167,8 @@ const MovementForm = {
       ? (cats.includes('Mensualidad') ? 'Mensualidad' : cats[0])
       : (cats.includes('Comida') ? 'Comida' : cats[0]);
     const pick = cats.includes(current) ? current : defaultCat;
-    sel.innerHTML = cats.map(c => `<option value="${esc(c)}" ${c === pick ? 'selected' : ''}>${esc(c)}</option>`).join('');
+    const kind = type === 'Ingreso' ? 'incomeCategory' : 'category';
+    sel.innerHTML = cats.map(c => `<option value="${esc(c)}" ${c === pick ? 'selected' : ''}>${Store.getCatalogDisplayEmoji(kind, c)} ${esc(c)}</option>`).join('');
     const addOpt = document.createElement('option');
     addOpt.value = '__add__'; addOpt.textContent = '+ Añadir nuevo...';
     sel.appendChild(addOpt);

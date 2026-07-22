@@ -1,4 +1,6 @@
 const Categorias = {
+  _settingsExpanded: { sync: false, shared: false },
+
   render() {
     const el = document.getElementById('tab-categorias');
     const checking = Store.getCheckingBalance();
@@ -175,10 +177,28 @@ const Categorias = {
         })()}
       </div>
 
-      <div class="card" style="margin-bottom:10px">
+      ${(() => {
+          const syncOk = Categorias._isSyncConfigured();
+          const expanded = Categorias._settingsExpanded.sync;
+          const s = Store.getSyncSettings();
+          let host = '';
+          try { if (s.supabaseUrl) host = new URL(s.supabaseUrl).hostname.replace('.supabase.co', ''); } catch {}
+          const enc = Store.isEncryptionEnabled();
+          const statusBanner = syncOk ? `<div style="display:flex;align-items:center;gap:10px;padding:12px;border-radius:10px;background:var(--bg);border:1.5px solid var(--income);margin-bottom:${expanded ? '12px' : '0'}">
+            <span style="font-size:24px">✅</span>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;font-weight:700;color:var(--income)">Sincronización configurada</div>
+              <div style="font-size:11px;color:var(--text-secondary)">${host ? esc(host) + ' · ' : ''}Perfil <strong>${esc(s.supabaseRowId || 'default')}</strong>${enc ? ' · Cifrado ✓' : ''}</div>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="Categorias._toggleSettingsExpand('sync')">${expanded ? 'Ocultar' : 'Editar'}</button>
+          </div>` : '';
+          const bodyHidden = syncOk && !expanded;
+          return `<div class="card" style="margin-bottom:10px">
         <div class="card-header">
           <span class="card-title">☁️ Sincronización (Supabase)</span>
         </div>
+        ${statusBanner}
+        <div id="syncSettingsBody" style="${bodyHidden ? 'display:none' : ''}">
         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;line-height:1.6">
           Conecta tus dispositivos con la misma nube gratuita.
           Los datos se <strong>cifran en tu móvil/PC</strong> (AES-256) antes de subir — Supabase solo guarda un blob ilegible.
@@ -292,7 +312,6 @@ END $$;</code>
           <button class="btn btn-secondary btn-sm" onclick="Categorias._forceSync()">🔄 Sincronizar ahora</button>
         </div>
 
-        <!-- Legacy custom server — hidden, not recommended -->
         <details style="margin-top:14px">
           <summary style="font-size:11px;color:var(--text-secondary);cursor:pointer">Modo experto (no recomendado)</summary>
           <div style="margin-top:8px;padding:10px;background:var(--bg);border-radius:8px;font-size:11px;color:var(--text-secondary);line-height:1.6">
@@ -321,13 +340,30 @@ END $$;</code>
             </div>
           </div>
         </details>
-      </div>
+        </div>
+      </div>`;
+        })()}
 
-      <!-- ══ Espacio compartido con tu pareja ══════════════════════════════════ -->
+      ${(() => {
+          const sharedOk = Store.isSharedEnabled();
+          const expanded = Categorias._settingsExpanded.shared;
+          const shared = Store.getSharedSyncSettings();
+          const statusBanner = sharedOk ? `<div style="display:flex;align-items:center;gap:10px;padding:12px;border-radius:10px;background:var(--bg);border:1.5px solid var(--income);margin-bottom:${expanded ? '12px' : '0'}">
+            <span style="font-size:24px">✅</span>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;font-weight:700;color:var(--income)">Espacio compartido activo</div>
+              <div style="font-size:11px;color:var(--text-secondary)">ID: <strong>${esc(shared.rowId || '')}</strong> · Cifrado compartido ✓</div>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="Categorias._toggleSettingsExpand('shared')">${expanded ? 'Ocultar' : 'Editar'}</button>
+          </div>` : '';
+          const bodyHidden = sharedOk && !expanded;
+          return `<!-- ══ Espacio compartido con tu pareja ══════════════════════════════════ -->
       <div class="card" style="margin-bottom:10px">
         <div class="card-header">
           <span class="card-title">🤝 Espacio compartido con tu pareja</span>
         </div>
+        ${statusBanner}
+        <div id="sharedSettingsBody" style="${bodyHidden ? 'display:none' : ''}">
         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;line-height:1.6">
           Mismo proyecto Supabase, <strong>fila y frase distintas a las tuyas</strong>.<br>
           Ninguno puede ver los gastos privados del otro — solo las deudas compartidas.<br>
@@ -370,7 +406,9 @@ END $$;</code>
         </div>
 
         <button class="btn btn-primary btn-sm" onclick="Categorias._saveSharedSettings()">💾 Guardar espacio compartido</button>
-      </div>
+        </div>
+      </div>`;
+        })()}
 
       <div class="card" style="margin-bottom:10px">
         <div class="card-header">
@@ -451,7 +489,7 @@ END $$;</code>
           <button class="btn btn-secondary btn-sm" onclick="Categorias._syncCatalog()">🔄 Sincronizar</button>
         </div>
         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">
-          Categorías, tipos y métodos de pago se comparten con Movimientos, Calendario, Deudas y Ahorro.
+          Categorías, tipos de movimiento y métodos de pago se comparten con Movimientos, Calendario, Deudas y Ahorro.
           Si añades uno en cualquier pantalla, aparecerá aquí. Pulsa sincronizar para importar los que falten.
         </p>
       </div>
@@ -484,7 +522,8 @@ END $$;</code>
           <span class="card-title">🎯 Prioridad de gastos</span>
         </div>
         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">
-          Define qué es esencial y qué se puede recortar. La app usa estas prioridades para el <strong>resumen semanal/mensual</strong> y para <strong>recomendar variaciones</strong> del presupuesto (comida, salidas, grupos, límites…).
+          Elige si cada gasto se gestiona por <strong>grupo</strong> o por <strong>categoría</strong> (puedes mezclar ambos).
+          Lo ideal es que <strong>todas las categorías de gasto</strong> estén cubiertas en la lista.
         </p>
         <div class="prio-legend">
           <span class="prio-pill" style="--prio:#059669">1 Esencial</span>
@@ -541,11 +580,11 @@ END $$;</code>
         </div>
         <div class="cat-section">
           <div class="cat-section-title">
-            <span>Tipos</span>
+            <span>Tipo de movimiento</span>
           </div>
           <div class="cat-list" id="typeList"></div>
           <div class="add-cat-form">
-            <input type="text" id="newType" placeholder="Nuevo tipo...">
+            <input type="text" id="newType" placeholder="Nuevo tipo de movimiento...">
             <button onclick="Categorias._add('type')">Añadir</button>
           </div>
         </div>
@@ -683,34 +722,142 @@ END $$;</code>
   _renderExpensePriorities() {
     const el = document.getElementById('expensePrioritiesList');
     if (!el) return;
+    const coverage = Store.getPriorityCoverage();
     const items = Store.getPriorityConfigItems();
-    if (!items.length) {
+    const { missing, availableGroups, availableCategories } = coverage;
+
+    if (!items.length && !Store.getCategories().length) {
       el.innerHTML = '<div style="font-size:12px;color:var(--text-secondary);padding:6px 0">Crea grupos de gasto o categorías para configurar prioridades.</div>';
       return;
     }
 
-    el.innerHTML = items.map(item => {
-      const meta = BudgetEngine.getPriorityMeta(item.priority);
-      const safeKey = encodeURIComponent(item.key);
-      return `<div class="prio-row">
-        <div class="prio-row-info">
-          <span class="prio-row-emoji">${item.emoji}</span>
-          <div>
-            <div class="prio-row-name">${esc(item.name)}</div>
-            <div class="prio-row-hint">${esc(item.hint)} · <span style="color:${meta.color};font-weight:600">${meta.label}</span></div>
-          </div>
-        </div>
-        <div class="prio-btns">
-          ${[1, 2, 3, 4, 5].map(p => {
-            const m = BudgetEngine.getPriorityMeta(p);
-            const active = item.priority === p;
-            return `<button type="button" class="prio-btn ${active ? 'active' : ''}" style="${active ? `background:${m.color};border-color:${m.color};color:#fff` : ''}"
-              title="${m.label}: ${m.tip}"
-              onclick="Categorias._setPriority('${safeKey}', ${p})">${p}</button>`;
+    let html = '';
+
+    if (missing.length) {
+      html += `<div class="prio-missing-alert">
+        <div class="prio-missing-title">⚠️ Faltan ${missing.length} categoría${missing.length !== 1 ? 's' : ''} sin prioridad</div>
+        <div class="prio-missing-sub">Inclúyelas como categoría individual o añade el grupo que las cubra.</div>
+        <div class="prio-missing-list">
+          ${missing.map(m => {
+            const safeCat = m.cat.replace(/'/g, "\\'");
+            const groupBtn = m.group
+              ? `<button type="button" class="btn btn-secondary btn-sm prio-missing-btn" onclick="Categorias._includePriorityGroup('${m.group.id}')">📂 Grupo ${esc(m.group.name)}</button>`
+              : `<button type="button" class="btn btn-secondary btn-sm prio-missing-btn" onclick="Categorias._addCategoryGroupForCat('${safeCat}')">📂 Crear grupo</button>`;
+            return `<div class="prio-missing-item">
+              <span class="prio-missing-cat">${Store.getCatalogDisplayEmoji('category', m.cat)} ${esc(m.cat)}</span>
+              <div class="prio-missing-actions">
+                <button type="button" class="btn btn-primary btn-sm prio-missing-btn" onclick="Categorias._includePriorityCategory('${safeCat}')">➕ Categoría</button>
+                ${groupBtn}
+              </div>
+            </div>`;
           }).join('')}
         </div>
+        <button type="button" class="btn btn-secondary btn-sm" style="margin-top:8px;width:100%" onclick="Categorias._includeAllMissingCategories()">➕ Incluir todas como categorías</button>
       </div>`;
-    }).join('');
+    } else if (Store.getCategories().filter(c => c !== 'Imprevisto').length) {
+      html += `<div class="prio-complete-banner">✅ Todas las categorías de gasto están cubiertas</div>`;
+    }
+
+    if (items.length) {
+      html += `<div class="prio-section-label">Tu lista de prioridades</div>`;
+      html += items.map(item => {
+        const meta = BudgetEngine.getPriorityMeta(item.priority);
+        const safeKey = encodeURIComponent(item.key);
+        const kindLabel = item.kind === 'group' ? 'Grupo' : item.kind === 'category' ? 'Categoría' : 'Sistema';
+        const removeBtn = item.removable
+          ? `<button type="button" class="prio-remove-btn" title="Quitar de la lista" onclick="Categorias._removePriorityItem('${item.kind}', '${String(item.id).replace(/'/g, "\\'")}')">✕</button>`
+          : '';
+        return `<div class="prio-row">
+          <div class="prio-row-info">
+            <span class="prio-row-emoji">${item.emoji}</span>
+            <div>
+              <div class="prio-row-name">${esc(item.name)} <span class="prio-kind-tag">${kindLabel}</span></div>
+              <div class="prio-row-hint">${esc(item.hint)} · <span style="color:${meta.color};font-weight:600">${meta.label}</span></div>
+            </div>
+          </div>
+          <div class="prio-row-actions">
+            <div class="prio-btns">
+              ${[1, 2, 3, 4, 5].map(p => {
+                const m = BudgetEngine.getPriorityMeta(p);
+                const active = item.priority === p;
+                return `<button type="button" class="prio-btn ${active ? 'active' : ''}" style="${active ? `background:${m.color};border-color:${m.color};color:#fff` : ''}"
+                  title="${m.label}: ${m.tip}"
+                  onclick="Categorias._setPriority('${safeKey}', ${p})">${p}</button>`;
+              }).join('')}
+            </div>
+            ${removeBtn}
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    if (availableGroups.length || availableCategories.length) {
+      html += `<div class="prio-add-section">
+        <div class="prio-section-label">Añadir a la lista</div>`;
+      if (availableGroups.length) {
+        html += `<div class="prio-add-group">
+          <div style="font-size:11px;font-weight:600;color:var(--text-secondary);margin-bottom:6px">Grupos de gasto</div>
+          <div class="prio-add-chips">
+            ${availableGroups.map(g => `<button type="button" class="prio-add-chip" onclick="Categorias._includePriorityGroup('${g.id}')">${Store.getGroupDisplayEmoji(g)} ${esc(g.name)}</button>`).join('')}
+          </div>
+        </div>`;
+      }
+      if (availableCategories.length) {
+        html += `<div class="prio-add-group">
+          <div style="font-size:11px;font-weight:600;color:var(--text-secondary);margin-bottom:6px">Categorías sueltas</div>
+          <div class="prio-add-chips">
+            ${availableCategories.map(c => {
+              const safe = c.replace(/'/g, "\\'");
+              return `<button type="button" class="prio-add-chip" onclick="Categorias._includePriorityCategory('${safe}')">${Store.getCatalogDisplayEmoji('category', c)} ${esc(c)}</button>`;
+            }).join('')}
+          </div>
+        </div>`;
+      }
+      html += `</div>`;
+    }
+
+    el.innerHTML = html || '<div style="font-size:12px;color:var(--text-secondary);padding:6px 0">Añade grupos o categorías a la lista.</div>';
+  },
+
+  _includePriorityGroup(groupId) {
+    Store.addPriorityIncludeGroup(groupId);
+    this._renderExpensePriorities();
+    App._refreshConfigDependents?.();
+    App.showToast('📂 Grupo añadido a prioridades');
+  },
+
+  _includePriorityCategory(cat) {
+    Store.addPriorityIncludeCategory(cat);
+    this._renderExpensePriorities();
+    App._refreshConfigDependents?.();
+    App.showToast('🏷️ Categoría añadida a prioridades');
+  },
+
+  _includeAllMissingCategories() {
+    const n = Store.getPriorityCoverage().missing.length;
+    if (!n) return;
+    Store.includeAllMissingPriorityCategories();
+    this._renderExpensePriorities();
+    App._refreshConfigDependents?.();
+    App.showToast(`✅ ${n} categoría${n !== 1 ? 's' : ''} incluida${n !== 1 ? 's' : ''}`);
+  },
+
+  _removePriorityItem(kind, idOrName) {
+    if (kind === 'group') Store.removePriorityIncludeGroup(idOrName);
+    else if (kind === 'category') Store.removePriorityIncludeCategory(idOrName);
+    this._renderExpensePriorities();
+    App._refreshConfigDependents?.();
+    App.showToast('Quitado de la lista de prioridades');
+  },
+
+  _addCategoryGroupForCat(cat) {
+    this._addCategoryGroup();
+    setTimeout(() => {
+      const inp = document.getElementById('cgNameInput');
+      if (inp && !inp.value) inp.value = cat;
+      const check = document.querySelector(`.cg-cat-check[value="${CSS.escape ? CSS.escape(cat) : cat}"]`);
+      if (check) check.checked = true;
+    }, 120);
   },
 
   _setPriority(encodedKey, priority) {
@@ -741,7 +888,7 @@ END $$;</code>
       const weekSpent = weekExpenses.filter(t => g.categories.includes(t.category)).reduce((s, t) => s + t.amount, 0);
       const pct = weeklyBudget > 0 ? Math.min(100, (weekSpent / weeklyBudget) * 100) : 0;
       const barColor = pct >= 100 ? 'var(--expense)' : pct >= 80 ? '#F97316' : pct >= 50 ? '#F59E0B' : 'var(--income)';
-      const emojiDisplay = g.emoji ? `<span style="font-size:18px">${g.emoji}</span>` : '';
+      const emojiDisplay = `<span style="font-size:18px">${Store.getGroupDisplayEmoji(g)}</span>`;
 
       return `<div style="padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
@@ -775,20 +922,17 @@ END $$;</code>
     const groups = Store.getCategoryGroups();
     const usedCats = new Set(groups.flatMap(g => g.categories));
 
-    const emojiPalette = ['🍔','🛒','☕','🍕','🏠','🚗','💊','📚','👗','🎮','✈️','🎁','💪','🌟','🔧','📱','🎵','🏋️','🐾','🌿','🎨','🎭','🛍️','🏖️','💡'];
     App.showCustom('📂 Nuevo grupo de gasto', `
       <div style="display:flex;gap:8px;margin-bottom:8px">
         <div class="form-group" style="flex:1;margin-bottom:0">
           <label style="font-size:12px;font-weight:600">Nombre del grupo</label>
           <input type="text" id="cgNameInput" placeholder="Ej: Alimentación, Ocio..." style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)">
         </div>
-        <div class="form-group" style="width:80px;margin-bottom:0">
-          <label style="font-size:12px;font-weight:600">Emoji</label>
-          <input type="text" id="cgEmojiInput" placeholder="😀" maxlength="2" style="width:100%;text-align:center;font-size:22px;padding:6px;border:1px solid var(--border);border-radius:var(--radius)">
-        </div>
       </div>
-      <div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:10px">
-        ${emojiPalette.map(e => `<button type="button" onclick="document.getElementById('cgEmojiInput').value='${e}'" style="font-size:18px;background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;padding:2px 5px">${e}</button>`).join('')}
+      <div class="form-group" style="margin-bottom:10px">
+        <label style="font-size:12px;font-weight:600">Emoticono</label>
+        ${EmojiUtils.renderPicker('cgEmojiInput', { compact: true })}
+        <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">Si no eliges uno, se asignará automáticamente según el nombre.</div>
       </div>
       <div class="form-group" style="margin-bottom:8px">
         <label style="font-size:12px;font-weight:600">Presupuesto mensual (€)</label>
@@ -825,7 +969,8 @@ END $$;</code>
       const isFood = document.getElementById('cgFoodToggle')?.checked || false;
       const cats = [...document.querySelectorAll('.cg-cat-check:checked')].map(el => el.value);
       if (!name) { App.showToast('⚠️ Indica un nombre para el grupo'); return; }
-      Store.addCategoryGroup(name, { categories: cats, monthlyBudget: budget, isFoodGroup: isFood, emoji });
+      const g = Store.addCategoryGroup(name, { categories: cats, monthlyBudget: budget, isFoodGroup: isFood, emoji });
+      if (g) Store.addPriorityIncludeGroup(g.id);
       App.showToast(`✅ Grupo "${name}" creado`);
       this._renderCategoryGroups();
       this._renderExpensePriorities();
@@ -840,20 +985,16 @@ END $$;</code>
     const groups = Store.getCategoryGroups();
     const otherGroupCats = new Set(groups.filter(x => x.id !== id).flatMap(x => x.categories));
 
-    const emojiPalette2 = ['🍔','🛒','☕','🍕','🏠','🚗','💊','📚','👗','🎮','✈️','🎁','💪','🌟','🔧','📱','🎵','🏋️','🐾','🌿','🎨','🎭','🛍️','🏖️','💡'];
     App.showCustom(`✏️ Editar grupo "${esc(g.name)}"`, `
       <div style="display:flex;gap:8px;margin-bottom:8px">
         <div class="form-group" style="flex:1;margin-bottom:0">
           <label style="font-size:12px;font-weight:600">Nombre</label>
           <input type="text" id="cgNameInput" value="${esc(g.name)}" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)">
         </div>
-        <div class="form-group" style="width:80px;margin-bottom:0">
-          <label style="font-size:12px;font-weight:600">Emoji</label>
-          <input type="text" id="cgEmojiInput" placeholder="😀" maxlength="2" value="${esc(g.emoji || '')}" style="width:100%;text-align:center;font-size:22px;padding:6px;border:1px solid var(--border);border-radius:var(--radius)">
-        </div>
       </div>
-      <div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:10px">
-        ${emojiPalette2.map(e => `<button type="button" onclick="document.getElementById('cgEmojiInput').value='${e}'" style="font-size:18px;background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;padding:2px 5px">${e}</button>`).join('')}
+      <div class="form-group" style="margin-bottom:10px">
+        <label style="font-size:12px;font-weight:600">Emoticono</label>
+        ${EmojiUtils.renderPicker('cgEmojiInput', { value: g.emoji || '', compact: true })}
       </div>
       <div class="form-group" style="margin-bottom:8px">
         <label style="font-size:12px;font-weight:600">Presupuesto mensual (€)</label>
@@ -931,7 +1072,7 @@ END $$;</code>
       const target = g.monthlyTarget || 0;
       const pct = target > 0 ? Math.min(100, (spent / target) * 100) : 0;
       const barColor = target > 0 && spent >= target ? 'var(--income)' : '#10B981';
-      const emojiDisplay = g.emoji ? `<span style="font-size:18px">${g.emoji}</span>` : '';
+      const emojiDisplay = `<span style="font-size:18px">${Store.getGroupDisplayEmoji(g, true)}</span>`;
 
       return `<div style="padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
@@ -964,7 +1105,6 @@ END $$;</code>
     const allCats = Store.getIncomeCategories();
     const groups = Store.getIncomeGroups();
     const usedCats = new Set(groups.filter(g => !existing || g.id !== existing.id).flatMap(g => g.categories));
-    const emojiPalette = ['💰','💼','🏦','🎁','📈','🪙','🏠','👨‍👩‍👧','⭐','🌟','💵','🧾'];
     const g = existing || {};
     return `
       <div style="display:flex;gap:8px;margin-bottom:8px">
@@ -972,13 +1112,10 @@ END $$;</code>
           <label style="font-size:12px;font-weight:600">Nombre del grupo</label>
           <input type="text" id="igNameInput" placeholder="Ej: Nómina, Extras..." value="${esc(g.name || '')}" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)">
         </div>
-        <div class="form-group" style="width:80px;margin-bottom:0">
-          <label style="font-size:12px;font-weight:600">Emoji</label>
-          <input type="text" id="igEmojiInput" placeholder="😀" maxlength="2" value="${esc(g.emoji || '')}" style="width:100%;text-align:center;font-size:22px;padding:6px;border:1px solid var(--border);border-radius:var(--radius)">
-        </div>
       </div>
-      <div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:10px">
-        ${emojiPalette.map(e => `<button type="button" onclick="document.getElementById('igEmojiInput').value='${e}'" style="font-size:18px;background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;padding:2px 5px">${e}</button>`).join('')}
+      <div class="form-group" style="margin-bottom:10px">
+        <label style="font-size:12px;font-weight:600">Emoticono</label>
+        ${EmojiUtils.renderPicker('igEmojiInput', { value: g.emoji || '', compact: true })}
       </div>
       <div class="form-group" style="margin-bottom:8px">
         <label style="font-size:12px;font-weight:600">Objetivo mensual (€)</label>
@@ -1055,9 +1192,14 @@ END $$;</code>
       const count = usageMap[item] || 0;
       const safeItem = item.replace(/'/g, "\\'");
       const canEdit = type === 'category' || type === 'incomeCategory' || type === 'type' || type === 'method';
+      const emoji = Store.getCatalogDisplayEmoji(type, item);
+      const hasCustom = !!Store.getCatalogEmoji(type, item);
       return `
         <div class="cat-item">
-          <span class="cat-name">${esc(item)}${count ? ` <span style="font-size:10px;color:var(--text-secondary)">(${count})</span>` : ''}</span>
+          <span class="cat-name" style="display:flex;align-items:center;gap:6px">
+            <button type="button" class="cat-emoji-btn" title="${hasCustom ? 'Emoticono personalizado' : 'Emoticono automático — pulsa para cambiar'}" onclick="Categorias._editCatalogEmoji('${type}', '${safeItem}')">${emoji}</button>
+            <span>${esc(item)}${count ? ` <span style="font-size:10px;color:var(--text-secondary)">(${count})</span>` : ''}</span>
+          </span>
           <div style="display:flex;gap:4px;align-items:center">
             ${canEdit ? `<button class="btn-sm" style="border:1px solid var(--border);border-radius:4px;background:var(--card);cursor:pointer;font-size:11px;padding:2px 6px" title="Renombrar" onclick="Categorias._rename('${type}', '${safeItem}')">✏️</button>` : ''}
             <button class="delete-cat" onclick="Categorias._delete('${type}', '${safeItem}')"
@@ -1066,6 +1208,36 @@ END $$;</code>
         </div>
       `;
     }).join('');
+  },
+
+  _editCatalogEmoji(kind, name) {
+    const current = Store.getCatalogEmoji(kind, name);
+    const auto = EmojiUtils.inferDefault(name, kind);
+    App.showCustom(`Emoticono — ${esc(name)}`, `
+      ${EmojiUtils.renderPicker('catalogEmojiInput', { value: current || '' })}
+      <div style="font-size:11px;color:var(--text-secondary);margin-top:8px;line-height:1.5">
+        Automático: <strong>${auto}</strong> · Pulsa <em>Automático</em> para volver al emoji sugerido.
+      </div>
+    `, 'Guardar', () => {
+      const val = document.getElementById('catalogEmojiInput')?.value.trim() || '';
+      Store.setCatalogEmoji(kind, name, val);
+      App.showToast(val ? '✅ Emoticono guardado' : '↩ Emoticono automático');
+      this._afterCatalogChange();
+    });
+  },
+
+  _isSyncConfigured() {
+    if (Store._isSupabase && Store._isSupabase()) {
+      const s = Store.getSyncSettings();
+      return !!(s.supabaseUrl && s.supabaseAnonKey && s.supabaseRowId);
+    }
+    const s = Store.getSyncSettings();
+    return !!(s.serverUrl && s.syncKey);
+  },
+
+  _toggleSettingsExpand(key) {
+    this._settingsExpanded[key] = !this._settingsExpanded[key];
+    this.render();
   },
 
   _getUsedItems(type) {
@@ -1440,6 +1612,7 @@ END $$;</code>
     const enc = Store.isEncryptionEnabled();
     if (typeof VercelAnalytics !== 'undefined') VercelAnalytics.track('sync_settings_saved', { provider, encrypted: enc });
     App.showToast(enc ? '🔐 Guardado con cifrado E2E activo' : `☁️ Sincronización con ${provider === 'supabase' ? 'Supabase' : 'servidor'} guardada`);
+    if (this._isSyncConfigured()) this._settingsExpanded.sync = false;
     this.render();
   },
 
@@ -1456,6 +1629,7 @@ END $$;</code>
     });
     if (rowId && passphrase) {
       App.showToast('🤝 Espacio compartido guardado y activado');
+      this._settingsExpanded.shared = false;
     } else {
       App.showToast('⚠️ Introduce el ID de fila y la frase para activar el espacio compartido');
     }
