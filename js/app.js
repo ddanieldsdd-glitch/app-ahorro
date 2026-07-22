@@ -255,13 +255,13 @@ const App = {
 
   _wizardLocalOnly() {
     localStorage.setItem('ahorro_wizard_seen', '1');
-    document.getElementById('modalOverlay').style.display = 'none';
+    this._closeModal();
     this.showToast('✅ Listo. Puedes configurar la sincronización en ⚙️ → Sincronización en cualquier momento.');
     this._runStartupTasks();
   },
 
   _wizardConfigCloud() {
-    document.getElementById('modalOverlay').style.display = 'none';
+    this._closeModal();
     localStorage.setItem('ahorro_wizard_seen', '1');
     this._switchTab('categorias');
     setTimeout(() => {
@@ -272,7 +272,7 @@ const App = {
   },
 
   _wizardTutorial() {
-    document.getElementById('modalOverlay').style.display = 'none';
+    this._closeModal();
     localStorage.setItem('ahorro_wizard_seen', '1');
     setTimeout(() => Tutorial.open(0), 200);
     this._runStartupTasks();
@@ -649,11 +649,15 @@ const App = {
     const bodyEl = document.getElementById('modalBody');
     const actionsEl = document.getElementById('modalActions');
 
+    overlay.style.removeProperty('display');
     titleEl.textContent = title || '';
     bodyEl.innerHTML = typeof body === 'string' ? body : '';
     actionsEl.innerHTML = '';
 
-    const close = () => overlay.classList.remove('open');
+    const close = () => {
+      overlay.classList.remove('open');
+      overlay.style.removeProperty('display');
+    };
 
     for (const action of actions) {
       const btn = document.createElement('button');
@@ -707,7 +711,9 @@ const App = {
   },
 
   _closeModal() {
-    document.getElementById('modalOverlay').classList.remove('open');
+    const overlay = document.getElementById('modalOverlay');
+    overlay.classList.remove('open');
+    overlay.style.removeProperty('display');
   },
 
   _getModal() {

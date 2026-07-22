@@ -1640,8 +1640,7 @@ const Deudas = {
     const splitCount = debts[0]?.splitCount || Math.max(2, selected.length + 1);
     const splitLines = debts[0]?.splitLines || null;
     const isManual = !!splitLines;
-    const amountsByPerson = {};
-    debts.forEach(d => { amountsByPerson[d.person] = d.amount; });
+    const sp = prefix + 'Debt';
     return `
       <div class="debt-inline-block" id="${prefix}DebtBlock">
         <label class="debt-inline-toggle" onclick="Deudas.toggleInlineDebt('${prefix}')">
@@ -1655,14 +1654,13 @@ const Deudas = {
             <button type="button" class="cal-type-btn${debtType === 'i_owe' ? ' active' : ''}" id="${prefix}DebtTypeIOwe" onclick="Deudas._toggleInlineType('${prefix}','i_owe')">🔴 Debo yo</button>
           </div>
           <input type="hidden" id="${prefix}DebtType" value="${debtType}">
-          <input type="hidden" id="${prefix}Type" value="${debtType}">
           <div id="${prefix}DebtHint" class="debt-type-hint ${debtType === 'owed_to_me' ? 'owed-hint' : 'iowe-hint'}" style="margin-bottom:8px;font-size:12px">
             ${debtType === 'owed_to_me'
               ? 'Pagaste tú el gasto. Cuando te lo devuelvan, márcalo como cobrado en Deudas.'
               : 'Alguien pagó por ti. El gasto NO se descuenta hasta que lo pagues en Deudas.'}
           </div>
-          ${this._splitModeHtml(prefix, total, splitCount, isManual ? 'manual' : 'simple', splitLines, debtType)}
-          ${this.personPickerHtml(prefix, selected)}
+          ${this._splitModeHtml(sp, total, splitCount, isManual ? 'manual' : 'simple', splitLines, debtType)}
+          ${this.personPickerHtml(sp, selected)}
           ${enabled ? `<button type="button" class="btn btn-sm btn-danger" style="margin-top:8px;width:100%" onclick="Deudas._unlinkInlineDebts('${prefix}')">✕ Quitar vinculación</button>` : ''}
         </div>
       </div>`;
@@ -1687,11 +1685,10 @@ const Deudas = {
   },
 
   _toggleInlineType(prefix, type) {
-    document.getElementById(prefix + 'DebtType').value = type;
-    const typeEl = document.getElementById(prefix + 'Type');
+    const typeEl = document.getElementById(prefix + 'DebtType');
     if (typeEl) typeEl.value = type;
-    document.getElementById(prefix + 'DebtTypeOwed').classList.toggle('active', type === 'owed_to_me');
-    document.getElementById(prefix + 'DebtTypeIOwe').classList.toggle('active', type === 'i_owe');
+    document.getElementById(prefix + 'DebtTypeOwed')?.classList.toggle('active', type === 'owed_to_me');
+    document.getElementById(prefix + 'DebtTypeIOwe')?.classList.toggle('active', type === 'i_owe');
     const hint = document.getElementById(prefix + 'DebtHint');
     if (hint) {
       hint.className = `debt-type-hint ${type === 'owed_to_me' ? 'owed-hint' : 'iowe-hint'}`;
@@ -1699,6 +1696,7 @@ const Deudas = {
         ? 'Pagaste tú el gasto. Cuando te lo devuelvan, márcalo como cobrado en Deudas.'
         : 'Alguien pagó por ti. El gasto NO se descuenta hasta que lo pagues en Deudas.';
     }
+    this._switchDebtType(type, prefix + 'Debt');
   },
 
   /** Reads inline debt fields and creates/updates a debt if enabled.
@@ -1713,7 +1711,7 @@ const Deudas = {
     }
     const type = document.getElementById(prefix + 'DebtType')?.value || 'owed_to_me';
     existingIds.forEach(id => Store.deleteDebt(id));
-    const created = this._saveDebtsFromForm(prefix, {
+    const created = this._saveDebtsFromForm(prefix + 'Debt', {
       type, description: txDesc || '', category: txCategory || 'Otros', date: txDate, linkedTxId: txId,
     });
     if (!created) return false;
