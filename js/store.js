@@ -678,6 +678,9 @@ const Store = {
 
   _startSync() {
     if (this._syncTimer) clearInterval(this._syncTimer);
+    const s = this.getSyncSettings();
+    const hasBackend = this._isSupabase() || !!s.serverUrl;
+    if (!hasBackend) return; // static-only mode (e.g. Vercel without backend), no polling needed
     this._syncTimer = setInterval(() => this._pullFromServer(), SYNC_INTERVAL);
   },
 
