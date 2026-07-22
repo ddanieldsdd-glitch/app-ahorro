@@ -6,6 +6,7 @@ const PASSPHRASE_KEY = 'ahorro_passphrase';
 const SYNC_INTERVAL = 4000;
 const REALTIME_FALLBACK_INTERVAL = 30000;
 const DEVICE_ID_KEY = 'ahorro_device_id';
+const LAST_REMOTE_FP_KEY = 'ahorro_last_remote_fp';
 const SHARED_SYNC_KEY    = 'ahorro_shared_sync';
 const SHARED_STORAGE_KEY = 'ahorro_shared_debts';
 
@@ -25,7 +26,7 @@ const MONTHS = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto
 
 const defaultData = {
   transactions: [],
-  categories: ['Comida', 'Bebida', 'Salidas', 'Caprichos', 'Transporte', 'Vivienda', 'Salud', 'Educación', 'Imprevisto', 'Otros'],
+  categories: ['Comida', 'Bebida', 'Salidas', 'Caprichos', 'Transporte', 'Vivienda', 'Salud', 'Educación', 'Otros'],
   incomeCategories: ['Mensualidad', 'Paga', 'Extra'],
   types: ['Ingreso', 'Gasto', 'Traspaso'],
   paymentMethods: ['Efectivo', 'Tarjeta', 'Bizum', 'Transferencia'],
@@ -39,6 +40,8 @@ const defaultData = {
   foodBudget: 200,
   imprevistosBudget: 0,
   imprevistosSavings: 0,
+  imprevistosInPlan: false,
+  imprevistosAutoAdjust: true,
   checkingBalance: null,
   checkingBaseBalance: 0,
   savingsBalance: 0,
@@ -84,6 +87,7 @@ const Store = {
   _realtimeDebounce: null,
   _localDirty: false,
   _lastPushedFingerprint: '',
+  _lastKnownRemoteFingerprint: '',
   _pushInFlight: false,
 
   // ── Shared space (partner debts) ───────────────────────────────────────────
@@ -258,6 +262,8 @@ const Store = {
     const parts = [`${txs} movimiento${txs === 1 ? '' : 's'}`];
     if (data?.debts?.length) parts.push(`${data.debts.length} deuda${data.debts.length === 1 ? '' : 's'}`);
     if (data?.savingGoals?.length) parts.push(`${data.savingGoals.length} meta${data.savingGoals.length === 1 ? '' : 's'}`);
+    const food = this._effectiveFoodBudgetFor(data);
+    if (food > 0) parts.push(`comida ${food}€/mes`);
     return parts.join(' · ') || 'sin datos (estado base)';
   },
 
@@ -282,7 +288,47 @@ const Store = {
       data._lastModified || 0,
       ids.length,
       ids.slice(0, 40).join('|'),
+      this._planFingerprint(data),
     ].join(':');
+  },
+
+  _planFingerprint(data) {
+    if (!data) return '';
+    const foodGroups = (data.categoryGroups || []).filter(g => g.isFoodGroup);
+    const foodSum = foodGroups.reduce((s, g) => s + (g.monthlyBudget || 0), 0);
+    return [
+      data.foodBudget ?? 0,
+      foodSum,
+      data.imprevistosBudget ?? 0,
+      data.imprevistosInPlan ? 1 : 0,
+      data.budgetConfig?.weeklyIncome ?? 0,
+      (data.savingGoals || []).length,
+    ].join('|');
+  },
+
+  _effectiveFoodBudgetFor(data) {
+    if (!data) return 0;
+    const foodGroups = (data.categoryGroups || []).filter(g => g.isFoodGroup);
+    if (foodGroups.length > 0) return foodGroups.reduce((s, g) => s + (g.monthlyBudget || 0), 0);
+    return data.foodBudget ?? 200;
+  },
+
+  _loadLastKnownRemoteFp() {
+    return localStorage.getItem(LAST_REMOTE_FP_KEY) || '';
+  },
+
+  _saveLastKnownRemoteFp(fp) {
+    this._lastKnownRemoteFingerprint = fp || '';
+    try {
+      if (fp) localStorage.setItem(LAST_REMOTE_FP_KEY, fp);
+      else localStorage.removeItem(LAST_REMOTE_FP_KEY);
+    } catch { /* quota */ }
+  },
+
+  _markSyncedFingerprints(data) {
+    const fp = this._dataFingerprint(data || this._data);
+    this._lastPushedFingerprint = fp;
+    this._saveLastKnownRemoteFp(fp);
   },
 
   _contentDiffers(localData, remoteData) {
@@ -345,7 +391,7 @@ const Store = {
     this._backup('pre-cloud-upload');
     this._data._lastModified = Date.now();
     localStorage.setItem(STORAGE_KEY, JSON.stringify(this._data));
-    const ok = await this._pushToServer({ force: true, allowOverwrite: true });
+    const ok = await this._pushToServer({ force: true, allowOverwrite: true, forceRemote: true });
     if (ok) {
       this.clearSyncConflict();
       this._cloudDiff = null;
@@ -364,7 +410,7 @@ const Store = {
     this._backup('pre-cloud-download');
     this._applyLocalData(remote);
     this._localDirty = false;
-    this._lastPushedFingerprint = this._dataFingerprint(remote);
+    this._markSyncedFingerprints(remote);
     this.clearSyncConflict();
     this._cloudDiff = null;
     this._notifyCloudDiff();
@@ -489,8 +535,9 @@ const Store = {
   _remoteChangedSinceLastSync(remote) {
     if (!remote) return false;
     const remoteFp = this._dataFingerprint(remote);
-    if (remoteFp === this._lastPushedFingerprint) return false;
-    return this._hasSubstantialData(remote);
+    const known = this._lastKnownRemoteFingerprint || this._loadLastKnownRemoteFp();
+    if (!known) return this._hasSubstantialData(remote);
+    return remoteFp !== known;
   },
 
   _registerMultiDeviceConflict(local, remote) {
@@ -555,7 +602,7 @@ const Store = {
 
     if (remoteTs >= localTs || !this._hasSubstantialData(this._data)) {
       this._applyLocalData(serverData);
-      this._lastPushedFingerprint = remoteFp;
+      this._markSyncedFingerprints(serverData);
       this._localDirty = false;
       this._cloudDiff = null;
       this._notifyCloudDiff();
@@ -624,7 +671,8 @@ const Store = {
 
   _applyLocalData(data, notify = true) {
     this._data = data;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    this._migrate();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(this._data));
     if (notify) this._callbacks.forEach(cb => cb());
   },
 
@@ -784,8 +832,26 @@ const Store = {
 
     this._migrate();
     this._ready = true;
-    this._localDirty = false;
-    if (this._data) this._lastPushedFingerprint = this._dataFingerprint(this._data);
+
+    const remoteFpAtLoad = (loaded && serverData) ? this._dataFingerprint(serverData) : null;
+    if (remoteFpAtLoad) {
+      this._saveLastKnownRemoteFp(remoteFpAtLoad);
+      const localFp = this._dataFingerprint(this._data);
+      this._lastPushedFingerprint = localFp;
+      if (localFp !== remoteFpAtLoad && navigator.onLine && !this.getSyncConflict()) {
+        this._localDirty = true;
+        const pushed = await this._pushToServer({ force: true, allowOverwrite: true, forceRemote: true });
+        this._localDirty = !pushed;
+      } else {
+        this._localDirty = false;
+      }
+    } else {
+      this._lastKnownRemoteFingerprint = this._loadLastKnownRemoteFp();
+      this._localDirty = false;
+    }
+    if (this._data && !this._lastPushedFingerprint) {
+      this._lastPushedFingerprint = this._dataFingerprint(this._data);
+    }
     this._getDeviceId();
     this._startSync();
     this._bindConnectivity();
@@ -830,7 +896,7 @@ const Store = {
     }
   },
 
-  async _pushToServer({ force = false, allowOverwrite = false } = {}) {
+  async _pushToServer({ force = false, allowOverwrite = false, forceRemote = false } = {}) {
     if (!this._data) return false;
 
     const shouldPush = force || this._localDirty;
@@ -852,8 +918,8 @@ const Store = {
       if (!shouldPush) return false;
     }
 
-    // Varios dispositivos: la nube cambió mientras editábamos aquí
-    if (shouldPush && allowOverwrite) {
+    // Varios dispositivos: la nube cambió mientras editábamos aquí (salvo subida explícita del usuario)
+    if (shouldPush && allowOverwrite && !forceRemote) {
       try {
         const remote = await this._fetchRemoteData();
         if (remote && this._contentDiffers(this._data, remote) && this._remoteChangedSinceLastSync(remote)) {
@@ -872,7 +938,7 @@ const Store = {
         const ok = await this._pushToSupabase(blob);
         if (ok) {
           this._localDirty = false;
-          this._lastPushedFingerprint = this._dataFingerprint(this._data);
+          this._markSyncedFingerprints(this._data);
           const { supabaseUrl } = this.getSyncSettings();
           const host = new URL(supabaseUrl).hostname.replace('.supabase.co', '');
           this._setSyncStatus('synced', `Sincronizado${enc ? ' 🔒' : ''} con Supabase (${host})`);
@@ -889,7 +955,7 @@ const Store = {
       });
       if (res.ok) {
         this._localDirty = false;
-        this._lastPushedFingerprint = this._dataFingerprint(this._data);
+        this._markSyncedFingerprints(this._data);
         this._setSyncStatus('synced', `Sincronizado${enc ? ' 🔒' : ''} con ${this._apiBase()}`);
         return true;
       }
@@ -989,7 +1055,9 @@ const Store = {
     if (d.categories.indexOf('Bebida') === -1) d.categories.splice(d.categories.indexOf('Comida') + 1, 0, 'Bebida');
     if (!d.plannedExpenses) d.plannedExpenses = [];
     if (!d.imprevistosBudget && d.imprevistosBudget !== 0) d.imprevistosBudget = 0;
-    if (d.categories.indexOf('Imprevisto') === -1) d.categories.push('Imprevisto');
+    if (d.imprevistosInPlan === undefined) d.imprevistosInPlan = (d.imprevistosBudget > 0);
+    if (d.imprevistosAutoAdjust === undefined) d.imprevistosAutoAdjust = true;
+    if (d.imprevistosInPlan && d.categories.indexOf('Imprevisto') === -1) d.categories.push('Imprevisto');
     if (!d.checkingBaseBalance && d.checkingBaseBalance !== 0) d.checkingBaseBalance = 0;
     if (!d.cashBalance && d.cashBalance !== 0) d.cashBalance = 0;
     if (!d.imprevistosSavings && d.imprevistosSavings !== 0) d.imprevistosSavings = 0;
@@ -1261,8 +1329,33 @@ const Store = {
     this._normalizeCategoryLimitsKeys();
     this._ensureTransactionMonths();
     this._syncFoodCategoriesFromGroups();
+    this._syncPlanFields();
+    this._autoAdjustImprevistosBudget();
     if (typeof this._syncPriorityIncludesAuto === 'function') {
       this._syncPriorityIncludesAuto();
+    }
+  },
+
+  /** Mantiene foodBudget y grupos de comida alineados para sync entre dispositivos. */
+  _syncPlanFields() {
+    const d = this._data;
+    if (!d) return;
+    const foodGroups = (d.categoryGroups || []).filter(g => g.isFoodGroup);
+    if (foodGroups.length === 0) return;
+
+    const sum = foodGroups.reduce((s, g) => s + (g.monthlyBudget || 0), 0);
+    const legacy = d.foodBudget ?? 0;
+
+    if (foodGroups.length === 1) {
+      const g = foodGroups[0];
+      if ((g.monthlyBudget || 0) !== legacy) {
+        if (sum > 0 && legacy !== sum) d.foodBudget = sum;
+        else g.monthlyBudget = legacy;
+      }
+    } else if (sum > 0) {
+      d.foodBudget = sum;
+    } else if (legacy > 0) {
+      foodGroups[0].monthlyBudget = legacy;
     }
   },
 
@@ -1517,7 +1610,12 @@ const Store = {
     this._saveCallbacks.forEach(cb => cb());
     const push = this._pushToServer({ force: true, allowOverwrite: true }).then((ok) => {
       if (!ok && typeof App !== 'undefined' && App.showToast) {
-        App.showToast('⚡ Cambios guardados solo localmente — sin conexión', 3500);
+        if (this.getSyncConflict()) {
+          App.showToast('⚠️ Conflicto de sincronización — elige qué conservar', 4500);
+          setTimeout(() => App._checkSyncConflict?.(), 500);
+        } else {
+          App.showToast('⚡ Cambios guardados solo localmente — sin conexión', 3500);
+        }
       }
       return ok;
     });
@@ -2152,9 +2250,13 @@ const Store = {
   getFoodBudget() { return this._data.foodBudget ?? 200; },
   setFoodBudget(v) {
     this._data.foodBudget = v;
-    // Also sync to the primary food group budget if it exists
-    const foodGroup = (this._data.categoryGroups || []).find(g => g.isFoodGroup);
-    if (foodGroup) foodGroup.monthlyBudget = v;
+    const foodGroups = (this._data.categoryGroups || []).filter(g => g.isFoodGroup);
+    if (foodGroups.length === 1) {
+      foodGroups[0].monthlyBudget = v;
+    } else if (foodGroups.length > 1) {
+      const otherSum = foodGroups.slice(1).reduce((s, g) => s + (g.monthlyBudget || 0), 0);
+      foodGroups[0].monthlyBudget = Math.max(0, v - otherSum);
+    }
     this._save();
   },
 
@@ -2590,7 +2692,76 @@ const Store = {
   },
 
   getImprevistosBudget() { return this._data.imprevistosBudget ?? 0; },
-  setImprevistosBudget(v) { this._data.imprevistosBudget = v; this._save(); },
+  /** Presupuesto efectivo en el plan (0 si no está activado). */
+  getEffectiveImprevistosBudget() {
+    if (!this._data.imprevistosInPlan) return 0;
+    return this._data.imprevistosBudget ?? 0;
+  },
+  isImprevistosInPlan() { return !!this._data.imprevistosInPlan; },
+  isImprevistosAutoAdjust() { return this._data.imprevistosAutoAdjust !== false; },
+  setImprevistosAutoAdjust(v) { this._data.imprevistosAutoAdjust = !!v; this._save(); },
+
+  getRecommendedImprevistosBudget() {
+    const monthlyIncome = this.getBudgetWeeklyIncome() * 4.33 + this.getBudgetMonthlyExtra();
+    let pct = 5;
+    if (monthlyIncome >= 800) pct = 10;
+    const raw = monthlyIncome * pct / 100;
+    return Math.max(0, Math.round(raw / 5) * 5);
+  },
+
+  _ensureImprevistoCategory() {
+    if (!this._data.categories.includes('Imprevisto')) {
+      this._data.categories.push('Imprevisto');
+    }
+  },
+
+  enableImprevistosInPlan({ budget = null, autoAdjust = true } = {}) {
+    this._data.imprevistosInPlan = true;
+    this._data.imprevistosAutoAdjust = autoAdjust;
+    this._ensureImprevistoCategory();
+    const recommended = this.getRecommendedImprevistosBudget();
+    if (budget !== null && budget >= 0) {
+      this._data.imprevistosBudget = budget;
+    } else if ((this._data.imprevistosBudget ?? 0) <= 0) {
+      this._data.imprevistosBudget = recommended;
+    }
+    this._autoAdjustImprevistosBudget();
+    this._save();
+  },
+
+  disableImprevistosInPlan() {
+    this._data.imprevistosInPlan = false;
+    this._save();
+  },
+
+  /** Reajusta el presupuesto según ingresos y gasto real (si autoAdjust activo). */
+  _autoAdjustImprevistosBudget() {
+    const d = this._data;
+    if (!d?.imprevistosInPlan || d.imprevistosAutoAdjust === false) return false;
+    const recommended = this.getRecommendedImprevistosBudget();
+    const current = d.imprevistosBudget ?? 0;
+    const spent = this.getImprevistosMonthlySpent();
+    const now = new Date();
+    const dim = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const frac = dim > 0 ? now.getDate() / dim : 1;
+    let target = recommended;
+    if (current <= 0 && recommended > 0) target = recommended;
+    else if (frac >= 0.15 && spent > 0) {
+      const projected = spent / frac;
+      if (projected > current * 1.08) {
+        target = Math.max(recommended, Math.ceil(projected * 1.1 / 5) * 5);
+      } else if (frac >= 0.65 && projected < current * 0.45 && current > recommended) {
+        target = Math.max(recommended, Math.round(projected * 1.05 / 5) * 5);
+      }
+    }
+    if (Math.abs(target - current) >= 5) {
+      d.imprevistosBudget = target;
+      return true;
+    }
+    return false;
+  },
+
+  setImprevistosBudget(v) { this._data.imprevistosBudget = Math.max(0, v); this._save(); },
   getImprevistosMonthlySpent() {
     const month = this.getCurrentMonth();
     return this.getTransactions().filter(t => t.month === month && t.category === 'Imprevisto').reduce((s, t) => s + t.amount, 0);
@@ -3732,6 +3903,7 @@ const Store = {
     const scalarKeys = [
       'checkingBalance', 'checkingBaseBalance', 'savingsBalance', 'cashBalance',
       'imprevistosSavings', 'totalRoundUpSavings', 'foodBudget', 'imprevistosBudget',
+      'imprevistosInPlan', 'imprevistosAutoAdjust',
       'roundUpEnabled', 'roundUpGoalId', 'savingsDay', 'plannedExpensesReserved',
       'initialCheckingBalance', 'initialSavingsBalance',
     ];
@@ -3741,6 +3913,15 @@ const Store = {
     if (from.budgetConfig) d.budgetConfig = { ...d.budgetConfig, ...from.budgetConfig };
     if (from.expensePriorities) d.expensePriorities = { ...d.expensePriorities, ...from.expensePriorities };
     if (from.txGroups) d.txGroups = { ...d.txGroups, ...from.txGroups };
+    if (from.priorityIncludes) d.priorityIncludes = { ...d.priorityIncludes, ...from.priorityIncludes };
+    if (from.catalogEmojis) {
+      d.catalogEmojis = d.catalogEmojis || { category: {}, incomeCategory: {}, type: {}, method: {} };
+      for (const kind of ['category', 'incomeCategory', 'type', 'method']) {
+        if (from.catalogEmojis[kind]) {
+          d.catalogEmojis[kind] = { ...(d.catalogEmojis[kind] || {}), ...from.catalogEmojis[kind] };
+        }
+      }
+    }
 
     if (replaceLists) {
       if (from.categories?.length) d.categories = [...from.categories];
@@ -3754,6 +3935,7 @@ const Store = {
       if (from.categories?.length) d.categories = [...new Set([...(d.categories || []), ...from.categories])];
       if (from.incomeCategories?.length) d.incomeCategories = [...new Set([...(d.incomeCategories || []), ...from.incomeCategories])];
       if (from.paymentMethods?.length) d.paymentMethods = [...new Set([...(d.paymentMethods || []), ...from.paymentMethods])];
+      if (from.foodCategories?.length) d.foodCategories = [...new Set([...(d.foodCategories || []), ...from.foodCategories])];
       if (from.categoryGroups?.length) d.categoryGroups = mergeById(d.categoryGroups || [], from.categoryGroups);
       if (from.incomeGroups?.length) d.incomeGroups = mergeById(d.incomeGroups || [], from.incomeGroups);
       if (from.peopleGroups?.length) d.peopleGroups = mergeById(d.peopleGroups || [], from.peopleGroups);

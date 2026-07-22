@@ -1,4 +1,4 @@
-const CACHE = 'presupuesto-v49';
+const CACHE = 'presupuesto-v51';
 
 const ASSETS = [
   '/styles.css', '/manifest.json', '/icon.svg',

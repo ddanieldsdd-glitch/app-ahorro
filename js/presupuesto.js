@@ -55,8 +55,12 @@ const Presupuesto = {
     const categoryGroups = Store.getCategoryGroups();
     const foodGroups = categoryGroups.filter(g => g.isFoodGroup);
     const nonFoodGroups = categoryGroups.filter(g => !g.isFoodGroup && g.monthlyBudget > 0);
+    const imprevistosInPlan = Store.isImprevistosInPlan();
+    const imprevistosAutoAdjust = Store.isImprevistosAutoAdjust();
+    const imprevistosRecommended = Store.getRecommendedImprevistosBudget();
     const imprevistosBudget = Store.getImprevistosBudget();
-    const imprevistosWeekly = imprevistosBudget / 4.33;
+    const imprevistosEffective = Store.getEffectiveImprevistosBudget();
+    const imprevistosWeekly = imprevistosEffective / 4.33;
     const imprevistosSpent = Store.getImprevistosMonthlySpent();
     const imprevistosRemaining = Math.max(0, imprevistosBudget - imprevistosSpent);
     const imprevistosSavings = Store.getImprevistosSavings();
@@ -107,12 +111,13 @@ const Presupuesto = {
             </div>
           </div>
           <div style="padding:10px;background:var(--card);border-radius:8px;border-left:3px solid #EC4899;box-shadow:0 1px 3px rgba(0,0,0,0.05)">
-            <div style="font-size:10px;text-transform:uppercase;font-weight:700;color:var(--text-secondary)">⚠️ Imprevistos recomendados</div>
+            <div style="font-size:10px;text-transform:uppercase;font-weight:700;color:var(--text-secondary)">⚠️ Imprevistos ${imprevistosInPlan ? '' : '(opcional)'}</div>
             <div style="font-size:20px;font-weight:800;color:#EC4899;margin:2px 0">${savingsGuide.imprevistosPct}%</div>
-            <div style="font-size:11px;color:var(--text-secondary)">${savingsGuide.weeklyImprevisto.toFixed(2)} €/sem · ${savingsGuide.monthlyImprevisto.toFixed(0)} €/mes</div>
-            <div style="margin-top:5px;font-size:11px;color:${savingsGuide.currentImprevistosBudget >= savingsGuide.monthlyImprevisto * 0.9 ? 'var(--income)' : 'var(--expense)'};font-weight:600">
-              Tienes: ${savingsGuide.currentImprevistosBudget.toFixed(0)} €/mes ${savingsGuide.currentImprevistosBudget >= savingsGuide.monthlyImprevisto * 0.9 ? '✅' : '— necesitas más'}
-            </div>
+            <div style="font-size:11px;color:var(--text-secondary)">${savingsGuide.weeklyImprevisto.toFixed(2)} €/sem · ${savingsGuide.monthlyImprevisto.toFixed(0)} €/mes recomendados</div>
+            ${imprevistosInPlan ? `<div style="margin-top:5px;font-size:11px;color:${savingsGuide.currentImprevistosBudget >= savingsGuide.monthlyImprevisto * 0.9 ? 'var(--income)' : 'var(--expense)'};font-weight:600">
+              En tu plan: ${savingsGuide.currentImprevistosBudget.toFixed(0)} €/mes ${savingsGuide.currentImprevistosBudget >= savingsGuide.monthlyImprevisto * 0.9 ? '✅' : '— por debajo'}
+              ${imprevistosAutoAdjust ? ' · <span style="color:var(--primary)">auto-reajuste</span>' : ''}
+            </div>` : `<button class="btn btn-sm" style="margin-top:6px;border:1px solid #EC4899;background:#FDF2F8;color:#9D174D;border-radius:6px;cursor:pointer;font-size:11px;font-weight:700" onclick="Presupuesto._enablePlanImprevistos()">+ Incluir en el plan (${imprevistosRecommended.toFixed(0)} €/mes)</button>`}
           </div>
         </div>
         <div style="padding:10px;background:var(--card);border-radius:8px;border:1px solid var(--border)">
@@ -166,9 +171,24 @@ const Presupuesto = {
           <div class="sa-plan-row sa-plan-row-adjust"><span>🍽️ Comida <span class="sa-plan-badge">obligatorio</span></span>
             <div><input type="number" id="planFoodBudget" value="${foodBudget}" step="5" class="sa-plan-input" onchange="Presupuesto._savePlanFood()"> €/mes <span class="sa-plan-sub">${foodWeekly.toFixed(2)} €/sem</span></div>
           </div>
+          <div class="sa-plan-row sa-plan-row-adjust">
+            <span>⚠️ Imprevistos
+              <label style="font-size:11px;font-weight:500;margin-left:6px;cursor:pointer">
+                <input type="checkbox" id="planImprevistosEnabled" ${imprevistosInPlan ? 'checked' : ''} onchange="Presupuesto._togglePlanImprevistos()" style="margin-right:3px">Incluir
+              </label>
+            </span>
+            ${imprevistosInPlan ? `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px">
+              <input type="number" id="planImprevistosBudget" value="${imprevistosBudget}" step="5" min="0" class="sa-plan-input" onchange="Presupuesto._savePlanImprevistos()"> €/mes
+              <span class="sa-plan-sub">${imprevistosWeekly.toFixed(2)} €/sem</span>
+              <label style="font-size:10px;color:var(--text-secondary);cursor:pointer;white-space:nowrap">
+                <input type="checkbox" id="planImprevistosAuto" ${imprevistosAutoAdjust ? 'checked' : ''} onchange="Presupuesto._toggleImprevistosAuto()" style="margin-right:2px">Auto-reajuste
+              </label>
+              ${imprevistosAutoAdjust ? `<span class="sa-plan-sub" title="Según ingresos y gasto real">↻ rec. ${imprevistosRecommended.toFixed(0)}€</span>` : ''}
+            </div>` : `<button class="btn btn-sm" style="border:1px solid #EC4899;background:#FDF2F8;color:#9D174D;border-radius:6px;cursor:pointer;font-size:11px;font-weight:700" onclick="Presupuesto._enablePlanImprevistos()">Activar (${imprevistosRecommended.toFixed(0)} €/mes)</button>`}
+          </div>
           <div class="sa-plan-row"><span>🎯 Ahorro (según metas)</span><strong style="color:var(--primary)">${recommendedWeeklySaving.toFixed(2)} €/sem</strong></div>
           ${plannedExpensesWeekly > 0 ? `<div class="sa-plan-row"><span>📋 Gastos planificados</span><strong style="color:#8B5CF6">${plannedExpensesWeekly.toFixed(2)} €/sem</strong></div>` : ''}
-          ${imprevistosWeekly > 0 ? `<div class="sa-plan-row"><span>⚠️ Reserva imprevistos</span><strong style="color:#EC4899">${imprevistosWeekly.toFixed(2)} €/sem</strong></div>` : ''}
+          ${imprevistosInPlan && imprevistosWeekly > 0 ? `<div class="sa-plan-row"><span>⚠️ Reserva imprevistos</span><strong style="color:#EC4899">${imprevistosWeekly.toFixed(2)} €/sem</strong></div>` : ''}
           <div class="sa-plan-row sa-plan-row-total"><span>💸 Disponible para gastar</span><strong style="color:${available > 0 ? 'var(--income)' : 'var(--expense)'};font-size:18px">${Math.max(0,available).toFixed(2)} €/sem</strong></div>
           ${available > 0 ? `<div class="sa-plan-row"><span>📅 Por día</span><strong style="color:var(--primary)">${(available / 7).toFixed(2)} €/día</strong></div>` : ''}
         </div>
@@ -386,16 +406,17 @@ const Presupuesto = {
         }).join('')}
       </div>` : ''}
 
-      <div class="sa-card" style="border-left:3px solid #EC4899">
+      ${imprevistosInPlan || imprevistosSavings > 0 ? `<div class="sa-card" style="border-left:3px solid #EC4899">
         <div class="sa-food-header">
           <span>⚠️ Reserva para imprevistos</span>
-          <span class="sa-food-badge" style="background:#EC4899;color:#fff">${imprevistosBudget > 0 ? `${imprevistosBudget.toFixed(0)} €/mes` : 'Sin reserva'}</span>
+          <span class="sa-food-badge" style="background:#EC4899;color:#fff">${imprevistosInPlan && imprevistosBudget > 0 ? `${imprevistosBudget.toFixed(0)} €/mes` : imprevistosInPlan ? 'En plan' : 'Fuera del plan'}</span>
         </div>
-        <div class="sa-food-config">
-          <label>Reserva mensual (€)</label>
-          <div style="display:flex;gap:8px;align-items:center">
+        ${imprevistosInPlan ? `<div class="sa-food-config">
+          <label>Reserva mensual (€)${imprevistosAutoAdjust ? ' · se reajusta solo según ingresos y gasto' : ''}</label>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <input type="number" id="imprevistosBudgetInput" step="5" value="${imprevistosBudget}" style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:16px;font-weight:700;max-width:120px">
             <button class="btn btn-primary btn-sm" onclick="Presupuesto._saveImprevistosBudget()">OK</button>
+            ${imprevistosAutoAdjust ? `<span style="font-size:11px;color:var(--text-secondary)">Recomendado: ${imprevistosRecommended.toFixed(0)} €/mes</span>` : ''}
           </div>
         </div>
         ${imprevistosBudget > 0 ? `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0">
@@ -405,21 +426,21 @@ const Presupuesto = {
             <span>${imprevistosWeekly.toFixed(2)} €/sem reservados</span>
           </div>
         </div>
-        <div class="progress-bar" style="height:8px"><div class="progress-fill" style="width:${imprevistosBudget > 0 ? Math.min(100, (imprevistosSpent / imprevistosBudget) * 100) : 0}%;background:#EC4899;border-radius:4px"></div></div>
+        <div class="progress-bar" style="height:8px"><div class="progress-fill" style="width:${Math.min(100, (imprevistosSpent / imprevistosBudget) * 100)}%;background:#EC4899;border-radius:4px"></div></div>
         ${imprevistosSpent >= imprevistosBudget ? '<div style="margin-top:6px;padding:6px 10px;background:#FDF2F8;border-radius:6px;font-size:12px;color:#9D174D">🔴 Has agotado la reserva de imprevistos. Revisa si puedes aumentarla.</div>' : imprevistosBudget - imprevistosSpent > 0 ? '<div style="margin-top:6px;padding:6px 10px;background:#F0FDF4;border-radius:6px;font-size:12px;color:#166534">✅ Reserva disponible. Si no la usas, revisa al cerrar mes para pasar el sobrante a ahorro.</div>' : ''}
-        ` : '<p style="font-size:13px;color:var(--text-secondary);padding:4px 0">Define una reserva mensual para gastos imprevistos. Lo que no uses podrás pasarlo a ahorro al cerrar el mes.</p>' }
-        ${imprevistosSavings > 0 || imprevistosBudget > 0 ? `
+        ` : '<p style="font-size:13px;color:var(--text-secondary);padding:4px 0">Activa la reserva en el plan inteligente arriba.</p>'}` : `<p style="font-size:13px;color:var(--text-secondary);padding:8px 0">Desactivado en el plan. Puedes reactivarlo arriba o desde la guía de ahorro.</p>`}
+        ${imprevistosSavings > 0 ? `
         <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
           <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
             <span style="font-size:13px;font-weight:600">🐷 Ahorro acumulado de imprevistos: <strong style="color:var(--primary)">${imprevistosSavings.toFixed(2)} €</strong></span>
             <div style="display:flex;gap:6px;flex-wrap:wrap">
-              ${imprevistosBudget > 0 && imprevistosRemaining > 0 ? `<button class="btn btn-sm" style="border:1px solid var(--border);background:var(--card);border-radius:6px;cursor:pointer;font-size:11px" onclick="Presupuesto._accumulateImprevistos()">📥 Acumular remanente (${imprevistosRemaining.toFixed(2)} €)</button>` : ''}
-              ${imprevistosSavings > 0 ? `<button class="btn btn-sm btn-primary" style="border-radius:6px;font-size:11px" onclick="Presupuesto._transferImprevistosSavings()">💰 Pasar a ahorro</button>` : ''}
+              ${imprevistosInPlan && imprevistosBudget > 0 && imprevistosRemaining > 0 ? `<button class="btn btn-sm" style="border:1px solid var(--border);background:var(--card);border-radius:6px;cursor:pointer;font-size:11px" onclick="Presupuesto._accumulateImprevistos()">📥 Acumular remanente (${imprevistosRemaining.toFixed(2)} €)</button>` : ''}
+              <button class="btn btn-sm btn-primary" style="border-radius:6px;font-size:11px" onclick="Presupuesto._transferImprevistosSavings()">💰 Pasar a ahorro</button>
             </div>
           </div>
-          ${imprevistosSavings > 0 ? '<div style="font-size:11px;color:var(--text-secondary);margin-top:4px">Tus ahorros de imprevistos acumulados. Puedes transferirlos a tus metas de ahorro cuando quieras.</div>' : ''}
+          <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">Ahorro acumulado de meses anteriores. Puedes transferirlo a tus metas cuando quieras.</div>
         </div>` : ''}
-      </div>
+      </div>` : ''}
 
       ${this._renderDebts()}
       ${this._renderRecurring()}
@@ -1334,6 +1355,9 @@ const Presupuesto = {
   _saveIncome() {
     Store.setBudgetWeeklyIncome(parseFloat(document.getElementById('budgetWeekly').value) || 70);
     Store.setBudgetMonthlyExtra(parseFloat(document.getElementById('budgetMonthly').value) || 100);
+    if (Store.isImprevistosInPlan() && Store.isImprevistosAutoAdjust() && Store._autoAdjustImprevistosBudget()) {
+      Store.setImprevistosBudget(Store.getImprevistosBudget());
+    }
     this.render();
   },
 
@@ -1384,10 +1408,11 @@ const Presupuesto = {
         budget: v.imprevistosBudget, spent: v.imprevistosSpent,
         color: '#EC4899',
         detail: 'imprevistos',
+        hide: !Store.isImprevistosInPlan(),
       },
     ];
 
-    const rowHtml = rows.filter(r => r.budget > 0).map(r => {
+    const rowHtml = rows.filter(r => r.budget > 0 && !r.hide).map(r => {
       const pct = r.budget > 0 ? Math.min(120, (r.spent / r.budget) * 100) : 0;
       const remaining = r.budget - r.spent;
       const statusColor = pct >= 100 ? 'var(--expense)' : pct >= 80 ? '#F97316' : 'var(--income)';
@@ -1482,9 +1507,42 @@ const Presupuesto = {
     if (v > 0) { Store.setFoodBudget(v); this.render(); }
   },
 
+  _enablePlanImprevistos() {
+    Store.enableImprevistosInPlan({ autoAdjust: true });
+    App.showToast(`✅ Imprevistos activados (${Store.getRecommendedImprevistosBudget().toFixed(0)} €/mes recomendados)`);
+    this.render();
+  },
+
+  _togglePlanImprevistos() {
+    const on = document.getElementById('planImprevistosEnabled')?.checked;
+    if (on) Store.enableImprevistosInPlan({ autoAdjust: true });
+    else Store.disableImprevistosInPlan();
+    this.render();
+  },
+
+  _savePlanImprevistos() {
+    const v = parseFloat(document.getElementById('planImprevistosBudget')?.value);
+    if (v >= 0) {
+      if (!Store.isImprevistosInPlan()) Store.enableImprevistosInPlan({ budget: v, autoAdjust: false });
+      else Store.setImprevistosBudget(v);
+      this.render();
+    }
+  },
+
+  _toggleImprevistosAuto() {
+    const on = document.getElementById('planImprevistosAuto')?.checked;
+    Store.setImprevistosAutoAdjust(on);
+    if (on && Store._autoAdjustImprevistosBudget()) Store.setImprevistosBudget(Store.getImprevistosBudget());
+    this.render();
+  },
+
   _saveImprevistosBudget() {
     const v = parseFloat(document.getElementById('imprevistosBudgetInput').value);
-    if (v >= 0) { Store.setImprevistosBudget(v); this.render(); }
+    if (v >= 0) {
+      if (!Store.isImprevistosInPlan()) Store.enableImprevistosInPlan({ budget: v, autoAdjust: false });
+      else Store.setImprevistosBudget(v);
+      this.render();
+    }
   },
 
   _addLimit() {
@@ -1501,7 +1559,7 @@ const Presupuesto = {
     const goals = Store.getSavingGoals();
     const recommendedWeeklySaving = Store.getRecommendedWeeklySaving(goals);
     const peWeekly = Store.getPlannedExpensesWeeklyNeed();
-    const imprevistosBudget = Store.getImprevistosBudget();
+    const imprevistosBudget = Store.getEffectiveImprevistosBudget();
     const imprevistosWeekly = imprevistosBudget / 4.33;
     const totalDeductions = foodWeekly + recommendedWeeklySaving + peWeekly + imprevistosWeekly;
     const available = budget.totalWeekly - totalDeductions;

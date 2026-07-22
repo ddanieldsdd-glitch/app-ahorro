@@ -82,7 +82,7 @@ const BudgetEngine = {
     const foodWeekly           = Store.getEffectiveFoodBudget() / 4.33;
     const savingWeekly         = Store.getRecommendedWeeklySaving(goals);
     const plannedExpWeekly     = Store.getPlannedExpensesWeeklyNeed();
-    const imprevistosWeekly    = Store.getImprevistosBudget() / 4.33;
+    const imprevistosWeekly    = Store.getEffectiveImprevistosBudget() / 4.33;
     return { foodWeekly, savingWeekly, plannedExpWeekly, imprevistosWeekly };
   },
 
@@ -139,7 +139,7 @@ const BudgetEngine = {
   getMonthVariance(month) {
     const m = month || Store.getCurrentMonth();
     const foodBudget = Store.getEffectiveFoodBudget();
-    const imprevistosBudget = Store.getImprevistosBudget();
+    const imprevistosBudget = Store.getEffectiveImprevistosBudget();
     const limits = Store.getCategoryLimits();
 
     const expenses = this.getMonthSpendableExpenses(m);
@@ -250,7 +250,8 @@ const BudgetEngine = {
     const weeklyImprevisto = monthlyImprevisto / 4.33;
 
     const currentWeeklySaving = Store.getRecommendedWeeklySaving(Store.getSavingGoals());
-    const currentImprevistosBudget = Store.getImprevistosBudget();
+    const currentImprevistosBudget = Store.getEffectiveImprevistosBudget();
+    const imprevistosInPlan = Store.isImprevistosInPlan();
 
     return {
       monthlyIncome,
@@ -265,6 +266,8 @@ const BudgetEngine = {
       weeklyImprevisto,
       currentWeeklySaving,
       currentImprevistosBudget,
+      imprevistosInPlan,
+      imprevistosAutoAdjust: Store.isImprevistosAutoAdjust(),
     };
   },
 
@@ -734,7 +737,7 @@ const BudgetEngine = {
     }
 
     // ── Imprevistos ───────────────────────────────────────────────────────
-    if (mv.imprevistosBudget > 0) {
+    if (Store.isImprevistosInPlan() && mv.imprevistosBudget > 0) {
       const projected = frac > 0 ? mv.imprevistosSpent / frac : mv.imprevistosSpent;
       const priority = Store.getExpensePriority('__imprevistos__', 2);
       if (projected > mv.imprevistosBudget * 1.1 && priority <= 2) {
@@ -827,6 +830,7 @@ const BudgetEngine = {
       return true;
     }
     if (rec.target === 'imprevistos') {
+      if (!Store.isImprevistosInPlan()) Store.enableImprevistosInPlan({ autoAdjust: true });
       Store.setImprevistosBudget(monthly);
       return true;
     }

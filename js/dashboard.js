@@ -31,7 +31,8 @@ const Dashboard = {
     const recommendedWeeklySaving = b.savingWeekly;
     const imprevistosWeekly = b.imprevistosWeekly;
     const plannedExpensesWeekly = b.plannedExpWeekly;
-    const imprevistosBudget = Store.getImprevistosBudget();
+    const imprevistosInPlan = Store.isImprevistosInPlan();
+    const imprevistosBudget = Store.getEffectiveImprevistosBudget();
     const imprevistosSavings = Store.getImprevistosSavings();
     const imprevistosMonthlySpent = Store.getImprevistosMonthlySpent();
     const imprevistosRemaining = Math.max(0, imprevistosBudget - imprevistosMonthlySpent);
@@ -96,7 +97,7 @@ const Dashboard = {
           <div class="dh-hero-main">
             <div class="dh-hero-label">HOY PUEDES GASTAR</div>
             <div class="dh-hero-value">${adjustedDaily.toFixed(2)}<span class="dh-hero-value-unit">€</span></div>
-            <div class="dh-hero-sub">${adjustedRemaining.toFixed(2)} € para ${budget.daysLeft} días · 🎯 <strong>${recommendedWeeklySaving.toFixed(2)} €/sem</strong> metas · ⚠️ <strong>${imprevistosWeekly.toFixed(2)} €/sem</strong> imprev.</div>
+            <div class="dh-hero-sub">${adjustedRemaining.toFixed(2)} € para ${budget.daysLeft} días · 🎯 <strong>${recommendedWeeklySaving.toFixed(2)} €/sem</strong> metas${imprevistosInPlan && imprevistosWeekly > 0 ? ` · ⚠️ <strong>${imprevistosWeekly.toFixed(2)} €/sem</strong> imprev.` : ''}</div>
           </div>
           <div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap;justify-content:center">
             <div style="min-width:60px;flex:1;text-align:center;background:rgba(255,255,255,0.12);border-radius:8px;padding:4px 2px">
@@ -385,7 +386,7 @@ const Dashboard = {
         }).join('')}
       </div>` : ''}
 
-      ${imprevistosBudget > 0 ? `
+      ${imprevistosInPlan && imprevistosBudget > 0 ? `
       <div class="dh-section">
         <div class="dh-section-header">
           <span class="dh-section-title">⚠️ Reserva imprevistos</span>
@@ -447,9 +448,10 @@ const Dashboard = {
             <div style="font-size:12px;color:var(--text-secondary)">${savingsGuide.weeklySaving.toFixed(2)} €/sem · ${savingsGuide.monthlySaving.toFixed(0)} €/mes</div>
           </div>
           <div style="padding:8px 10px;background:var(--bg);border-radius:8px;border-left:3px solid #EC4899">
-            <div style="font-size:10px;color:var(--text-secondary);font-weight:600;text-transform:uppercase">⚠️ Imprevistos recomendados</div>
+            <div style="font-size:10px;color:var(--text-secondary);font-weight:600;text-transform:uppercase">⚠️ Imprevistos ${imprevistosInPlan ? '' : '(opcional)'}</div>
             <div style="font-size:16px;font-weight:800;color:#EC4899">${savingsGuide.imprevistosPct}%</div>
             <div style="font-size:12px;color:var(--text-secondary)">${savingsGuide.weeklyImprevisto.toFixed(2)} €/sem · ${savingsGuide.monthlyImprevisto.toFixed(0)} €/mes</div>
+            ${!imprevistosInPlan ? `<button class="btn btn-sm" style="margin-top:4px;border:1px solid #EC4899;background:#FDF2F8;color:#9D174D;border-radius:6px;cursor:pointer;font-size:10px;font-weight:700" onclick="App._switchTab('presupuesto')">+ Activar en plan</button>` : ''}
           </div>
         </div>
         <div style="font-size:12px;padding:8px;background:var(--bg);border-radius:8px">
@@ -457,10 +459,10 @@ const Dashboard = {
             <span style="color:var(--text-secondary)">💰 Ahorro configurado:</span>
             <strong style="color:${savingsGuide.currentWeeklySaving >= savingsGuide.weeklySaving * 0.9 ? 'var(--income)' : 'var(--expense)'}">${savingsGuide.currentWeeklySaving.toFixed(2)} €/sem ${savingsGuide.currentWeeklySaving >= savingsGuide.weeklySaving * 0.9 ? '✅' : '⚠️'}</strong>
           </div>
-          <div style="display:flex;justify-content:space-between">
-            <span style="color:var(--text-secondary)">⚠️ Imprevistos configurados:</span>
+          ${imprevistosInPlan ? `<div style="display:flex;justify-content:space-between">
+            <span style="color:var(--text-secondary)">⚠️ Imprevistos en plan:</span>
             <strong style="color:${savingsGuide.currentImprevistosBudget / 4.33 >= savingsGuide.weeklyImprevisto * 0.9 ? 'var(--income)' : 'var(--expense)'}">${(savingsGuide.currentImprevistosBudget / 4.33).toFixed(2)} €/sem ${savingsGuide.currentImprevistosBudget / 4.33 >= savingsGuide.weeklyImprevisto * 0.9 ? '✅' : '⚠️'}</strong>
-          </div>
+          </div>` : `<div style="font-size:11px;color:var(--text-secondary)">Imprevistos no incluidos en el plan — actívalos si quieres una reserva mensual.</div>`}
         </div>
         <div style="margin-top:8px;text-align:right">
           <button class="btn btn-sm" style="border:1px solid var(--border);background:var(--card);border-radius:6px;cursor:pointer;font-size:11px" onclick="App._switchTab('presupuesto')">Ver plan financiero →</button>

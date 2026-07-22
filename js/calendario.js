@@ -83,7 +83,7 @@ const Calendario = {
     startDow = startDow === 0 ? 6 : startDow - 1;
 
     const savingsDay = Store.getSavingsDay();
-    const imprevistosBudget = Store.getImprevistosBudget();
+    const imprevistosBudget = Store.isImprevistosInPlan() ? Store.getImprevistosBudget() : 0;
 
     let html = '';
     for (let i = 0; i < startDow; i++) {
@@ -607,7 +607,7 @@ const Calendario = {
 
   _configureSavingsDay() {
     const current = Store.getSavingsDay();
-    const imprevistosBudget = Store.getImprevistosBudget();
+    const imprevistosBudget = Store.isImprevistosInPlan() ? Store.getImprevistosBudget() : 0;
     App.showCustom('🐷 Día mensual de ahorro', `
       <p style="font-size:13px;color:var(--text-secondary);margin-bottom:10px">
         El día del mes en que debes hacer tu transferencia de ahorro${imprevistosBudget > 0 ? ' y reservar imprevistos' : ''}.
