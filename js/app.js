@@ -247,7 +247,23 @@ const App = {
     });
   },
 
+  _activeTabName() {
+    const el = document.querySelector('.tab-content.active');
+    return el ? el.id.replace('tab-', '') : null;
+  },
+
+  _renderTab(tab) {
+    if (tab === 'dashboard') Dashboard.render();
+    else if (tab === 'registro') Registro.render();
+    else if (tab === 'calendario') Calendario.render();
+    else if (tab === 'deudas') Deudas.render();
+    else if (tab === 'graficos') Graficos.render();
+    else if (tab === 'categorias') Categorias.render();
+    else if (tab === 'presupuesto') Presupuesto.render();
+  },
+
   _switchTab(tab) {
+    const prev = this._activeTabName();
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
     document.querySelectorAll('.bottom-nav-btn').forEach(b => b.classList.remove('active'));
@@ -257,14 +273,8 @@ const App = {
     if (bnb) bnb.classList.add('active');
     const tc = document.getElementById(`tab-${tab}`);
     if (tc) tc.classList.add('active');
-    if (tab === 'dashboard') Dashboard.render();
-    else if (tab === 'registro') Registro.render();
-    else if (tab === 'calendario') Calendario.render();
-    else if (tab === 'deudas') Deudas.render();
-    else if (tab === 'graficos') Graficos.render();
-    else if (tab === 'categorias') Categorias.render();
-    else if (tab === 'presupuesto') Presupuesto.render();
-    window.scrollTo(0, 0);
+    this._renderTab(tab);
+    if (prev !== tab) window.scrollTo(0, 0);
   },
 
   _detectMobileNav() {
@@ -526,8 +536,8 @@ const App = {
   },
 
   _refreshAll() {
-    const activeTab = document.querySelector('.tab-btn.active');
-    if (activeTab) this._switchTab(activeTab.dataset.tab);
+    const tab = this._activeTabName();
+    if (tab) this._renderTab(tab);
   },
 
   _refreshConfigDependents() {

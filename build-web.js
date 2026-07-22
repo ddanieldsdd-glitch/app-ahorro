@@ -26,6 +26,7 @@ const ROOT_FILES = [
   'sw.js',
   'icon.svg',
   'version.json',
+  'build-id.txt',
 ];
 
 // Carpetas a copiar completas
@@ -87,12 +88,19 @@ try {
   fs.writeFileSync(path.join(DST, 'version.json'), JSON.stringify(version, null, 2) + '\n');
   fs.writeFileSync(path.join(SRC, 'version-check.json'), JSON.stringify(version, null, 2) + '\n');
   fs.writeFileSync(path.join(DST, 'version-check.json'), JSON.stringify(version, null, 2) + '\n');
+  fs.writeFileSync(path.join(SRC, 'build-id.txt'), version.cache + '\n');
+  fs.writeFileSync(path.join(DST, 'build-id.txt'), version.cache + '\n');
   const indexPath = path.join(SRC, 'index.html');
   let html = fs.readFileSync(indexPath, 'utf8');
   if (html.includes('name="app-cache-version"')) {
     html = html.replace(/name="app-cache-version" content="[^"]*"/, `name="app-cache-version" content="${version.cache}"`);
   } else {
     html = html.replace('</head>', `  <meta name="app-cache-version" content="${version.cache}">\n</head>`);
+  }
+  if (/window\.__APP_BUILD_VERSION='[^']*'/.test(html)) {
+    html = html.replace(/window\.__APP_BUILD_VERSION='[^']*'/, `window.__APP_BUILD_VERSION='${version.cache}'`);
+  } else {
+    html = html.replace('</head>', `  <script>window.__APP_BUILD_VERSION='${version.cache}';</script>\n</head>`);
   }
   fs.writeFileSync(indexPath, html);
   copyFile(indexPath, path.join(DST, 'index.html'));

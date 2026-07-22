@@ -1,7 +1,7 @@
-const CACHE = 'presupuesto-v33';
+const CACHE = 'presupuesto-v34';
 
 const ASSETS = [
-  '/', '/index.html', '/styles.css', '/manifest.json', '/icon.svg',
+  '/', '/index.html', '/styles.css', '/manifest.json', '/icon.svg', '/build-id.txt',
   '/icons/icon-192.png', '/icons/icon-512.png',
   '/js/crypto-e2e.js', '/js/store.js', '/js/emoji-utils.js', '/js/budget-engine.js', '/js/install.js',
   '/js/storage-prefs.js', '/js/presupuesto.js', '/js/dashboard.js', '/js/registro.js', '/js/calendario.js',
@@ -9,7 +9,7 @@ const ASSETS = [
   '/js/deudas.js', '/js/excel-io.js', '/js/backup-io.js', '/js/tutorial.js', '/js/vercel-analytics.js', '/js/app.js',
 ];
 
-const NETWORK_ONLY = ['/sw.js', '/version.json', '/version-check.json'];
+const NETWORK_ONLY = ['/sw.js', '/version.json', '/version-check.json', '/build-id.txt'];
 
 self.addEventListener('install', (e) => {
   self.skipWaiting();

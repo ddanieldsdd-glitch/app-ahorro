@@ -1,4 +1,4 @@
-const APP_BUILD_ID = 'presupuesto-v33';
+const APP_BUILD_ID = 'presupuesto-v34';
 const WINDOWS_EXE_URL = 'https://github.com/ddanieldsdd-glitch/app-ahorro/releases/download/v2.0.4/Presupuesto.Personal.Setup.2.0.4.exe';
 const PWA_INSTALLED_KEY = 'ahorro_pwa_installed';
 
@@ -153,20 +153,50 @@ const Install = {
   },
 
   async _fetchRemoteVersion() {
-    const paths = ['/version-check.json', '/version.json'];
+    const origin = window.location.origin;
+    const paths = ['/version-check.json', '/version.json', '/build-id.txt'];
     const fetchOpts = {
       cache: 'no-store',
       headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
     };
     for (const path of paths) {
       try {
-        const res = await fetch(`${path}?_=${Date.now()}`, fetchOpts);
+        const res = await fetch(`${origin}${path}?_=${Date.now()}`, fetchOpts);
         if (!res.ok) continue;
+        if (path.endsWith('.txt')) {
+          const text = (await res.text()).trim();
+          if (text) return text.split(/\s+/)[0];
+          continue;
+        }
         const data = await res.json();
         const v = data.cache || data.version || null;
         if (v) return v;
       } catch { /* try next path */ }
     }
+    return null;
+  },
+
+  async _fetchNetworkBuildId() {
+    const origin = window.location.origin;
+    const fetchOpts = {
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+    };
+    try {
+      const res = await fetch(`${origin}/build-id.txt?_=${Date.now()}`, fetchOpts);
+      if (res.ok) {
+        const text = (await res.text()).trim();
+        if (text) return text.split(/\s+/)[0];
+      }
+    } catch { /* ignore */ }
+    try {
+      const res = await fetch(`${origin}/js/install.js?_=${Date.now()}`, fetchOpts);
+      if (res.ok) {
+        const text = await res.text();
+        const m = text.match(/APP_BUILD_ID\s*=\s*['"]([^'"]+)['"]/);
+        if (m) return m[1];
+      }
+    } catch { /* ignore */ }
     return null;
   },
 
@@ -178,17 +208,17 @@ const Install = {
   /** Versión del código JS que está ejecutándose (fiable en macOS con caché parcial). */
   _getRunningVersion() {
     if (typeof APP_BUILD_ID !== 'undefined' && APP_BUILD_ID) return APP_BUILD_ID;
+    if (window.__APP_BUILD_VERSION) return window.__APP_BUILD_VERSION;
     return this._getMetaVersion();
   },
 
-  _needsVersionUpdate(remote) {
-    if (!remote) return false;
+  async _needsVersionUpdate(remote) {
     const running = this._getRunningVersion();
-    if (running && running !== remote) return true;
+    if (remote && running && remote !== running) return true;
+    const networkBuild = await this._fetchNetworkBuildId();
+    if (networkBuild && running && networkBuild !== running) return true;
     const meta = this._getMetaVersion();
-    if (meta && meta !== remote) return true;
-    const stored = localStorage.getItem('_appCacheVersion') || '';
-    if (stored && stored !== remote && running !== remote) return true;
+    if (remote && meta && meta !== remote && meta !== running) return true;
     return false;
   },
 
@@ -203,13 +233,13 @@ const Install = {
   async _checkRemoteVersion(showIfCurrent) {
     const remote = await this._fetchRemoteVersion();
     if (!remote) return false;
-    if (this._needsVersionUpdate(remote)) {
+    if (await this._needsVersionUpdate(remote)) {
       this._showUpdateBanner('version');
       return true;
     }
-    this._setLocalVersion(remote);
+    this._setLocalVersion(this._getRunningVersion() || remote);
     if (showIfCurrent && typeof App !== 'undefined') {
-      App.showToast(`✅ App al día (${remote})`);
+      App.showToast(`✅ App al día (${this._getRunningVersion() || remote})`);
     }
     return false;
   },
@@ -246,7 +276,7 @@ const Install = {
 
     const swUpdate = await this._checkServiceWorkerUpdate();
     const remote = await this._fetchRemoteVersion();
-    const versionUpdate = this._needsVersionUpdate(remote);
+    const versionUpdate = await this._needsVersionUpdate(remote);
     const bannerVisible = !!document.getElementById('updateBanner');
 
     if (swUpdate || versionUpdate) {
@@ -258,7 +288,13 @@ const Install = {
     }
 
     if (typeof App !== 'undefined') {
-      const label = remote || this._getRunningVersion() || 'desconocida';
+      const networkBuild = await this._fetchNetworkBuildId();
+      const label = this._getRunningVersion() || networkBuild || remote || 'desconocida';
+      if (networkBuild && this._getRunningVersion() && networkBuild !== this._getRunningVersion()) {
+        App.showToast(`🔄 Hay versión ${networkBuild} en el servidor (tienes ${this._getRunningVersion()})`, 4500);
+        if (!bannerVisible) this._showUpdateBanner('version');
+        return;
+      }
       App.showToast(`✅ App al día (${label})`);
     }
   },
