@@ -19,6 +19,7 @@ const Install = {
     window.addEventListener('appinstalled', () => {
       this._deferredPrompt = null;
       this._hideBanner();
+      if (typeof VercelAnalytics !== 'undefined') VercelAnalytics.track('app_installed');
       if (typeof App !== 'undefined') App.showToast('✅ App instalada correctamente');
     });
 

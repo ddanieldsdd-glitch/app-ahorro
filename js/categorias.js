@@ -1420,6 +1420,7 @@ END $$;</code>
       });
     }
     const enc = Store.isEncryptionEnabled();
+    if (typeof VercelAnalytics !== 'undefined') VercelAnalytics.track('sync_settings_saved', { provider, encrypted: enc });
     App.showToast(enc ? '🔐 Guardado con cifrado E2E activo' : `☁️ Sincronización con ${provider === 'supabase' ? 'Supabase' : 'servidor'} guardada`);
     this.render();
   },
