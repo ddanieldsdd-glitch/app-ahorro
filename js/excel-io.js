@@ -193,13 +193,13 @@ const ExcelIO = {
     };
   },
 
-  applyImport(parsed, { months, strategy, mergeGlobal = true } = {}) {
+  async applyImport(parsed, { months, strategy, mergeGlobal = true } = {}) {
     const { payload } = parsed;
     const selectedMonths = months?.length ? months : Store.getMonthsFromPayload(payload);
     const incoming = Store.collectIncomingTransactions(payload, selectedMonths);
     const stats = Store.importTransactionSubset(incoming, selectedMonths, strategy || 'merge');
     if (mergeGlobal) Store.mergeGlobalPayload(payload);
-    Store._save();
+    await Store._save({ awaitSync: true, forcePush: true });
     return stats;
   },
 

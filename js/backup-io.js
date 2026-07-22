@@ -201,26 +201,27 @@ const BackupIO = {
     });
   },
 
-  _runImport(months, strategy) {
+  async _runImport(months, strategy) {
     const imp = this._pendingImport;
     if (!imp) return;
 
     try {
       let stats;
       if (imp.type === 'json') {
-        stats = Store.importJSON(imp.raw, { months, strategy, mergeGlobal: true });
+        stats = await Store.importJSON(imp.raw, { months, strategy, mergeGlobal: true });
       } else {
-        stats = ExcelIO.applyImport(imp.parsed, { months, strategy, mergeGlobal: true });
+        stats = await ExcelIO.applyImport(imp.parsed, { months, strategy, mergeGlobal: true });
       }
 
       this._pendingImport = null;
       App._renderMonthSelector();
       App._refreshAll();
 
+      const synced = Store.getSyncStatus() === 'synced';
       if (stats.full) {
-        App.showToast('✅ Backup completo restaurado');
+        App.showToast(synced ? '✅ Backup restaurado y sincronizado con la nube' : '✅ Backup completo restaurado (revisa conexión a la nube)', synced ? 3500 : 4500);
       } else {
-        App.showToast(`✅ Importado: +${stats.added} nuevos, ${stats.updated} actualizados${stats.skipped ? `, ${stats.skipped} omitidos` : ''}`);
+        App.showToast(`✅ Importado: +${stats.added} nuevos, ${stats.updated} actualizados${stats.skipped ? `, ${stats.skipped} omitidos` : ''}${synced ? '' : ' — sin conexión a la nube'}`, synced ? 3500 : 4500);
       }
     } catch (err) {
       App.showToast('❌ ' + err.message, 4000);

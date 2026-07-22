@@ -175,6 +175,45 @@ const Store = {
     return data ? data.payload : null;
   },
 
+  /** Descarga y descifra el blob remoto sin aplicarlo localmente. */
+  async _fetchRemoteData() {
+    try {
+      let rawBlob;
+      if (this._isSupabase()) {
+        rawBlob = await this._pullFromSupabase();
+        if (!rawBlob) return null;
+      } else {
+        const res = await this._apiFetch('/api/data');
+        if (!res.ok) return null;
+        rawBlob = await res.json();
+      }
+      return await this._decryptFromServer(rawBlob);
+    } catch {
+      return null;
+    }
+  },
+
+  _dataTimestamp(data) {
+    return data?._lastModified || 0;
+  },
+
+  /** Elige la copia más reciente; devuelve { winner, shouldPush }. */
+  _pickSyncWinner(localData, remoteData) {
+    if (!remoteData) return { winner: localData, shouldPush: !!localData };
+    if (!localData) return { winner: remoteData, shouldPush: false };
+    const localTs = this._dataTimestamp(localData);
+    const remoteTs = this._dataTimestamp(remoteData);
+    if (remoteTs > localTs) return { winner: remoteData, shouldPush: false };
+    if (localTs > remoteTs) return { winner: localData, shouldPush: true };
+    return { winner: remoteData, shouldPush: false };
+  },
+
+  _applyLocalData(data, notify = true) {
+    this._data = data;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    if (notify) this._callbacks.forEach(cb => cb());
+  },
+
   // ── Frase de cifrado (E2E) ─────────────────────────────────────────────────
   getPassphrase() {
     return localStorage.getItem(PASSPHRASE_KEY) || '';
@@ -284,13 +323,9 @@ const Store = {
     }
 
     if (loaded && serverData) {
-      if (localData && localData._lastModified > (serverData._lastModified || 0)) {
-        this._data = localData;
-        await this._pushToServer();
-      } else {
-        this._data = serverData;
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(serverData));
-      }
+      const { winner, shouldPush } = this._pickSyncWinner(localData, serverData);
+      this._applyLocalData(winner, false);
+      if (shouldPush) await this._pushToServer({ force: true });
     } else if (localData) {
       this._data = localData;
       if (navigator.onLine) this._setSyncStatus('local', 'Datos locales — nube no disponible');
@@ -348,8 +383,27 @@ const Store = {
     }
   },
 
-  async _pushToServer() {
+  async _pushToServer({ force = false } = {}) {
     if (!this._data) return false;
+
+    if (!force) {
+      try {
+        const remote = await this._fetchRemoteData();
+        if (remote && this._dataTimestamp(remote) > this._dataTimestamp(this._data)) {
+          this._applyLocalData(remote);
+          const enc = this.isEncryptionEnabled();
+          if (this._isSupabase()) {
+            const { supabaseUrl } = this.getSyncSettings();
+            const host = new URL(supabaseUrl).hostname.replace('.supabase.co', '');
+            this._setSyncStatus('synced', `Actualizado desde nube${enc ? ' 🔒' : ''} (${host})`);
+          } else {
+            this._setSyncStatus('synced', `Actualizado desde ${this._apiBase()}`);
+          }
+          return true;
+        }
+      } catch { /* sin conexión — intentar push abajo */ }
+    }
+
     this._setSyncStatus('syncing', 'Enviando cambios…');
     try {
       const blob = await this._encryptForServer(this._data);
@@ -421,10 +475,8 @@ const Store = {
         return false;
       }
       if (!serverData) return false;
-      if (serverData._lastModified > (this._data._lastModified || 0)) {
-        this._data = serverData;
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(serverData));
-        this._callbacks.forEach(cb => cb());
+      if (this._dataTimestamp(serverData) > this._dataTimestamp(this._data)) {
+        this._applyLocalData(serverData);
       }
       const enc = this.isEncryptionEnabled();
       if (this._isSupabase()) {
@@ -443,8 +495,23 @@ const Store = {
 
   async _syncNow() {
     if (!this._ready || !navigator.onLine) return;
-    await this._pushToServer();
-    await this._pullFromServer();
+    const remote = await this._fetchRemoteData();
+    const { winner, shouldPush } = this._pickSyncWinner(this._data, remote);
+    if (winner !== this._data) this._applyLocalData(winner);
+    if (shouldPush) {
+      await this._pushToServer({ force: true });
+    } else if (remote) {
+      const enc = this.isEncryptionEnabled();
+      if (this._isSupabase()) {
+        const { supabaseUrl } = this.getSyncSettings();
+        const host = new URL(supabaseUrl).hostname.replace('.supabase.co', '');
+        this._setSyncStatus('synced', `Sincronizado${enc ? ' 🔒' : ''} con Supabase (${host})`);
+      } else {
+        this._setSyncStatus('synced', `Sincronizado${enc ? ' 🔒' : ''} con ${this._apiBase()}`);
+      }
+    } else {
+      await this._pushToServer({ force: true });
+    }
   },
 
   _migrate() {
@@ -725,16 +792,18 @@ const Store = {
     this._renameInTransactions(field, oldVal, newVal, filterFn);
   },
 
-  _save() {
+  _save({ awaitSync = false, forcePush = false } = {}) {
     this._data._lastModified = Date.now();
     const data = this._data;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     this._saveCallbacks.forEach(cb => cb());
-    this._pushToServer().then((ok) => {
+    const push = this._pushToServer({ force: forcePush }).then((ok) => {
       if (!ok && typeof App !== 'undefined' && App.showToast) {
         App.showToast('⚡ Cambios guardados solo localmente — sin conexión', 3500);
       }
+      return ok;
     });
+    return awaitSync ? push : undefined;
   },
 
   _startSync() {
@@ -2625,7 +2694,7 @@ const Store = {
     }
   },
 
-  importJSON(jsonStr, options = {}) {
+  async importJSON(jsonStr, options = {}) {
     const d = JSON.parse(jsonStr);
     if (!d || !Array.isArray(d.transactions)) throw new Error('Datos inválidos');
     const { months = null, strategy = 'merge', mergeGlobal = true } = options;
@@ -2634,14 +2703,14 @@ const Store = {
       const incoming = this.collectIncomingTransactions(d, months);
       const stats = this.importTransactionSubset(incoming, months, strategy);
       if (mergeGlobal) this.mergeGlobalPayload(d);
-      this._save();
+      await this._save({ awaitSync: true, forcePush: true });
       return stats;
     }
 
     this._backup('pre-import');
     this._data = d;
     this._migrate();
-    this._save();
+    await this._save({ awaitSync: true, forcePush: true });
     return { added: d.transactions.length, updated: 0, skipped: 0, full: true };
   },
 
