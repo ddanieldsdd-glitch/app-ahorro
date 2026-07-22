@@ -231,7 +231,9 @@ const Registro = {
     const category = document.getElementById('txCategory').value;
     const method = document.getElementById('txMethod').value;
     const account = document.getElementById('txAccount')?.value || 'checking';
-    const emoji = document.getElementById('txEmoji')?.value.trim() || '';
+    const emoji = typeof EmojiUtils !== 'undefined'
+      ? EmojiUtils.readInput('txEmoji')
+      : (document.getElementById('txEmoji')?.value.trim() || '');
     const transferType = document.getElementById('txTransferTypeHidden')?.value || 'to_savings';
     if (!date || !amount || amount <= 0) return;
 
@@ -357,15 +359,19 @@ const Registro = {
     const linkedDebt  = linkedDebts[0] || null;
     const accountLabel = { checking: '💳', savings: '🐷', cash: '💵' }[t.account] || '';
     const iconClass = isTraspaso ? 'traspaso' : isIncome ? 'income' : 'expense';
-    const icon = t.emoji || (isAdjust ? '⚖' : isTraspaso ? (t.transferType === 'from_savings_emergency' ? '🆘' : '🐷') : isIncome ? '↑' : '↓');
+    const icon = Store.getTxDisplayEmoji(t);
     const amtClass  = isTraspaso ? 'traspaso' : isIncome ? 'income' : 'expense';
     const amtPrefix = isIncome ? '+' : isTraspaso ? '⇄ ' : '-';
     const debtBadge = typeof Deudas !== 'undefined' ? Deudas.debtBadgeHtml(t.id) : '';
-    const pendingBadge = t._debtPending ? '<span class="tx-adj-badge" style="background:#FFFBEB;color:#D97706">pendiente</span>' : '';
+    const pendingBadge = t._debtPending
+      ? '<span class="tx-adj-badge" style="background:#FFFBEB;color:#D97706">pendiente pago</span>'
+      : '';
     const trsLabel = isTraspaso ? (t.transferType === 'from_savings_emergency' ? '🆘→💳' : '💳→🐷') : accountLabel;
     const group = !isTraspaso && !isIncome ? Store.getCategoryGroup(t.category)
       : (!isTraspaso && isIncome ? Store.getIncomeGroup(t.category) : null);
-    const groupEmoji = group?.emoji ? `<span style="font-size:11px" title="${esc(group.name)}">${group.emoji}</span>` : '';
+    const groupEmoji = group
+      ? `<span style="font-size:11px" title="${esc(group.name)}">${Store.getGroupDisplayEmoji(group, isIncome)}</span>`
+      : '';
     return `<div class="transaction-item ${isAdjust ? 'tx-adjustment' : isTraspaso ? 'tx-traspaso' : ''}" data-id="${t.id}">
       <div class="transaction-icon ${iconClass}">${icon}</div>
       <div class="transaction-info">
@@ -413,8 +419,9 @@ const Registro = {
           const isMemberTrsp   = Store.isTraspaso(m);
           const cls = isMemberTrsp ? 'traspaso' : isMemberIncome ? 'income' : 'expense';
           const pfx = isMemberIncome ? '+' : isMemberTrsp ? '⇄ ' : '-';
+          const mIcon = Store.getTxDisplayEmoji(m);
           return `<div class="tx-group-member-row">
-            <div class="transaction-icon ${cls}" style="width:22px;height:22px;font-size:11px;flex-shrink:0">${isMemberTrsp?'⇄':isMemberIncome?'↑':'↓'}</div>
+            <div class="transaction-icon ${cls}" style="width:22px;height:22px;font-size:11px;flex-shrink:0">${mIcon}</div>
             <div class="transaction-info">
               <div style="font-size:13px;font-weight:600">${esc(m.description || m.category)}</div>
               <div style="font-size:11px;color:var(--text-secondary)">${m.date.split('-').reverse().join('/')} · ${esc(m.category)}</div>
@@ -432,7 +439,7 @@ const Registro = {
     </div>`;
   },
 
-  _openGroupModal(txId) {
+  _openGroupModal(txId, onDone) {
     const t = Store.getTransactions().find(x => x.id === txId);
     if (!t) return;
     const allTx = App.getCurrentTransactions()
@@ -473,6 +480,7 @@ const Registro = {
           Store.setTxGroup(txId, gid);
           checked.forEach(id => Store.setTxGroup(id, gid));
           Registro.render();
+          onDone?.();
           App.showToast('Grupo creado');
         }},
       ],
@@ -486,7 +494,7 @@ const Registro = {
     });
   },
 
-  _addToExistingGroup(groupId) {
+  _addToExistingGroup(groupId, onDone) {
     const allTx = App.getCurrentTransactions()
       .filter(t => !t.groupId && !Store.isAdjustment(t))
       .sort((a, b) => b.date.localeCompare(a.date));
@@ -512,29 +520,36 @@ const Registro = {
           if (checked.length === 0) { App.showToast('Selecciona al menos uno'); return; }
           checked.forEach(id => Store.setTxGroup(id, groupId));
           Registro.render();
+          onDone?.();
           App.showToast('Movimientos añadidos al grupo');
         }},
       ],
     });
   },
 
-  _removeFromGroup(txId) {
+  _removeFromGroup(txId, onDone) {
     Store.setTxGroup(txId, null);
     Registro.render();
+    onDone?.();
   },
 
-  _renameGroup(groupId) {
+  _renameGroup(groupId, onDone) {
     const group = Store.getTxGroups()[groupId];
     if (!group) return;
     App.showPrompt('Renombrar grupo', 'Nuevo nombre:', group.name, (name) => {
-      if (name) { Store.renameTxGroup(groupId, name); Registro.render(); }
+      if (name) {
+        Store.renameTxGroup(groupId, name);
+        Registro.render();
+        onDone?.();
+      }
     });
   },
 
-  _dissolveGroup(groupId) {
+  _dissolveGroup(groupId, onDone) {
     App.showConfirm('Disolver grupo', '¿Disolver el grupo? Los movimientos quedarán sueltos.', () => {
       Store.deleteTxGroup(groupId);
       Registro.render();
+      onDone?.();
     });
   },
 
@@ -765,7 +780,7 @@ const Registro = {
       const cls      = isTrsp ? 'traspaso' : isIncome ? 'income' : 'expense';
       const pfx      = isIncome ? '+' : isTrsp ? '⇄ ' : '-';
       const debtBadge = typeof Deudas !== 'undefined' ? Deudas.debtBadgeHtml(t.id) : '';
-      const txIcon = t.emoji || (isTrsp ? (t.transferType === 'from_savings_emergency' ? '🆘' : '🐷') : isIncome ? '↑' : '↓');
+      const txIcon = Store.getTxDisplayEmoji(t);
       return `<div class="week-tx-row">
         <div class="transaction-icon ${cls}" style="width:22px;height:22px;font-size:11px;flex-shrink:0">${txIcon}</div>
         <div class="week-tx-info">
@@ -810,7 +825,7 @@ const Registro = {
             const isTrsp   = Store.isTraspaso(m);
             const cls      = isTrsp ? 'traspaso' : isIncome ? 'income' : 'expense';
             const pfx      = isIncome ? '+' : isTrsp ? '⇄ ' : '-';
-            const mIcon    = m.emoji || (isTrsp ? (m.transferType === 'from_savings_emergency' ? '🆘' : '🐷') : isIncome ? '↑' : '↓');
+            const mIcon    = Store.getTxDisplayEmoji(m);
             return `<div class="tx-group-member-row">
               <div class="transaction-icon ${cls}" style="width:20px;height:20px;font-size:10px;flex-shrink:0">${mIcon}</div>
               <div class="transaction-info"><div style="font-size:12px;font-weight:600">${esc(m.description||m.category)}</div><div style="font-size:11px;color:var(--text-secondary)">${m.date.split('-').reverse().join('/')}</div></div>
@@ -831,9 +846,10 @@ const Registro = {
         const d = new Date(t.date + 'T00:00:00');
         return d >= week.start && d <= week.end;
       });
-      const income   = weekTx.filter(t => t.type === 'Ingreso').reduce((s, t) => s + t.amount, 0);
-      const expense  = weekTx.filter(t => Store.isExpense(t)).reduce((s, t) => s + t.amount, 0);
-      const traspaso = weekTx.filter(t => Store.isTraspaso(t)).reduce((s, t) => s + t.amount, 0);
+      const checkingTracked = Store.getCheckingBalance() !== null && Store.getCheckingBalance() !== undefined;
+      const income   = checkingTracked ? Store.sumCheckingInflow(weekTx) : weekTx.filter(t => t.type === 'Ingreso').reduce((s, t) => s + t.amount, 0);
+      const expense  = checkingTracked ? Store.sumCheckingOutflow(weekTx) : weekTx.filter(t => Store.isExpense(t)).reduce((s, t) => s + t.amount, 0);
+      const traspaso = weekTx.filter(t => Store.isTraspaso(t) && (t.transferType || 'to_savings') === 'to_savings').reduce((s, t) => s + t.amount, 0);
       const balance  = income - expense;
 
       // Build sorted list of days that have transactions
@@ -845,8 +861,8 @@ const Registro = {
         const dayTxs = dayMap[dateStr].sort((a,b) => a.type === 'Ingreso' ? -1 : 1);
         const d = new Date(dateStr + 'T12:00:00');
         const dayLabel = `${dayNames[d.getDay()]} ${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
-        const dayIncome  = dayTxs.filter(t => t.type === 'Ingreso').reduce((s,t) => s+t.amount, 0);
-        const dayExpense = dayTxs.filter(t => Store.isExpense(t)).reduce((s,t) => s+t.amount, 0);
+        const dayIncome  = checkingTracked ? Store.sumCheckingInflow(dayTxs) : dayTxs.filter(t => t.type === 'Ingreso').reduce((s,t) => s+t.amount, 0);
+        const dayExpense = checkingTracked ? Store.sumCheckingOutflow(dayTxs) : dayTxs.filter(t => Store.isExpense(t)).reduce((s,t) => s+t.amount, 0);
         const renderedGrps = new Set();
 
         const txRows = dayTxs.map(t => {

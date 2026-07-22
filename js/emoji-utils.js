@@ -22,6 +22,15 @@ const EmojiUtils = {
   init() {
     if (this._inited) return;
     this._inited = true;
+    document.addEventListener('click', (e) => {
+      const btn = e.target.closest?.('.emoji-pick-btn');
+      if (!btn) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const inputId = btn.dataset.emojiInput || btn.closest('.emoji-picker-wrap')?.dataset?.emojiInput;
+      const emoji = this.normalize(btn.textContent.trim());
+      if (inputId && emoji) this._pick(inputId, emoji);
+    }, true);
     document.addEventListener('paste', (e) => {
       const el = e.target.closest?.('.emoji-picker-input');
       if (!el) return;
@@ -30,19 +39,12 @@ const EmojiUtils = {
       const emoji = this.extractFirst(raw);
       if (!emoji) return;
       el.value = emoji;
-      this._registerUsage(emoji, { save: true });
     }, true);
     document.addEventListener('input', (e) => {
       const el = e.target.closest?.('.emoji-picker-input');
       if (!el || !el.value) return;
       const emoji = this.extractFirst(el.value);
       if (emoji && emoji !== el.value) el.value = emoji;
-    });
-    document.addEventListener('change', (e) => {
-      const el = e.target.closest?.('.emoji-picker-input');
-      if (!el) return;
-      const emoji = this.extractFirst(el.value);
-      if (emoji) this._registerUsage(emoji, { save: true });
     });
   },
 
@@ -119,10 +121,15 @@ const EmojiUtils = {
     return out;
   },
 
-  _registerUsage(emoji, { save = false } = {}) {
+  _registerUsage(emoji) {
     if (typeof Store === 'undefined') return;
     Store.trackEmoji(emoji);
-    if (save) Store._save();
+  },
+
+  readInput(inputId) {
+    const el = document.getElementById(inputId);
+    if (!el) return '';
+    return this.normalize(el.value.trim());
   },
 
   _RULES: {
@@ -204,8 +211,7 @@ const EmojiUtils = {
     const btn = (e, hot) => {
       const count = usage[e] || 0;
       const title = count > 0 ? `${e} · usado ${count} veces` : e;
-      const safe = JSON.stringify(e);
-      return `<button type="button" class="emoji-pick-btn${hot ? ' emoji-pick-hot' : ''}" onclick="EmojiUtils._pick('${inputId}',${safe})" aria-label="${esc(title)}" title="${esc(title)}">${e}</button>`;
+      return `<button type="button" class="emoji-pick-btn${hot ? ' emoji-pick-hot' : ''}" data-emoji-input="${inputId}" aria-label="${esc(title)}" title="${esc(title)}">${e}</button>`;
     };
 
     const topHtml = top.length
@@ -234,15 +240,14 @@ const EmojiUtils = {
           <summary>Emojis por categoría</summary>
           <div class="emoji-picker-cats">${catsHtml}</div>
         </details>
-        <button type="button" class="btn btn-secondary btn-sm emoji-picker-clear" onclick="EmojiUtils._pick('${inputId}','')">↩ Automático</button>
+        <button type="button" class="btn btn-secondary btn-sm emoji-picker-clear" onclick="EmojiUtils._pick('${inputId}','',true)">↩ Automático</button>
       </div>`;
   },
 
-  _pick(inputId, emoji) {
+  _pick(inputId, emoji, isClear) {
     const el = document.getElementById(inputId);
     if (!el) return;
-    el.value = emoji;
-    if (emoji) this._registerUsage(emoji, { save: true });
+    el.value = isClear ? '' : (this.normalize(emoji) || emoji);
   },
 };
 

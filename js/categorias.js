@@ -534,7 +534,8 @@ END $$;</code>
         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">
           Categorías, tipos de movimiento y métodos de pago se comparten con Movimientos, Calendario, Deudas y Ahorro.
           Si añades uno en cualquier pantalla, aparecerá aquí. Pulsa sincronizar para importar los que falten.
-          <strong>Pulsa el emoticono</strong> de cada ítem para editarlo (misma paleta que en movimientos y calendario).
+          <strong>Pulsa el emoticono</strong> de cada categoría o ingreso para personalizarlo; se verá en Movimientos y Calendario.
+          En <strong>Grupos de gasto/ingreso</strong>, pulsa el emoticono del grupo para cambiarlo.
         </p>
       </div>
 
@@ -585,7 +586,8 @@ END $$;</code>
           <button class="btn btn-primary btn-sm" onclick="Categorias._addCategoryGroup()">+ Nuevo grupo</button>
         </div>
         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">
-          Agrupa categorías para asignarles un presupuesto mensual. Los grupos con <strong>Plan comida</strong> activado se deducen del presupuesto semanal como gasto obligatorio y mejoran el cálculo de "HOY PUEDES GASTAR".
+          Agrupa categorías para asignarles un presupuesto mensual y un <strong>emoticono propio</strong> (pulsa el icono del grupo).
+          Los grupos con <strong>Plan comida</strong> activado se deducen del presupuesto semanal como gasto obligatorio y mejoran el cálculo de "HOY PUEDES GASTAR".
         </p>
         <div id="categoryGroupsList"></div>
       </div>
@@ -596,7 +598,8 @@ END $$;</code>
           <button class="btn btn-primary btn-sm" onclick="Categorias._addIncomeGroup()">+ Nuevo grupo</button>
         </div>
         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">
-          Agrupa categorías de ingreso (nómina, extras, pagas…) y opcionalmente define un <strong>objetivo mensual</strong> para ver si vas al ritmo.
+          Agrupa categorías de ingreso (nómina, extras, pagas…) con un <strong>emoticono propio</strong> (pulsa el icono del grupo)
+          y opcionalmente define un <strong>objetivo mensual</strong> para ver si vas al ritmo.
         </p>
         <div id="incomeGroupsList"></div>
       </div>
@@ -932,7 +935,8 @@ END $$;</code>
       const weekSpent = weekExpenses.filter(t => g.categories.includes(t.category)).reduce((s, t) => s + t.amount, 0);
       const pct = weeklyBudget > 0 ? Math.min(100, (weekSpent / weeklyBudget) * 100) : 0;
       const barColor = pct >= 100 ? 'var(--expense)' : pct >= 80 ? '#F97316' : pct >= 50 ? '#F59E0B' : 'var(--income)';
-      const emojiDisplay = `<span style="font-size:18px">${Store.getGroupDisplayEmoji(g)}</span>`;
+      const emoji = Store.getGroupDisplayEmoji(g);
+      const emojiDisplay = `<button type="button" class="cat-emoji-btn" title="Pulsa para cambiar emoticono del grupo" onclick="Categorias._editGroupEmoji('${g.id}', false)">${emoji}</button>`;
 
       return `<div style="padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
@@ -947,7 +951,7 @@ END $$;</code>
           </div>
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px">
-          ${g.categories.length ? g.categories.map(c => `<span style="font-size:11px;background:var(--bg);border:1px solid var(--border);padding:2px 8px;border-radius:10px">${esc(c)}</span>`).join('') : '<span style="font-size:11px;color:var(--text-secondary)">Sin categorías asignadas</span>'}
+          ${g.categories.length ? g.categories.map(c => `<span style="font-size:11px;background:var(--bg);border:1px solid var(--border);padding:2px 8px;border-radius:10px">${Store.getCatalogDisplayEmoji('category', c)} ${esc(c)}</span>`).join('') : '<span style="font-size:11px;color:var(--text-secondary)">Sin categorías asignadas</span>'}
         </div>
         ${g.monthlyBudget > 0 ? `
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-secondary);margin-bottom:3px">
@@ -1116,7 +1120,8 @@ END $$;</code>
       const target = g.monthlyTarget || 0;
       const pct = target > 0 ? Math.min(100, (spent / target) * 100) : 0;
       const barColor = target > 0 && spent >= target ? 'var(--income)' : '#10B981';
-      const emojiDisplay = `<span style="font-size:18px">${Store.getGroupDisplayEmoji(g, true)}</span>`;
+      const emoji = Store.getGroupDisplayEmoji(g, true);
+      const emojiDisplay = `<button type="button" class="cat-emoji-btn" title="Pulsa para cambiar emoticono del grupo" onclick="Categorias._editGroupEmoji('${g.id}', true)">${emoji}</button>`;
 
       return `<div style="padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
@@ -1131,7 +1136,7 @@ END $$;</code>
           </div>
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px">
-          ${g.categories.length ? g.categories.map(c => `<span style="font-size:11px;background:var(--bg);border:1px solid var(--border);padding:2px 8px;border-radius:10px">${esc(c)}</span>`).join('') : '<span style="font-size:11px;color:var(--text-secondary)">Sin categorías asignadas</span>'}
+          ${g.categories.length ? g.categories.map(c => `<span style="font-size:11px;background:var(--bg);border:1px solid var(--border);padding:2px 8px;border-radius:10px">${Store.getCatalogDisplayEmoji('incomeCategory', c)} ${esc(c)}</span>`).join('') : '<span style="font-size:11px;color:var(--text-secondary)">Sin categorías asignadas</span>'}
         </div>
         ${target > 0 ? `
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-secondary);margin-bottom:3px">
@@ -1261,12 +1266,36 @@ END $$;</code>
       ${EmojiUtils.renderPicker('catalogEmojiInput', { value: current || '' })}
       <div style="font-size:11px;color:var(--text-secondary);margin-top:8px;line-height:1.5">
         Automático: <strong>${auto}</strong> · Pulsa <em>Automático</em> para volver al emoji sugerido.
+        Los cambios se aplican al instante en Movimientos y Calendario.
       </div>
     `, 'Guardar', () => {
       const val = document.getElementById('catalogEmojiInput')?.value.trim() || '';
       Store.setCatalogEmoji(kind, name, val);
       App.showToast(val ? '✅ Emoticono guardado' : '↩ Emoticono automático');
       this._afterCatalogChange();
+    });
+  },
+
+  _editGroupEmoji(id, income = false) {
+    const g = income
+      ? Store.getIncomeGroups().find(x => x.id === id)
+      : Store.getCategoryGroups().find(x => x.id === id);
+    if (!g) return;
+    const auto = EmojiUtils.inferDefault(g.name, income ? 'incomeGroup' : 'expenseGroup');
+    App.showCustom(`Emoticono — ${esc(g.name)}`, `
+      ${EmojiUtils.renderPicker('groupEmojiInput', { value: g.emoji || '', compact: true })}
+      <div style="font-size:11px;color:var(--text-secondary);margin-top:8px;line-height:1.5">
+        Automático: <strong>${auto}</strong> · Deja vacío para usar el sugerido.
+        Se verá junto a los movimientos de las categorías del grupo.
+      </div>
+    `, 'Guardar', () => {
+      const val = document.getElementById('groupEmojiInput')?.value.trim() || '';
+      if (income) Store.updateIncomeGroup(id, { emoji: val });
+      else Store.updateCategoryGroup(id, { emoji: val });
+      App.showToast(val ? '✅ Emoticono guardado' : '↩ Emoticono automático');
+      if (income) this._renderIncomeGroups();
+      else this._renderCategoryGroups();
+      App._refreshConfigDependents?.();
     });
   },
 

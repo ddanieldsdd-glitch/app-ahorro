@@ -150,12 +150,13 @@ const Graficos = {
 
   _renderStats(tx, range) {
     const el = document.getElementById('gcStats');
-    const income = tx.filter(t => t.type === 'Ingreso').reduce((s, t) => s + t.amount, 0);
-    const expense = tx.filter(t => Store.isSpendableExpense(t)).reduce((s, t) => s + t.amount, 0);
-    const traspasos = tx.filter(t => Store.isTraspaso(t)).reduce((s, t) => s + t.amount, 0);
+    const checkingBalance = Store.getCheckingBalance();
+    const checkingTracked = checkingBalance !== null && checkingBalance !== undefined;
+    const income = checkingTracked ? Store.sumCheckingInflow(tx) : tx.filter(t => t.type === 'Ingreso').reduce((s, t) => s + t.amount, 0);
+    const expense = checkingTracked ? Store.sumCheckingOutflow(tx) : tx.filter(t => Store.isSpendableExpense(t)).reduce((s, t) => s + t.amount, 0);
+    const traspasos = tx.filter(t => Store.isTraspaso(t) && (t.transferType || 'to_savings') === 'to_savings').reduce((s, t) => s + t.amount, 0);
     const balance = income - expense;
     const savingsBalance = Store.getSavingsBalance();
-    const checkingBalance = Store.getCheckingBalance();
     const cashBalance = Store.getCashBalance();
     const days = Math.max(1, Math.ceil((range.end - range.start) / 86400000));
     el.innerHTML = `

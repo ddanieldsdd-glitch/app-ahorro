@@ -27,9 +27,9 @@ const Calendario = {
     const recurring = Store.getRecurringTransactions().filter(r => r.active);
     const today = new Date().toISOString().split('T')[0];
 
-    const monthIncome = transactions.filter(t => t.type === 'Ingreso' && !Store.isAdjustment(t)).reduce((s, t) => s + t.amount, 0);
-    const monthExpense = transactions.filter(t => Store.isSpendableExpense(t)).reduce((s, t) => s + t.amount, 0);
-    const monthTraspasos = transactions.filter(t => Store.isTraspaso(t)).reduce((s, t) => s + t.amount, 0);
+    const monthIncome = Store.sumCheckingInflow(transactions);
+    const monthExpense = Store.sumCheckingOutflow(transactions);
+    const monthTraspasos = transactions.filter(t => Store.isTraspaso(t) && (t.transferType || 'to_savings') === 'to_savings').reduce((s, t) => s + t.amount, 0);
     const monthBalance = monthIncome - monthExpense;
 
     el.innerHTML = `
@@ -43,9 +43,9 @@ const Calendario = {
           <button class="btn btn-secondary btn-sm cal-nav" onclick="Calendario._nextMonth()" title="Mes siguiente">▶</button>
         </div>
         <div class="cal-summary">
-          <div class="cal-sum-item"><span class="cal-sum-label income">Ingresos</span><strong class="income">+${monthIncome.toFixed(0)} €</strong></div>
-          <div class="cal-sum-item"><span class="cal-sum-label expense">Gastos</span><strong class="expense">-${monthExpense.toFixed(0)} €</strong></div>
-          ${monthTraspasos > 0 ? `<div class="cal-sum-item"><span class="cal-sum-label" style="color:#4F46E5">Traspasos</span><strong style="color:#4F46E5">⇄ ${monthTraspasos.toFixed(0)} €</strong></div>` : ''}
+          <div class="cal-sum-item"><span class="cal-sum-label income">Ingresos 💳</span><strong class="income">+${monthIncome.toFixed(0)} €</strong></div>
+          <div class="cal-sum-item"><span class="cal-sum-label expense">Salidas 💳</span><strong class="expense">-${monthExpense.toFixed(0)} €</strong></div>
+          ${monthTraspasos > 0 && monthTraspasos < monthExpense ? `<div class="cal-sum-item"><span class="cal-sum-label" style="color:#4F46E5">↳ Traspasos</span><strong style="color:#4F46E5">-${monthTraspasos.toFixed(0)} €</strong></div>` : ''}
           <div class="cal-sum-item"><span class="cal-sum-label">Balance</span><strong style="color:${monthBalance >= 0 ? 'var(--income)' : 'var(--expense)'}">${monthBalance >= 0 ? '+' : ''}${monthBalance.toFixed(0)} €</strong></div>
         </div>
         <div class="cal-weekdays">
@@ -125,9 +125,9 @@ const Calendario = {
         : tipExtras.length ? tipExtras.join(' · ')
         : isFuture ? 'Toca para añadir un movimiento planificado' : 'Toca para ver o añadir un movimiento';
 
-      // Collect unique emojis from non-Traspaso transactions (Traspasos get dedicated icons below)
+      // Emoticonos del día (catálogo + personalizados)
       const dayEmojis = [...new Set(
-        data.txs.filter(t => t.emoji && t.type !== 'Traspaso').map(t => t.emoji)
+        data.txs.filter(t => t.type !== 'Traspaso').map(t => Store.getTxDisplayEmoji(t))
       )].slice(0, 3);
       // Always show 🐷/🆘 for any Traspaso, regardless of whether it has t.emoji set
       const hasToSavings = data.txs.some(t => t.type === 'Traspaso' && t.transferType !== 'from_savings_emergency');
@@ -166,8 +166,10 @@ const Calendario = {
     const map = {};
     for (const t of transactions) {
       if (!map[t.date]) map[t.date] = { income: 0, expense: 0, txs: [] };
-      if (t.type === 'Ingreso') map[t.date].income += t.amount;
-      else map[t.date].expense += t.amount;
+      if (Store.isCheckingInflow(t)) map[t.date].income += t.amount;
+      else if (t.type === 'Ingreso' && !Store.isAdjustment(t)) map[t.date].income += t.amount;
+      if (Store.isCheckingOutflow(t)) map[t.date].expense += t.amount;
+      else if (Store.isSpendableExpense(t)) map[t.date].expense += t.amount;
       map[t.date].txs.push(t);
     }
     return map;
@@ -219,8 +221,8 @@ const Calendario = {
       txs = Store.getTransactions().filter(t => t.date === dateStr);
     }
     const planned = Store.getPlannedExpenses().filter(p => p.targetDate === dateStr);
-    const income = txs.filter(t => t.type === 'Ingreso').reduce((s, t) => s + t.amount, 0);
-    const expense = txs.filter(t => Store.isExpense(t)).reduce((s, t) => s + t.amount, 0);
+    const income = txs.filter(t => Store.isCheckingInflow(t)).reduce((s, t) => s + t.amount, 0);
+    const expense = txs.filter(t => Store.isCheckingOutflow(t)).reduce((s, t) => s + t.amount, 0);
     const balance = income - expense;
     const d = new Date(dateStr + 'T12:00:00');
     const label = d.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -234,20 +236,24 @@ const Calendario = {
       const isIncome  = t.type === 'Ingreso';
       const linkedDebts = Store.getDebtsByLinkedTx(t.id);
       const cls = isTrsp ? 'traspaso' : isIncome ? 'income' : 'expense';
-      const icon = t.emoji || (isTrsp ? (t.transferType === 'from_savings_emergency' ? '🆘' : '🐷') : isIncome ? '↑' : '↓');
+      const displayIcon = Store.getTxDisplayEmoji(t);
       const pfx  = isIncome ? '+' : isTrsp ? '⇄ ' : '-';
       const debtBadge = typeof Deudas !== 'undefined' ? Deudas.debtBadgeHtml(t.id) : '';
-      const group = !isTrsp && !isIncome ? Store.getCategoryGroup(t.category) : null;
-      const groupEmoji = group?.emoji ? ` ${group.emoji}` : '';
+      const group = !isTrsp && !isIncome ? Store.getCategoryGroup(t.category)
+        : (!isTrsp && isIncome ? Store.getIncomeGroup(t.category) : null);
+      const groupEmoji = group
+        ? ` ${Store.getGroupDisplayEmoji(group, isIncome)}`
+        : '';
       const trsLabel = isTrsp ? (t.transferType === 'from_savings_emergency' ? ' 🆘 Ahorro→Corriente' : ' 💳→🐷') : '';
       return `<div class="cal-tx-row" id="cal-tx-${t.id}">
-        <span class="cal-tx-icon ${cls}">${icon}</span>
+        <span class="cal-tx-icon ${cls}">${displayIcon}</span>
         <div class="cal-tx-info">
           <div class="cal-tx-desc">${esc(t.description || t.category)}${debtBadge}${groupEmoji}</div>
           <div class="cal-tx-meta">${esc(t.category)}${t.paymentMethod && !isTrsp ? ' · ' + esc(t.paymentMethod) : ''}${trsLabel}</div>
         </div>
         <span class="cal-tx-amt ${cls}">${pfx}${t.amount.toFixed(2)}€</span>
         ${!isArchived ? `<div class="cal-tx-actions">
+          ${!isTrsp && !Store.isAdjustment(t) ? `<button title="Agrupar ingreso/gasto" onclick="Calendario._openGroupModal('${t.id}','${dateStr}')">🔗</button>` : ''}
           ${Store.isDebtExpense(t) ? `<button title="${linkedDebts.length ? 'Editar deudas' : 'Asociar deuda'}" onclick="Deudas.openLinkToTx('${t.id}')">💸</button>` : ''}
           <button title="Editar" onclick="Calendario._editFromCalendar('${t.id}','${dateStr}')">✏️</button>
           <button title="Eliminar" onclick="Calendario._deleteFromCalendar('${t.id}','${dateStr}')">🗑️</button>
@@ -273,9 +279,30 @@ const Calendario = {
             ${income>0?`<div style="font-size:12px;color:var(--income)">+${income.toFixed(2)}€</div>`:''}
             <div style="font-size:14px;font-weight:800;color:${net<=0?'var(--income)':'var(--expense)'}">= ${net>=0?'-':'+'}${Math.abs(net).toFixed(2)}€</div>
           </div>
+          ${!isArchived ? `<div class="cal-tx-actions" onclick="event.stopPropagation()">
+            <button title="Añadir al grupo" onclick="Calendario._addToExistingGroup('${groupId}','${dateStr}')">➕</button>
+            <button title="Renombrar" onclick="Calendario._renameGroup('${groupId}','${dateStr}')">✏️</button>
+            <button title="Disolver" onclick="Calendario._dissolveGroup('${groupId}','${dateStr}')">🗑️</button>
+          </div>` : ''}
         </div>
         <div class="cal-group-members hidden">
-          ${members.sort((a,b)=>a.date.localeCompare(b.date)).map(m => renderCalTxRow(m)).join('')}
+          ${members.sort((a,b)=>a.date.localeCompare(b.date)).map(m => {
+            const mIcon = Store.getTxDisplayEmoji(m);
+            const mCls = Store.isTraspaso(m) ? 'traspaso' : m.type === 'Ingreso' ? 'income' : 'expense';
+            const mPfx = m.type === 'Ingreso' ? '+' : Store.isTraspaso(m) ? '⇄ ' : '-';
+            return `<div class="cal-tx-row">
+              <span class="cal-tx-icon ${mCls}">${mIcon}</span>
+              <div class="cal-tx-info">
+                <div class="cal-tx-desc">${esc(m.description || m.category)}</div>
+                <div class="cal-tx-meta">${m.date.split('-').reverse().join('/')} · ${esc(m.category)}</div>
+              </div>
+              <span class="cal-tx-amt ${mCls}">${mPfx}${m.amount.toFixed(2)}€</span>
+              ${!isArchived ? `<div class="cal-tx-actions">
+                <button title="Sacar del grupo" onclick="Calendario._removeFromGroup('${m.id}','${dateStr}')">✂️</button>
+                <button title="Editar" onclick="Calendario._editFromCalendar('${m.id}','${dateStr}')">✏️</button>
+              </div>` : ''}
+            </div>`;
+          }).join('')}
         </div>
       </div>`;
     };
@@ -356,10 +383,11 @@ const Calendario = {
           const category = document.getElementById('calEditCategory')?.value;
           const method   = document.getElementById('calEditMethod')?.value;
           const account  = document.getElementById('calEditAccount')?.value;
-          const emoji    = document.getElementById('calEditEmoji')?.value.trim() || '';
+          const emoji = typeof EmojiUtils !== 'undefined'
+            ? EmojiUtils.readInput('calEditEmoji')
+            : (document.getElementById('calEditEmoji')?.value.trim() || '');
           if (!amount || amount <= 0) { App.showToast('Importe inválido'); return; }
-          const updateData = { amount, description: desc, category, paymentMethod: method, account };
-          if (emoji) updateData.emoji = emoji; else updateData.emoji = '';
+          const updateData = { amount, description: desc, category, paymentMethod: method, account, emoji };
           Store.updateTransaction(id, updateData);
           if (Store.isDebtExpense(t)) Deudas.saveInlineDebt('calEdit', id, t.date, desc, category);
           Calendario.render();
@@ -456,7 +484,9 @@ const Calendario = {
         const account = document.getElementById('calAccount')?.value || 'checking';
         const type = document.querySelector('.cal-type-btn.active')?.dataset?.calType || 'Gasto';
         const date = document.getElementById('calDate').value;
-        const emoji = document.getElementById('calEmoji')?.value.trim() || '';
+        const emoji = typeof EmojiUtils !== 'undefined'
+          ? EmojiUtils.readInput('calEmoji')
+          : (document.getElementById('calEmoji')?.value.trim() || '');
         const transferType = document.getElementById('calTransferType')?.value || 'to_savings';
         if (!amount || amount <= 0 || !date) return;
         if (date !== dateStr) { App.showToast('⚠️ Fecha inválida'); return; }
@@ -607,5 +637,41 @@ const Calendario = {
     const [cy, cm] = App.getCurrentViewMonth().split('-').map(Number);
     this._viewYear = cy;
     this._viewMonth = cm - 1;
+  },
+
+  _afterGroupChange(dateStr) {
+    this.render();
+    if (document.getElementById('tab-registro')?.classList.contains('active')) Registro.render();
+    App._refreshAll?.();
+    if (dateStr) setTimeout(() => this._showDay(dateStr), 100);
+  },
+
+  _openGroupModal(txId, dateStr) {
+    if (typeof Registro !== 'undefined') {
+      Registro._openGroupModal(txId, () => this._afterGroupChange(dateStr));
+    }
+  },
+
+  _addToExistingGroup(groupId, dateStr) {
+    if (typeof Registro !== 'undefined') {
+      Registro._addToExistingGroup(groupId, () => this._afterGroupChange(dateStr));
+    }
+  },
+
+  _renameGroup(groupId, dateStr) {
+    if (typeof Registro !== 'undefined') {
+      Registro._renameGroup(groupId, () => this._afterGroupChange(dateStr));
+    }
+  },
+
+  _dissolveGroup(groupId, dateStr) {
+    if (typeof Registro !== 'undefined') {
+      Registro._dissolveGroup(groupId, () => this._afterGroupChange(dateStr));
+    }
+  },
+
+  _removeFromGroup(txId, dateStr) {
+    Store.setTxGroup(txId, null);
+    this._afterGroupChange(dateStr);
   },
 };

@@ -6,16 +6,21 @@ const Dashboard = {
     const b = BudgetEngine.calcWeekly();
     const budget = Presupuesto._calc(); // thin wrapper around BudgetEngine
     const transactions = App.getCurrentTransactions().filter(t => !Store.isAdjustment(t));
-    const income = transactions.filter(t => t.type === 'Ingreso').reduce((s, t) => s + t.amount, 0);
-    const expense = transactions.filter(t => Store.isSpendableExpense(t)).reduce((s, t) => s + t.amount, 0);
+    const savingsBalance = Store.getSavingsBalance();
+    const checkingBalance = Store.getCheckingBalance();
+    const cashBalance = Store.getCashBalance();
+    const checkingTracked = checkingBalance !== null && checkingBalance !== undefined;
+    const income = checkingTracked
+      ? Store.sumCheckingInflow(transactions)
+      : transactions.filter(t => t.type === 'Ingreso').reduce((s, t) => s + t.amount, 0);
+    const consumeExpense = transactions.filter(t => Store.isSpendableExpense(t)).reduce((s, t) => s + t.amount, 0);
+    const expense = checkingTracked ? Store.sumCheckingOutflow(transactions) : consumeExpense;
+    const traspasoOut = transactions.filter(t => Store.isTraspaso(t) && (t.transferType || 'to_savings') === 'to_savings').reduce((s, t) => s + t.amount, 0);
     const balance = income - expense;
 
     const goals = Store.getSavingGoals();
     const totalSaved = goals.reduce((s, g) => s + g.currentAmount, 0);
-    const savingsBalance = Store.getSavingsBalance();
-    const checkingBalance = Store.getCheckingBalance();
-    const cashBalance = Store.getCashBalance();
-    const totalWealth = (checkingBalance !== null && checkingBalance !== undefined ? checkingBalance : 0) + savingsBalance + cashBalance;
+    const totalWealth = (checkingTracked ? checkingBalance : 0) + savingsBalance + cashBalance;
 
     // Smart savings guide and sustainability
     const savingsGuide = BudgetEngine.getSmartSavingsGuide();
@@ -69,7 +74,7 @@ const Dashboard = {
     const _fracElapsed = _daysElapsed / _daysInMonth;
     const _monthlyBudget = budget.totalWeekly * 4.33;
     const _expectedSpendByNow = _monthlyBudget * _fracElapsed;
-    const _spendDiff = expense - _expectedSpendByNow;
+    const _spendDiff = consumeExpense - _expectedSpendByNow;
     const _onTrack = _spendDiff <= 0;
     const _expectedBalance = checkingBalance !== null
       ? checkingBalance + expense - _expectedSpendByNow
@@ -118,7 +123,7 @@ const Dashboard = {
           </div>
           <div class="dh-hero-stats">
             <div class="dh-stat"><span class="dh-stat-value income">${income.toFixed(0)}</span><span class="dh-stat-label">Ingresos</span></div>
-            <div class="dh-stat"><span class="dh-stat-value expense">${expense.toFixed(0)}</span><span class="dh-stat-label">Gastos</span></div>
+            <div class="dh-stat"><span class="dh-stat-value expense">${expense.toFixed(0)}</span><span class="dh-stat-label">Salidas 💳${traspasoOut > 0 ? ' · incl. traspasos' : ''}</span></div>
             <div class="dh-stat"><span class="dh-stat-value" style="color:#C7D2FE">${balance.toFixed(0)}</span><span class="dh-stat-label">Balance</span></div>
             <div class="dh-stat"><span class="dh-stat-value" style="color:${_onTrack ? '#6EE7B7' : '#FCA5A5'}">${_onTrack ? '✅' : '⚠️'} ${Math.abs(_spendDiff).toFixed(0)}</span><span class="dh-stat-label">${_onTrack ? 'bajo plan' : 'sobre plan'}</span></div>
           </div>

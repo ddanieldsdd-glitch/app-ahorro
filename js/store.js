@@ -1093,8 +1093,8 @@ const Store = {
         t.transferType = t.transferType || 'to_savings';
         t.paymentMethod = t.paymentMethod || 'Transferencia';
         t.emoji = t.emoji || (wasProgramado ? '📋' : '🐷');
-        // Keep _noAutoBalance if already set (balances were updated manually at creation time)
-        if (t._noAutoBalance == null) t._noAutoBalance = true;
+        // Los traspasos deben mover saldo corriente ↔ ahorro (como en el banco)
+        if (t._noAutoBalance == null) t._noAutoBalance = false;
         if (wasProgramado && !t.description) t.description = 'Reserva gastos planificados';
       };
       for (const t of d.transactions || []) convert(t);
@@ -1104,6 +1104,26 @@ const Store = {
       // Remove pseudo-expense categories from the catalog
       d.categories = (d.categories || []).filter(c => c !== 'Ahorro' && c !== 'Ahorro programado');
       d._ahorroToTraspasoMigrated = true;
+    }
+
+    // Traspasos antiguos quedaron sin tocar corriente (_noAutoBalance) — corregir saldos
+    if (!d._traspasoCheckingFix) {
+      d._traspasoCheckingFix = true;
+      const allTx = [...(d.transactions || []), ...Object.values(d.archives || {}).flat()];
+      for (const t of allTx) {
+        if (t.type !== 'Traspaso' || !t._noAutoBalance) continue;
+        t._noAutoBalance = false;
+        if (d.checkingBalance === null || d.checkingBalance === undefined) continue;
+        const amt = Number(t.amount) || 0;
+        if (amt <= 0) continue;
+        if (t.transferType === 'from_savings_emergency') {
+          d.savingsBalance = Math.round(((d.savingsBalance || 0) - amt) * 100) / 100;
+          d.checkingBalance = Math.round((d.checkingBalance + amt) * 100) / 100;
+        } else {
+          d.checkingBalance = Math.round((d.checkingBalance - amt) * 100) / 100;
+          d.savingsBalance = Math.round(((d.savingsBalance || 0) + amt) * 100) / 100;
+        }
+      }
     }
 
     if (!d.incomeCategories) d.incomeCategories = ['Mensualidad', 'Paga', 'Extra'];
@@ -1531,6 +1551,28 @@ const Store = {
     const kind = income ? 'incomeGroup' : 'expenseGroup';
     if (group?.isFoodGroup) return '🍽️';
     return typeof EmojiUtils !== 'undefined' ? EmojiUtils.inferDefault(group?.name || '', kind) : '📂';
+  },
+
+  /** Emoticono visible de un movimiento: personalizado → catálogo → grupo → inferido. */
+  getTxDisplayEmoji(t) {
+    if (!t) return '🏷️';
+    if (t.emoji) return t.emoji;
+    if (this.isAdjustment(t)) return '⚖';
+    if (this.isTraspaso(t)) {
+      return t.transferType === 'from_savings_emergency' ? '🆘' : '🐷';
+    }
+    if (t.type === 'Ingreso') {
+      return this.getCatalogDisplayEmoji('incomeCategory', t.category);
+    }
+    if (t.type === 'Gasto') {
+      return this.getCatalogDisplayEmoji('category', t.category);
+    }
+    return '↓';
+  },
+
+  getTxGroupDisplayEmoji(group, income = false) {
+    if (!group) return '📂';
+    return this.getGroupDisplayEmoji(group, income);
   },
 
   _moveCatalogEmoji(kind, oldName, newName) {
@@ -2136,9 +2178,36 @@ const Store = {
     return !!(t._noAutoBalance || t.category === '__ajuste__' || t.type === 'Traspaso');
   },
 
+  /** Salida de dinero de la cuenta corriente (gastos + traspaso a ahorro). Cuadra con el banco. */
+  isCheckingOutflow(t) {
+    if (!t || this.isAdjustment(t) || t._debtPending || t._noAutoBalance) return false;
+    if (t.type === 'Gasto') return this._resolveAccount(t) === 'checking';
+    if (t.type === 'Traspaso') return (t.transferType || 'to_savings') === 'to_savings';
+    return false;
+  },
+
+  /** Entrada de dinero en la cuenta corriente (ingresos + traspaso desde ahorro por imprevisto). */
+  isCheckingInflow(t) {
+    if (!t || this.isAdjustment(t) || t._noAutoBalance) return false;
+    if (t.type === 'Ingreso') return this._resolveAccount(t) === 'checking';
+    if (t.type === 'Traspaso') return t.transferType === 'from_savings_emergency';
+    return false;
+  },
+
+  sumCheckingOutflow(txs) {
+    return (txs || []).filter(t => this.isCheckingOutflow(t)).reduce((s, t) => s + t.amount, 0);
+  },
+
+  sumCheckingInflow(txs) {
+    return (txs || []).filter(t => this.isCheckingInflow(t)).reduce((s, t) => s + t.amount, 0);
+  },
+
   /** Canonical "real spendable expense" filter — use this everywhere for budget calculations */
   isSpendableExpense(t) {
-    return t.type === 'Gasto' && !this.isInternalTx(t) && !t._debtPending;
+    if (t.type !== 'Gasto') return false;
+    // Gasto de deuda pendiente de pago: visible como gasto completo hasta saldar
+    if (t._debtPending) return true;
+    return !this.isInternalTx(t);
   },
 
   getImprevistosBudget() { return this._data.imprevistosBudget ?? 0; },
@@ -2534,6 +2603,60 @@ const Store = {
     return (this._data.debts || []).find(d => d.id === id) || null;
   },
 
+  /** Movimiento de gasto asociado a una deuda (propia o del reparto). */
+  getDebtExpenseTxId(debt) {
+    if (!debt) return null;
+    if (debt.linkedTxId) return debt.linkedTxId;
+    if (debt.splitGroupId) {
+      const sibling = (this._data.debts || []).find(
+        d => d.splitGroupId === debt.splitGroupId && d.linkedTxId
+      );
+      if (sibling) return sibling.linkedTxId;
+    }
+    return null;
+  },
+
+  /** Agrupa el movimiento de cobro/pago con el gasto original de la deuda. */
+  _linkDebtSettlementTx(debt, settlementTx) {
+    if (!debt || !settlementTx) return;
+    const expenseTxId = this.getDebtExpenseTxId(debt);
+    if (!expenseTxId || expenseTxId === settlementTx.id) return;
+    const expenseTx = this._data.transactions.find(t => t.id === expenseTxId);
+    if (!expenseTx) return;
+
+    let groupId = expenseTx.groupId;
+    if (!groupId) {
+      const person = debt.person || '';
+      const isOwedToMe = (debt.type || 'owed_to_me') === 'owed_to_me';
+      const label = debt.description || expenseTx.description || expenseTx.category || 'Deuda';
+      const name = isOwedToMe
+        ? `Cobro deuda: ${person} · ${label}`.slice(0, 80)
+        : `Pago deuda: ${person} · ${label}`.slice(0, 80);
+      groupId = this.createTxGroup(name);
+      this.setTxGroup(expenseTxId, groupId);
+    }
+    this.setTxGroup(settlementTx.id, groupId);
+  },
+
+  _linkDebtsSettlementTx(debts, settlementTx) {
+    if (!settlementTx) return;
+    const seen = new Set();
+    for (const debt of debts || []) {
+      const txId = this.getDebtExpenseTxId(debt);
+      if (!txId || seen.has(txId)) continue;
+      seen.add(txId);
+      this._linkDebtSettlementTx(debt, settlementTx);
+    }
+  },
+
+  _cancelPendingDebtGasto(debt, note) {
+    const tx = this._data.transactions.find(t => t.id === debt.linkedTxId);
+    if (!tx || !tx._debtPending) return;
+    delete tx._debtPending;
+    tx._noAutoBalance = true;
+    tx.description = note || tx.description || `Deuda con ${debt.person} (liquidada en neto)`;
+  },
+
   _createDebtTransaction(debt, opts = {}) {
     const isOwedToMe = (debt.type || 'owed_to_me') === 'owed_to_me';
     const txAmount = opts.txAmount || debt.totalAmount || debt.amount;
@@ -2645,7 +2768,7 @@ const Store = {
 
     const groupId = people.length > 1 ? Date.now().toString(36) + Math.random().toString(36).substr(2, 6) : null;
     const created = [];
-    const linkOnce = linkedTxId;
+    let sharedLinkedTxId = linkedTxId || null;
     let first = true;
     for (const person of people) {
       const personAmount = amountsByPerson ? amountsByPerson[person] : share;
@@ -2653,13 +2776,14 @@ const Store = {
       if (amountsByPerson && (!personAmount || personAmount <= 0)) continue;
       const debt = this.addDebt({
         person, amount: personAmount, type, description, category, date,
-        linkedTxId: linkOnce,
-        skipAutoTx: skipAutoTx || !!linkOnce || !first,
+        linkedTxId: sharedLinkedTxId,
+        skipAutoTx: skipAutoTx || !!sharedLinkedTxId || !first,
         splitCount: count,
         totalAmount,
         splitGroupId: groupId,
         splitLines: splitLines || null,
       });
+      if (!sharedLinkedTxId && debt.linkedTxId) sharedLinkedTxId = debt.linkedTxId;
       created.push(debt);
       first = false;
     }
@@ -2760,10 +2884,12 @@ const Store = {
       paymentMethod: 'Bizum',
       account: 'checking',
       _debtId: id,
+      _debtSettlement: true,
     };
     this._applyBalanceDelta(tx, 1);
     this._data.transactions.push(tx);
     debt.paidTxId = tx.id;
+    this._linkDebtSettlementTx(debt, tx);
     this._save();
     return tx;
   },
@@ -2810,12 +2936,26 @@ const Store = {
           : `Saldo neto pagado a ${person}`,
         paymentMethod: 'Bizum',
         account: 'checking',
+        _debtSettlement: true,
       };
       this._applyBalanceDelta(tx, 1);
       this._data.transactions.push(tx);
+      this._linkDebtsSettlementTx(pending, tx);
+
+      // Deudas "debo yo" con gasto pendiente: no duplicar salida de corriente
+      for (const d of pending.filter(d => d.type === 'i_owe')) {
+        if (d.autoCreatedTx && d.linkedTxId) {
+          this._cancelPendingDebtGasto(d, `Pago neto a ${person}`);
+        }
+      }
+    } else {
+      for (const d of pending) {
+        if (d.type === 'i_owe' && d.autoCreatedTx) {
+          this._cancelPendingDebtGasto(d, `Liquidado en neto con ${person}`);
+        }
+      }
     }
 
-    // Marcar todas las deudas pendientes como liquidadas
     for (const d of pending) {
       d.isPaid = true;
       d.paidDate = today;
@@ -3417,7 +3557,7 @@ const Store = {
   /** Returns true if a transaction is a balance-sync adjustment (not a real income/expense). */
   isAdjustment(t) { return t.category === '__ajuste__'; },
   isTraspaso(t)   { return t.type === 'Traspaso'; },
-  isExpense(t)    { return t.type !== 'Ingreso' && t.type !== 'Traspaso' && !this.isAdjustment(t) && !t._debtPending; },
+  isExpense(t)    { return t.type !== 'Ingreso' && t.type !== 'Traspaso' && !this.isAdjustment(t); },
   isDebtExpense(t) { return t.type === 'Gasto' && !this.isAdjustment(t); },
 
   // ── Transaction groups ──────────────────────────────────────────────────────
