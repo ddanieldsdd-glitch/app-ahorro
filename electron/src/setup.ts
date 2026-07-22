@@ -85,14 +85,21 @@ export class ElectronCapacitorApp {
 
   // Helper function to load in the app.
   // Prefer live Vercel URL so the desktop app always matches the PWA.
-  // Fall back to bundled local files if offline.
+  // Fall back to bundled local files if offline or if the live URL is not our app.
   private async loadMainWindow(thisRef: any) {
     const liveUrl =
       thisRef.CapacitorFileConfig?.electron?.liveUrl ||
       process.env.AHORRO_LIVE_URL ||
-      'https://app-ahorro.vercel.app';
+      'https://app-ahorro-eta.vercel.app';
     try {
       await thisRef.MainWindow.loadURL(liveUrl, { extraHeaders: 'pragma: no-cache\n' });
+      const title = await thisRef.MainWindow.webContents.executeJavaScript(
+        'document.title || ""',
+        true
+      );
+      if (!/Presupuesto/i.test(String(title))) {
+        throw new Error(`Live URL is not Presupuesto (title: ${title})`);
+      }
     } catch (err) {
       console.warn('Live URL failed, loading bundled app:', err);
       await thisRef.loadWebApp(thisRef.MainWindow);
@@ -194,7 +201,7 @@ export class ElectronCapacitorApp {
 
     // Security — allow live Vercel origin + custom scheme; block random popups
     const allowedHosts = new Set([
-      'app-ahorro.vercel.app',
+      'app-ahorro-eta.vercel.app',
       'app-ahorro-ddanieldsdd-glitchs-projects.vercel.app',
     ]);
     const isAllowed = (url: string) => {
@@ -245,7 +252,7 @@ export function setupContentSecurityPolicy(customScheme: string): void {
         'Content-Security-Policy': [
           electronIsDev
             ? `default-src ${customScheme}://* https: http: 'unsafe-inline' 'unsafe-eval' data: blob: devtools://*`
-            : `default-src ${customScheme}://* https://app-ahorro.vercel.app https://*.vercel.app https://cdn.jsdelivr.net https://*.supabase.co wss://*.supabase.co 'unsafe-inline' 'unsafe-eval' data: blob:`,
+            : `default-src ${customScheme}://* https://app-ahorro-eta.vercel.app https://*.vercel.app https://cdn.jsdelivr.net https://*.supabase.co wss://*.supabase.co 'unsafe-inline' 'unsafe-eval' data: blob:`,
         ],
       },
     });

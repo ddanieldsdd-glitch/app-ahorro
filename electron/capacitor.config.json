@@ -4,7 +4,7 @@
   "webDir": "app",
   "bundledWebRuntime": false,
   "electron": {
-    "liveUrl": "https://app-ahorro.vercel.app",
+    "liveUrl": "https://app-ahorro-eta.vercel.app",
     "splashScreenEnabled": false,
     "trayIconAndMenuEnabled": false
   }
