@@ -1,4 +1,4 @@
-const APP_BUILD_ID = 'presupuesto-v39';
+const APP_BUILD_ID = 'presupuesto-v40';
 const WINDOWS_EXE_URL = 'https://github.com/ddanieldsdd-glitch/app-ahorro/releases/download/v2.0.4/Presupuesto.Personal.Setup.2.0.4.exe';
 const PWA_INSTALLED_KEY = 'ahorro_pwa_installed';
 
@@ -105,13 +105,54 @@ const Install = {
 
   _fetchOpts() {
     return {
-      cache: 'reload',
+      cache: 'no-store',
       credentials: 'same-origin',
       headers: {
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         Pragma: 'no-cache',
+        'X-App-Update-Check': '1',
       },
     };
+  },
+
+  _versionBust() {
+    return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  },
+
+  _xhrText(url) {
+    return new Promise((resolve, reject) => {
+      try {
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', url, true);
+        xhr.setRequestHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        xhr.setRequestHeader('Pragma', 'no-cache');
+        xhr.setRequestHeader('X-App-Update-Check', '1');
+        xhr.onload = () => resolve(xhr.responseText || '');
+        xhr.onerror = () => reject(new Error('xhr failed'));
+        xhr.send();
+      } catch (e) {
+        reject(e);
+      }
+    });
+  },
+
+  async _bypassCacheFetch(url) {
+    const bust = this._versionBust();
+    const full = `${url}${url.includes('?') ? '&' : '?'}_=${encodeURIComponent(bust)}`;
+    const opts = this._fetchOpts();
+    try {
+      const res = await fetch(full, opts);
+      if (res.ok) return res;
+    } catch { /* Safari fallback below */ }
+    if (this._isApplePlatform()) {
+      const text = await this._xhrText(full);
+      return {
+        ok: true,
+        text: async () => text,
+        json: async () => JSON.parse(text),
+      };
+    }
+    return { ok: false, text: async () => '', json: async () => null };
   },
 
   _setupUpdateDetection() {
@@ -175,29 +216,60 @@ const Install = {
 
   async _fetchRemoteVersion() {
     const origin = window.location.origin;
-    const bust = Date.now();
     const fetchOpts = this._fetchOpts();
-    const paths = ['/build-id.txt', '/version-check.json', '/version.json'];
-    for (const path of paths) {
-      try {
-        const res = await fetch(`${origin}${path}?_=${bust}`, fetchOpts);
-        if (!res.ok) continue;
-        if (path.endsWith('.txt')) {
+    const bust = this._versionBust();
+
+    const tasks = [
+      (async () => {
+        try {
+          const res = await this._bypassCacheFetch(`${origin}/api/version`);
+          if (!res.ok) return null;
+          const data = await res.json();
+          return data?.cache || null;
+        } catch { return null; }
+      })(),
+      (async () => {
+        try {
+          const res = await this._bypassCacheFetch(`${origin}/build-id.txt`);
+          if (!res.ok) return null;
           const text = (await res.text()).trim();
-          if (text) return text.split(/\s+/)[0];
-          continue;
-        }
-        const data = await res.json();
-        const v = data.cache || data.version || null;
-        if (v) return v;
-      } catch { /* try next path */ }
+          return text ? text.split(/\s+/)[0] : null;
+        } catch { return null; }
+      })(),
+      (async () => {
+        try {
+          const res = await this._bypassCacheFetch(`${origin}/version-check.json`);
+          if (!res.ok) return null;
+          const data = await res.json();
+          return data?.cache || data?.version || null;
+        } catch { return null; }
+      })(),
+      (async () => {
+        try {
+          const res = await fetch(`${origin}/version.json?_=${bust}`, fetchOpts);
+          if (!res.ok) return null;
+          const data = await res.json();
+          return data?.cache || data?.version || null;
+        } catch { return null; }
+      })(),
+      this._fetchVersionFromIndexHtml(),
+    ];
+
+    const results = await Promise.all(tasks);
+    const unique = [...new Set(results.filter(Boolean))];
+    if (!unique.length) return null;
+
+    const running = this._getRunningVersion();
+    if (running) {
+      const newer = unique.find((v) => v !== running);
+      if (newer) return newer;
     }
-    return this._fetchVersionFromIndexHtml();
+    return unique[0];
   },
 
   async _fetchVersionFromIndexHtml() {
     try {
-      const res = await fetch(`${window.location.origin}/index.html?_=${Date.now()}`, this._fetchOpts());
+      const res = await this._bypassCacheFetch(`${window.location.origin}/index.html`);
       if (!res.ok) return null;
       const html = await res.text();
       const meta = html.match(/name="app-cache-version"\s+content="([^"]+)"/i);
@@ -209,34 +281,19 @@ const Install = {
   },
 
   async _fetchNetworkBuildId() {
+    const remote = await this._fetchRemoteVersion();
+    if (remote) return remote;
+
     const origin = window.location.origin;
-    const bust = Date.now();
-    const fetchOpts = this._fetchOpts();
-    const candidates = [];
     try {
-      const res = await fetch(`${origin}/build-id.txt?_=${bust}`, fetchOpts);
-      if (res.ok) {
-        const text = (await res.text()).trim();
-        if (text) candidates.push(text.split(/\s+/)[0]);
-      }
-    } catch { /* ignore */ }
-    try {
-      const res = await fetch(`${origin}/index.html?_=${bust}`, fetchOpts);
-      if (res.ok) {
-        const html = await res.text();
-        const m = html.match(/__APP_BUILD_VERSION\s*=\s*['"]([^'"]+)['"]/);
-        if (m?.[1]) candidates.push(m[1]);
-      }
-    } catch { /* ignore */ }
-    try {
-      const res = await fetch(`${origin}/js/install.js?v=${bust}&_=${bust}`, fetchOpts);
+      const res = await this._bypassCacheFetch(`${origin}/js/install.js`);
       if (res.ok) {
         const text = await res.text();
         const m = text.match(/APP_BUILD_ID\s*=\s*['"]([^'"]+)['"]/);
-        if (m?.[1]) candidates.push(m[1]);
+        if (m?.[1]) return m[1];
       }
     } catch { /* ignore */ }
-    return candidates[0] || null;
+    return null;
   },
 
   _getMetaVersion() {
@@ -254,21 +311,15 @@ const Install = {
   async _needsVersionUpdate(remote) {
     const running = this._getRunningVersion();
     const pending = window.__PENDING_APP_VERSION;
-    const networkBuild = await this._fetchNetworkBuildId();
-    const indexVersion = await this._fetchVersionFromIndexHtml();
+    const networkBuild = remote ? null : await this._fetchNetworkBuildId();
+    const indexVersion = remote ? null : await this._fetchVersionFromIndexHtml();
     const remotes = [...new Set([remote, pending, networkBuild, indexVersion].filter(Boolean))];
 
+    if (!running) return remotes.length > 0;
+
     for (const r of remotes) {
-      if (r && running && r !== running) return true;
+      if (r && r !== running) return true;
     }
-
-    const stored = this._getLocalVersion();
-    if (stored && running && stored === running) {
-      for (const r of remotes) {
-        if (r && r !== stored) return true;
-      }
-    }
-
     return false;
   },
 
@@ -324,28 +375,39 @@ const Install = {
   async manualCheckForUpdates() {
     if (typeof App !== 'undefined') App.showToast('🔍 Comprobando actualizaciones…', 2000);
 
-    const swUpdate = await this._checkServiceWorkerUpdate();
+    if (this._swRegistration) {
+      try { await this._swRegistration.update(); } catch { /* ignore */ }
+    } else if ('serviceWorker' in navigator) {
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg) { this._swRegistration = reg; await reg.update(); }
+      } catch { /* ignore */ }
+    }
+
+    const running = this._getRunningVersion();
     const remote = await this._fetchRemoteVersion();
+    const swUpdate = !!(this._swRegistration?.waiting);
     const versionUpdate = await this._needsVersionUpdate(remote);
     const bannerVisible = !!document.getElementById('updateBanner');
 
     if (swUpdate || versionUpdate) {
       if (!bannerVisible) this._showUpdateBanner(swUpdate ? 'sw' : 'version');
       if (typeof App !== 'undefined') {
-        App.showToast('🔄 Hay una actualización disponible', 4000);
+        const msg = remote && running && remote !== running
+          ? `🔄 Nueva versión: ${remote} (tienes ${running})`
+          : '🔄 Hay una actualización disponible';
+        App.showToast(msg, 4500);
       }
       return;
     }
 
     if (typeof App !== 'undefined') {
-      const networkBuild = await this._fetchNetworkBuildId();
-      const label = this._getRunningVersion() || networkBuild || remote || 'desconocida';
-      if (networkBuild && this._getRunningVersion() && networkBuild !== this._getRunningVersion()) {
-        App.showToast(`🔄 Hay versión ${networkBuild} en el servidor (tienes ${this._getRunningVersion()})`, 4500);
-        if (!bannerVisible) this._showUpdateBanner('version');
-        return;
+      const label = remote || running || 'desconocida';
+      if (this._isApplePlatform()) {
+        App.showToast(`✅ App al día (${label}) · iPhone/Mac: si no ves cambios, pulsa Actualizar en el banner o cierra y abre la app`, 5500);
+      } else {
+        App.showToast(`✅ App al día (${label})`);
       }
-      App.showToast(`✅ App al día (${label})`);
     }
   },
 

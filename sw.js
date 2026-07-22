@@ -1,7 +1,7 @@
-const CACHE = 'presupuesto-v39';
+const CACHE = 'presupuesto-v40';
 
 const ASSETS = [
-  '/', '/index.html', '/styles.css', '/manifest.json', '/icon.svg', '/build-id.txt',
+  '/', '/index.html', '/styles.css', '/manifest.json', '/icon.svg',
   '/icons/icon-192.png', '/icons/icon-512.png',
   '/js/crypto-e2e.js', '/js/store.js', '/js/emoji-utils.js', '/js/budget-engine.js', '/js/install.js',
   '/js/storage-prefs.js', '/js/presupuesto.js', '/js/dashboard.js', '/js/registro.js', '/js/calendario.js',
@@ -9,7 +9,7 @@ const ASSETS = [
   '/js/deudas.js', '/js/excel-io.js', '/js/backup-io.js', '/js/tutorial.js', '/js/vercel-analytics.js', '/js/app.js',
 ];
 
-const NETWORK_ONLY = ['/sw.js', '/version.json', '/version-check.json', '/build-id.txt'];
+const NETWORK_ONLY = ['/sw.js', '/version.json', '/version-check.json', '/build-id.txt', '/api/version'];
 
 self.addEventListener('install', (e) => {
   self.skipWaiting();
@@ -34,8 +34,12 @@ self.addEventListener('fetch', (e) => {
   if (url.origin !== self.location.origin) return;
   // Never intercept Vercel platform routes (Analytics, Firewall, etc.)
   if (url.pathname.startsWith('/_vercel/')) return;
-  if (NETWORK_ONLY.includes(url.pathname)) {
-    e.respondWith(fetch(e.request));
+  if (NETWORK_ONLY.includes(url.pathname) || url.pathname.startsWith('/api/version')) {
+    e.respondWith(fetch(new Request(e.request, { cache: 'no-store' })));
+    return;
+  }
+  if (e.request.headers.get('X-App-Update-Check') === '1') {
+    e.respondWith(fetch(new Request(e.request, { cache: 'no-store' })));
     return;
   }
   if (url.pathname.startsWith('/api/')) {
