@@ -72,6 +72,54 @@ const App = {
     } else {
       this._runStartupTasks();
     }
+    setTimeout(() => this._checkSyncConflict(), 900);
+  },
+
+  _checkSyncConflict() {
+    const conflict = Store.getSyncConflict?.();
+    if (!conflict) return;
+    const localBrief = Store._describeDataBrief(conflict.local);
+    const remoteBrief = Store._describeDataBrief(conflict.remote);
+    const preferRemote = Store._dataScore(conflict.remote) >= Store._dataScore(conflict.local);
+
+    this.openModal({
+      title: '⚠️ ¿Qué datos quieres conservar?',
+      body: `
+        <p style="font-size:13px;color:var(--text);margin-bottom:12px;line-height:1.6">
+          Hay datos distintos en <strong>este dispositivo</strong> y en la <strong>nube</strong>.
+          No se borrará nada hasta que elijas. Recomendamos usar la nube si este es un dispositivo nuevo.
+        </p>
+        <div style="display:grid;gap:8px;margin-bottom:12px">
+          <div style="padding:10px;background:var(--bg);border-radius:8px;font-size:12px;line-height:1.5">
+            <strong>📱 Este dispositivo</strong><br>${esc(localBrief)}
+          </div>
+          <div style="padding:10px;background:var(--bg);border-radius:8px;font-size:12px;line-height:1.5">
+            <strong>☁️ Nube</strong><br>${esc(remoteBrief)}
+          </div>
+        </div>
+        <p style="font-size:11px;color:var(--text-secondary);line-height:1.5">
+          Actualizar la app <strong>no borra</strong> tus datos guardados en el dispositivo.
+        </p>`,
+      actions: [
+        { label: 'Decidir más tarde' },
+        { label: '📱 Mantener los de aquí', cb: () => this._resolveSyncConflict('local') },
+        {
+          label: preferRemote ? '☁️ Usar los de la nube (recomendado)' : '☁️ Usar los de la nube',
+          primary: true,
+          cb: () => this._resolveSyncConflict('remote'),
+        },
+      ],
+    });
+  },
+
+  async _resolveSyncConflict(choice) {
+    const ok = await Store.resolveSyncConflict(choice);
+    if (ok) {
+      this._currentViewMonth = Store.getCurrentMonth();
+      this._renderMonthSelector();
+      this._refreshAll();
+      this.showToast(choice === 'remote' ? '✅ Datos de la nube restaurados' : '✅ Datos locales conservados y subidos');
+    }
   },
 
   _runStartupTasks() {

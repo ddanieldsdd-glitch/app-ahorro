@@ -1,6 +1,7 @@
 const STORAGE_KEY = 'ahorro_presupuesto';
 const BACKUP_KEY = 'ahorro_backup';
 const SYNC_SETTINGS_KEY = 'ahorro_sync_settings';
+const SYNC_CONFLICT_KEY = 'ahorro_sync_conflict';
 const PASSPHRASE_KEY = 'ahorro_passphrase';
 const SYNC_INTERVAL = 4000;
 const SHARED_SYNC_KEY    = 'ahorro_shared_sync';
@@ -73,6 +74,7 @@ const Store = {
   _syncTimer: null,
   _syncStatus: 'offline',
   _syncStatusDetail: 'Iniciando…',
+  _syncConflict: null,
 
   // ── Shared space (partner debts) ───────────────────────────────────────────
   _sharedData: { debts: [], _lastModified: 0 },
@@ -110,7 +112,22 @@ const Store = {
     localStorage.setItem(SYNC_SETTINGS_KEY, JSON.stringify(obj));
     this._setSyncStatus('syncing', 'Aplicando nueva configuración…');
     this._startSync();
-    this._syncNow();
+    this._safeConnectSync();
+  },
+
+  async _safeConnectSync() {
+    if (!navigator.onLine) {
+      this._syncNow();
+      return;
+    }
+    const remote = await this._fetchRemoteData();
+    const result = this._pickSyncWinner(this._data, remote);
+    if (result.conflict) {
+      this._registerSyncConflict(result.conflict);
+      this._setSyncStatus('local', 'Hay datos distintos en la nube — elige qué conservar');
+      return;
+    }
+    await this._syncNow();
   },
 
   // ── Supabase helpers ────────────────────────────────────────────────────────
@@ -197,14 +214,163 @@ const Store = {
     return data?._lastModified || 0;
   },
 
-  /** Elige la copia más reciente; devuelve { winner, shouldPush }. */
+  _countMovements(data) {
+    if (!data) return 0;
+    const cur = data.transactions?.length || 0;
+    const arch = Object.values(data.archives || {}).reduce((n, txs) => n + (txs?.length || 0), 0);
+    return cur + arch;
+  },
+
+  _dataScore(data) {
+    if (!data) return 0;
+    let score = this._countMovements(data) * 10;
+    score += (data.debts?.length || 0) * 5;
+    score += (data.savingGoals?.length || 0) * 5;
+    score += (data.plannedExpenses?.length || 0) * 3;
+    score += (data.recurringTransactions?.length || 0) * 3;
+    if (data.checkingBalance !== null && data.checkingBalance !== undefined && data.checkingBalance !== 0) score += 8;
+    if (data.savingsBalance) score += 5;
+    if (data.cashBalance) score += 3;
+    if ((data.people?.length || 0) > 0) score += 2;
+    return score;
+  },
+
+  _hasSubstantialData(data) {
+    return this._dataScore(data) > 0;
+  },
+
+  _isFactoryLike(data) {
+    return !this._hasSubstantialData(data);
+  },
+
+  _describeDataBrief(data) {
+    const txs = this._countMovements(data);
+    const parts = [`${txs} movimiento${txs === 1 ? '' : 's'}`];
+    if (data?.debts?.length) parts.push(`${data.debts.length} deuda${data.debts.length === 1 ? '' : 's'}`);
+    if (data?.savingGoals?.length) parts.push(`${data.savingGoals.length} meta${data.savingGoals.length === 1 ? '' : 's'}`);
+    return parts.join(' · ') || 'sin datos (estado base)';
+  },
+
+  _tryRestoreFromBackup() {
+    const candidates = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k?.startsWith(BACKUP_KEY + '_')) candidates.push(k);
+    }
+    candidates.sort().reverse();
+    for (const key of candidates) {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(key));
+        if (this._hasSubstantialData(parsed)) return parsed;
+      } catch { /* ignore */ }
+    }
+    return null;
+  },
+
+  _registerSyncConflict({ reason, local, remote }) {
+    this._syncConflict = { reason, local, remote, at: Date.now() };
+    try {
+      localStorage.setItem(SYNC_CONFLICT_KEY, JSON.stringify({
+        reason,
+        at: this._syncConflict.at,
+        localSummary: this._describeDataBrief(local),
+        remoteSummary: this._describeDataBrief(remote),
+        localScore: this._dataScore(local),
+        remoteScore: this._dataScore(remote),
+      }));
+      localStorage.setItem(SYNC_CONFLICT_KEY + '_local', JSON.stringify(local));
+      localStorage.setItem(SYNC_CONFLICT_KEY + '_remote', JSON.stringify(remote));
+    } catch { /* quota — keep in memory only */ }
+  },
+
+  getSyncConflict() {
+    if (this._syncConflict) return this._syncConflict;
+    try {
+      const meta = JSON.parse(localStorage.getItem(SYNC_CONFLICT_KEY) || 'null');
+      if (!meta) return null;
+      const local = JSON.parse(localStorage.getItem(SYNC_CONFLICT_KEY + '_local') || 'null');
+      const remote = JSON.parse(localStorage.getItem(SYNC_CONFLICT_KEY + '_remote') || 'null');
+      if (local && remote) {
+        this._syncConflict = { ...meta, local, remote };
+        return this._syncConflict;
+      }
+    } catch { /* ignore */ }
+    return null;
+  },
+
+  clearSyncConflict() {
+    this._syncConflict = null;
+    localStorage.removeItem(SYNC_CONFLICT_KEY);
+    localStorage.removeItem(SYNC_CONFLICT_KEY + '_local');
+    localStorage.removeItem(SYNC_CONFLICT_KEY + '_remote');
+  },
+
+  async resolveSyncConflict(choice) {
+    const conflict = this.getSyncConflict();
+    if (!conflict) return false;
+    this._backup('pre-sync-conflict');
+    if (choice === 'remote') {
+      this._applyLocalData(conflict.remote);
+      this._setSyncStatus('synced', 'Datos de la nube aplicados en este dispositivo');
+    } else if (choice === 'local') {
+      this._applyLocalData(conflict.local);
+      await this._pushToServer({ force: true, allowOverwrite: true });
+      this._setSyncStatus('synced', 'Tus datos locales se han subido a la nube');
+    } else {
+      return false;
+    }
+    this.clearSyncConflict();
+    this._callbacks.forEach(cb => cb());
+    return true;
+  },
+
+  /** Elige la copia más reciente; nunca pisa datos reales con estado base sin preguntar. */
   _pickSyncWinner(localData, remoteData) {
-    if (!remoteData) return { winner: localData, shouldPush: !!localData };
-    if (!localData) return { winner: remoteData, shouldPush: false };
+    if (!remoteData) {
+      return { winner: localData, shouldPush: this._hasSubstantialData(localData) };
+    }
+    if (!localData) {
+      return { winner: remoteData, shouldPush: false };
+    }
+
+    const localScore = this._dataScore(localData);
+    const remoteScore = this._dataScore(remoteData);
     const localTs = this._dataTimestamp(localData);
     const remoteTs = this._dataTimestamp(remoteData);
+
+    // Dispositivo nuevo / local vacío → adoptar nube sin preguntar
+    if (localScore === 0 && remoteScore > 0) {
+      return { winner: remoteData, shouldPush: false };
+    }
+    // Local con datos, nube vacía → conservar local y subir
+    if (localScore > 0 && remoteScore === 0) {
+      return { winner: localData, shouldPush: true };
+    }
+    // Ambos con datos distintos → preguntar antes de sobrescribir
+    if (localScore > 0 && remoteScore > 0 && localScore !== remoteScore) {
+      const scoreGap = Math.abs(localScore - remoteScore) / Math.max(localScore, remoteScore);
+      const tsGap = Math.abs(localTs - remoteTs);
+      if (scoreGap > 0.25 || (tsGap > 0 && tsGap < 86400000)) {
+        return {
+          winner: null,
+          shouldPush: false,
+          conflict: { reason: 'both_substantial', local: localData, remote: remoteData },
+        };
+      }
+    }
+    // Nube vacía intentando pisar local con datos
+    if (localScore > 0 && remoteScore === 0 && remoteTs > localTs) {
+      return { winner: localData, shouldPush: true };
+    }
+    // Local vacío intentando pisar nube
+    if (remoteScore > 0 && localScore === 0 && localTs > remoteTs) {
+      return { winner: remoteData, shouldPush: false };
+    }
+
     if (remoteTs > localTs) return { winner: remoteData, shouldPush: false };
     if (localTs > remoteTs) return { winner: localData, shouldPush: true };
+    if (remoteScore > localScore) return { winner: remoteData, shouldPush: false };
+    if (localScore > remoteScore) return { winner: localData, shouldPush: true };
     return { winner: remoteData, shouldPush: false };
   },
 
@@ -323,19 +489,49 @@ const Store = {
     }
 
     if (loaded && serverData) {
-      const { winner, shouldPush } = this._pickSyncWinner(localData, serverData);
-      this._applyLocalData(winner, false);
-      if (shouldPush) await this._pushToServer({ force: true });
+      const result = this._pickSyncWinner(localData, serverData);
+      if (result.conflict) {
+        this._registerSyncConflict(result.conflict);
+        if (localData && this._hasSubstantialData(localData)) {
+          this._applyLocalData(localData, false);
+        } else if (result.conflict.remote) {
+          this._applyLocalData(result.conflict.remote, false);
+        }
+        this._setSyncStatus('local', 'Conflicto de datos — elige qué conservar');
+      } else {
+        this._applyLocalData(result.winner, false);
+        if (result.shouldPush) await this._pushToServer({ force: true, allowOverwrite: true });
+      }
     } else if (localData) {
-      this._data = localData;
-      if (navigator.onLine) this._setSyncStatus('local', 'Datos locales — nube no disponible');
-      else this._setSyncStatus('offline', 'Modo sin conexión');
+      if (!this._hasSubstantialData(localData)) {
+        const restored = this._tryRestoreFromBackup();
+        if (restored) {
+          this._data = restored;
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(restored));
+          if (navigator.onLine) this._setSyncStatus('local', 'Datos recuperados de backup local');
+        } else {
+          this._data = localData;
+        }
+      } else {
+        this._data = localData;
+      }
+      if (navigator.onLine) {
+        if (!this._syncConflict) this._setSyncStatus('local', 'Datos locales — nube no disponible');
+      } else {
+        this._setSyncStatus('offline', 'Modo sin conexión');
+      }
     }
 
-    if (!this._data || !this._data.transactions) {
-      this._data = JSON.parse(JSON.stringify(defaultData));
-      const now = new Date();
-      this._data.currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    if (!this._data || !Array.isArray(this._data.transactions)) {
+      const restored = this._tryRestoreFromBackup();
+      if (restored) {
+        this._data = restored;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(restored));
+      } else {
+        this._data = JSON.parse(JSON.stringify(defaultData));
+        const now = new Date();
+        this._data.currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      }
     }
 
     this._migrate();
@@ -383,25 +579,55 @@ const Store = {
     }
   },
 
-  async _pushToServer({ force = false } = {}) {
+  async _pushToServer({ force = false, allowOverwrite = false } = {}) {
     if (!this._data) return false;
 
     if (!force) {
       try {
         const remote = await this._fetchRemoteData();
-        if (remote && this._dataTimestamp(remote) > this._dataTimestamp(this._data)) {
-          this._applyLocalData(remote);
-          const enc = this.isEncryptionEnabled();
-          if (this._isSupabase()) {
-            const { supabaseUrl } = this.getSyncSettings();
-            const host = new URL(supabaseUrl).hostname.replace('.supabase.co', '');
-            this._setSyncStatus('synced', `Actualizado desde nube${enc ? ' 🔒' : ''} (${host})`);
-          } else {
-            this._setSyncStatus('synced', `Actualizado desde ${this._apiBase()}`);
+        if (remote) {
+          if (this._hasSubstantialData(remote) && this._isFactoryLike(this._data)) {
+            this._registerSyncConflict({
+              reason: 'local_empty_remote_rich',
+              local: this._data,
+              remote,
+            });
+            this._setSyncStatus('local', 'La nube tiene datos — elige qué conservar antes de sincronizar');
+            return false;
           }
-          return true;
+          const result = this._pickSyncWinner(this._data, remote);
+          if (result.conflict) {
+            this._registerSyncConflict(result.conflict);
+            this._setSyncStatus('local', 'Conflicto de datos — elige qué conservar');
+            return false;
+          }
+          if (result.winner !== this._data && result.winner) {
+            this._applyLocalData(result.winner);
+            const enc = this.isEncryptionEnabled();
+            if (this._isSupabase()) {
+              const { supabaseUrl } = this.getSyncSettings();
+              const host = new URL(supabaseUrl).hostname.replace('.supabase.co', '');
+              this._setSyncStatus('synced', `Actualizado desde nube${enc ? ' 🔒' : ''} (${host})`);
+            } else {
+              this._setSyncStatus('synced', `Actualizado desde ${this._apiBase()}`);
+            }
+            return true;
+          }
         }
       } catch { /* sin conexión — intentar push abajo */ }
+    } else if (!allowOverwrite) {
+      try {
+        const remote = await this._fetchRemoteData();
+        if (remote && this._hasSubstantialData(remote) && this._isFactoryLike(this._data)) {
+          this._registerSyncConflict({
+            reason: 'blocked_empty_push',
+            local: this._data,
+            remote,
+          });
+          this._setSyncStatus('local', 'No se enviarán datos vacíos sobre la nube');
+          return false;
+        }
+      } catch { /* ignore */ }
     }
 
     this._setSyncStatus('syncing', 'Enviando cambios…');
@@ -450,8 +676,9 @@ const Store = {
       if (this._isSupabase()) {
         rawBlob = await this._pullFromSupabase();
         if (!rawBlob) {
-          // First time — nothing in Supabase yet, push our local data
-          await this._pushToSupabase(await this._encryptForServer(this._data));
+          if (this._hasSubstantialData(this._data)) {
+            await this._pushToSupabase(await this._encryptForServer(this._data));
+          }
           const enc = this.isEncryptionEnabled();
           const { supabaseUrl } = this.getSyncSettings();
           const host = new URL(supabaseUrl).hostname.replace('.supabase.co', '');
@@ -475,8 +702,13 @@ const Store = {
         return false;
       }
       if (!serverData) return false;
-      if (this._dataTimestamp(serverData) > this._dataTimestamp(this._data)) {
-        this._applyLocalData(serverData);
+      const pullResult = this._pickSyncWinner(this._data, serverData);
+      if (pullResult.conflict) {
+        this._registerSyncConflict(pullResult.conflict);
+        return false;
+      }
+      if (pullResult.winner && pullResult.winner !== this._data) {
+        this._applyLocalData(pullResult.winner);
       }
       const enc = this.isEncryptionEnabled();
       if (this._isSupabase()) {
@@ -495,11 +727,17 @@ const Store = {
 
   async _syncNow() {
     if (!this._ready || !navigator.onLine) return;
+    if (this.getSyncConflict()) return;
     const remote = await this._fetchRemoteData();
-    const { winner, shouldPush } = this._pickSyncWinner(this._data, remote);
-    if (winner !== this._data) this._applyLocalData(winner);
-    if (shouldPush) {
-      await this._pushToServer({ force: true });
+    const result = this._pickSyncWinner(this._data, remote);
+    if (result.conflict) {
+      this._registerSyncConflict(result.conflict);
+      this._setSyncStatus('local', 'Conflicto de datos — elige qué conservar');
+      return;
+    }
+    if (result.winner && result.winner !== this._data) this._applyLocalData(result.winner);
+    if (result.shouldPush) {
+      await this._pushToServer({ force: true, allowOverwrite: true });
     } else if (remote) {
       const enc = this.isEncryptionEnabled();
       if (this._isSupabase()) {
@@ -509,8 +747,8 @@ const Store = {
       } else {
         this._setSyncStatus('synced', `Sincronizado${enc ? ' 🔒' : ''} con ${this._apiBase()}`);
       }
-    } else {
-      await this._pushToServer({ force: true });
+    } else if (this._hasSubstantialData(this._data)) {
+      await this._pushToServer({ force: true, allowOverwrite: true });
     }
   },
 
@@ -1973,7 +2211,10 @@ const Store = {
     const running = document.querySelector('meta[name="app-cache-version"]')?.content
       || window.__APP_CACHE_VERSION || '';
     const prev = localStorage.getItem('_appLastRunningVersion');
-    if (running && prev && running !== prev && this._data?.transactions) {
+    if (this._hasSubstantialData(this._data)) {
+      this._backup('pre-update-auto');
+    }
+    if (running && prev && running !== prev && this._hasSubstantialData(this._data)) {
       this._backup('pre-update-' + running.replace(/[^\w-]/g, ''));
     }
     if (running) localStorage.setItem('_appLastRunningVersion', running);
@@ -2845,10 +3086,21 @@ const Store = {
    * - Opcionalmente borra el blob del servidor (DELETE /api/data)
    * - Reinicia _data a defaultData vacío
    */
-  async factoryReset({ deleteServer = false } = {}) {
+  async factoryReset({ deleteServer = false, confirmed = false } = {}) {
+    if (!confirmed) {
+      throw new Error('Restablecimiento cancelado — requiere confirmación explícita');
+    }
     this._backup('pre-factory-reset');
     if (deleteServer) {
-      try { await this._apiFetch('/api/data', { method: 'DELETE' }); } catch {}
+      try {
+        if (this._isSupabase()) {
+          const { supabaseRowId } = this.getSyncSettings();
+          const id = supabaseRowId || 'default';
+          await this._getSupabaseClient().from('sync_data').delete().eq('id', id);
+        } else {
+          await this._apiFetch('/api/data', { method: 'DELETE' });
+        }
+      } catch { /* ignore */ }
     }
     const keysToRemove = [];
     for (let i = 0; i < localStorage.length; i++) {
@@ -2856,6 +3108,7 @@ const Store = {
       if (k && (k.startsWith('ahorro_') || k === STORAGE_KEY)) keysToRemove.push(k);
     }
     keysToRemove.forEach(k => localStorage.removeItem(k));
+    this.clearSyncConflict();
     const now = new Date();
     this._data = JSON.parse(JSON.stringify(defaultData));
     this._data.currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;

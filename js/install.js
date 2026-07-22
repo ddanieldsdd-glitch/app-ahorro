@@ -1,4 +1,4 @@
-const APP_BUILD_ID = 'presupuesto-v32';
+const APP_BUILD_ID = 'presupuesto-v33';
 const WINDOWS_EXE_URL = 'https://github.com/ddanieldsdd-glitch/app-ahorro/releases/download/v2.0.4/Presupuesto.Personal.Setup.2.0.4.exe';
 const PWA_INSTALLED_KEY = 'ahorro_pwa_installed';
 
@@ -119,7 +119,13 @@ const Install = {
 
     let refreshing = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (!refreshing) { refreshing = true; window.location.reload(); }
+      if (!refreshing) {
+        refreshing = true;
+        if (typeof Store !== 'undefined' && Store._hasSubstantialData?.(Store.getData())) {
+          Store._backup?.('pre-sw-auto-reload');
+        }
+        window.location.reload();
+      }
     });
 
     this._checkRemoteVersion(false);
@@ -265,7 +271,7 @@ const Install = {
     banner.innerHTML = `
       <div class="update-banner-text">
         <strong>🔄 Actualización disponible</strong>
-        <span>Hay una nueva versión — tus datos se conservan al actualizar</span>
+        <span>Nueva versión — tus movimientos y saldos se conservan al actualizar</span>
       </div>
       <div class="update-banner-actions">
         <button class="btn btn-primary btn-sm" id="updateBannerBtn">Actualizar ahora</button>

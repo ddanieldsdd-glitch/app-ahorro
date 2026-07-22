@@ -332,6 +332,15 @@ END $$;</code>
           <button class="btn btn-secondary btn-sm" onclick="Categorias._testSync()">🔌 Probar conexión</button>
           <button class="btn btn-secondary btn-sm" onclick="Categorias._forceSync()">🔄 Sincronizar ahora</button>
         </div>
+        ${Store.getSyncConflict?.() ? `
+        <div style="margin-top:10px;padding:10px;border-radius:8px;background:rgba(239,68,68,.08);border:1px solid var(--expense);font-size:12px;line-height:1.5">
+          <strong style="color:var(--expense)">⚠️ Conflicto de datos pendiente</strong><br>
+          Este dispositivo y la nube tienen información distinta. No se sobrescribirá nada hasta que elijas.
+          <button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="App._checkSyncConflict()">Elegir qué conservar</button>
+        </div>` : `
+        <div style="font-size:11px;color:var(--text-secondary);margin-top:8px;line-height:1.5">
+          Un dispositivo nuevo adoptará los datos de la nube. Nunca se borrarán datos reales sin preguntarte.
+        </div>`}
 
         <details style="margin-top:14px">
           <summary style="font-size:11px;color:var(--text-secondary);cursor:pointer">Modo experto (no recomendado)</summary>
@@ -1685,6 +1694,10 @@ END $$;</code>
   },
 
   async _forceSync() {
+    if (Store.getSyncConflict?.()) {
+      App._checkSyncConflict();
+      return;
+    }
     App.showToast('🔄 Sincronizando…');
     await Store._syncNow();
     App.showToast(Store.getSyncStatus() === 'synced' ? '✅ Datos sincronizados' : '⚠️ ' + Store.getSyncStatusDetail(), 3500);
@@ -1692,22 +1705,27 @@ END $$;</code>
   },
 
   _confirmFactoryReset() {
-    const hasServer = !!Store.getSyncSettings().serverUrl;
+    const s = Store.getSyncSettings();
+    const hasCloud = Store._isSupabase?.() || !!s.serverUrl;
     App.openModal({
       title: '⚠️ Empezar de cero',
       body: `
         <p style="font-size:13px;color:var(--text);margin-bottom:10px;line-height:1.6">
-          Esta acción <strong>eliminará todos tus datos</strong> en este dispositivo.<br>
-          Se creará un backup automático en este navegador antes de borrar.
+          Esta acción <strong>eliminará todos tus datos en este dispositivo</strong> y volverá la app al estado base.
+          Se creará un backup automático aquí antes de borrar.
         </p>
-        ${hasServer ? `
+        ${hasCloud ? `
         <div style="display:flex;align-items:flex-start;gap:8px;padding:10px;background:var(--bg);border-radius:8px;margin-bottom:10px">
           <input type="checkbox" id="resetServerCheck" style="margin-top:3px;flex-shrink:0">
           <label for="resetServerCheck" style="font-size:12px;line-height:1.5;cursor:pointer">
-            También borrar los datos del servidor (<strong>${esc(Store.getSyncSettings().serverUrl)}</strong>)
+            También borrar los datos de la nube (Supabase/servidor). <strong>Solo marca esto si quieres vaciar todo para todos los dispositivos.</strong>
           </label>
         </div>` : ''}
-        <p style="font-size:12px;color:var(--expense);font-weight:600">¿Estás seguro? Esta acción no se puede deshacer.</p>`,
+        <div class="form-group" style="margin-bottom:10px">
+          <label style="font-size:12px;font-weight:600">Escribe <code>BORRAR</code> para confirmar</label>
+          <input type="text" id="resetConfirmInput" placeholder="BORRAR" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)">
+        </div>
+        <p style="font-size:12px;color:var(--expense);font-weight:600">Preferimos preguntarte antes de borrar. Si solo quieres sincronizar, usa «Sincronizar ahora».</p>`,
       actions: [
         { label: 'Cancelar' },
         { label: '🗑 Sí, borrar todo', primary: true, cb: () => this._doFactoryReset() },
@@ -1716,9 +1734,18 @@ END $$;</code>
   },
 
   async _doFactoryReset() {
+    const typed = document.getElementById('resetConfirmInput')?.value?.trim();
+    if (typed !== 'BORRAR') {
+      App.showToast('⚠️ Escribe BORRAR para confirmar', 3500);
+      return;
+    }
     const deleteServer = !!(document.getElementById('resetServerCheck')?.checked);
+    if (deleteServer) {
+      const ok = confirm('¿Seguro que quieres borrar también los datos de la nube? Esto afectará a todos tus dispositivos.');
+      if (!ok) return;
+    }
     App.showToast('⏳ Restableciendo…');
-    await Store.factoryReset({ deleteServer });
+    await Store.factoryReset({ deleteServer, confirmed: true });
     // Re-init con datos vacíos
     Store._ready = true;
     App._currentViewMonth = Store.getCurrentMonth();
