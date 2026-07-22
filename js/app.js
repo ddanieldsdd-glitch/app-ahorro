@@ -69,7 +69,18 @@ const App = {
     if (hasSync) localStorage.setItem('ahorro_wizard_seen', '1');
     if (!hasData && !hasSync && !wizardSeen) {
       setTimeout(() => this._showSetupWizard(), 800);
+    } else {
+      this._runStartupTasks();
     }
+  },
+
+  _runStartupTasks() {
+    setTimeout(async () => {
+      if (typeof Install !== 'undefined') await Install.checkOnStartup();
+      if (typeof StoragePrefs !== 'undefined' && !StoragePrefs.isConfigured()) {
+        StoragePrefs.showSetupWizard();
+      }
+    }, 600);
   },
 
   _isCloudConfigured() {
@@ -119,6 +130,7 @@ const App = {
     localStorage.setItem('ahorro_wizard_seen', '1');
     document.getElementById('modalOverlay').style.display = 'none';
     this.showToast('✅ Listo. Puedes configurar la sincronización en ⚙️ → Sincronización en cualquier momento.');
+    this._runStartupTasks();
   },
 
   _wizardConfigCloud() {
@@ -129,12 +141,14 @@ const App = {
       document.getElementById('syncServerUrl')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       this.showToast('👆 Rellena la URL del servidor, la clave y la frase de cifrado', 5000);
     }, 300);
+    this._runStartupTasks();
   },
 
   _wizardTutorial() {
     document.getElementById('modalOverlay').style.display = 'none';
     localStorage.setItem('ahorro_wizard_seen', '1');
     setTimeout(() => Tutorial.open(0), 200);
+    this._runStartupTasks();
   },
 
   _onRemoteUpdate() {

@@ -1,14 +1,14 @@
 const WINDOWS_EXE_URL = 'https://github.com/ddanieldsdd-glitch/app-ahorro/releases/download/v2.0.4/Presupuesto.Personal.Setup.2.0.4.exe';
+const PWA_INSTALLED_KEY = 'ahorro_pwa_installed';
 
 const Install = {
   _deferredPrompt: null,
   _isStandalone: false,
+  _isElectronApp: false,
   _swRegistration: null,
 
   init() {
-    this._isStandalone =
-      window.matchMedia('(display-mode: standalone)').matches ||
-      window.navigator.standalone === true;
+    this._refreshInstallState();
 
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();
@@ -19,11 +19,13 @@ const Install = {
     window.addEventListener('appinstalled', () => {
       this._deferredPrompt = null;
       this._hideBanner();
+      localStorage.setItem(PWA_INSTALLED_KEY, '1');
+      this._refreshInstallState();
       if (typeof VercelAnalytics !== 'undefined') VercelAnalytics.track('app_installed');
       if (typeof App !== 'undefined') App.showToast('✅ App instalada correctamente');
     });
 
-    if (!this._isStandalone && !this._deferredPrompt) {
+    if (!this.isInstalled() && !this._deferredPrompt) {
       const dismissed = sessionStorage.getItem('installBannerDismissed');
       if (!dismissed && this._isMobile()) this._showIosHint();
     }
@@ -37,6 +39,51 @@ const Install = {
     this._fetchRemoteVersion().then((v) => {
       if (v && !this._getLocalVersion()) this._setLocalVersion(v);
     });
+  },
+
+  // ── Install detection ─────────────────────────────────────────────────────
+
+  _inInstalledDisplayMode() {
+    const modes = ['standalone', 'window-controls-overlay', 'minimal-ui', 'fullscreen'];
+    if (modes.some((m) => window.matchMedia(`(display-mode: ${m})`).matches)) return true;
+    // Cualquier modo distinto de "browser" suele ser ventana de app instalada (macOS PWA, etc.)
+    try {
+      return window.matchMedia('(display-mode: browser)').matches === false;
+    } catch {
+      return false;
+    }
+  },
+
+  _refreshInstallState() {
+    this._isElectronApp = this._detectElectron();
+    const persistedPwa = localStorage.getItem(PWA_INSTALLED_KEY) === '1';
+    this._isStandalone =
+      this._inInstalledDisplayMode() ||
+      window.navigator.standalone === true ||
+      (persistedPwa && this._inInstalledDisplayMode());
+    // Si el usuario marcó instalación pero abrió en pestaña del navegador, no contar como PWA
+    if (persistedPwa && !this._isElectronApp && window.matchMedia('(display-mode: browser)').matches) {
+      this._isStandalone = false;
+    }
+    if (this._isElectronApp) this._isStandalone = false;
+  },
+
+  _detectElectron() {
+    if (window.AhorroInstall?.isDesktop) return true;
+    if (window.CapacitorCustomPlatform?.name === 'electron') return true;
+    if (/Electron/i.test(navigator.userAgent)) return true;
+    try {
+      const proto = window.location?.protocol || '';
+      if (/^capacitor-electron:/i.test(proto)) return true;
+    } catch { /* ignore */ }
+    return false;
+  },
+
+  _desktopPlatform() {
+    if (window.AhorroInstall?.platform) return window.AhorroInstall.platform;
+    if (this._isMac()) return 'darwin';
+    if (this._isWindows()) return 'win32';
+    return '';
   },
 
   // ── Update detection ──────────────────────────────────────────────────────
@@ -159,6 +206,12 @@ const Install = {
     return false;
   },
 
+  async checkOnStartup() {
+    if (typeof Store !== 'undefined') Store.maybeBackupAfterUpdate?.();
+    await this._checkServiceWorkerUpdate();
+    await this._checkRemoteVersion(false);
+  },
+
   async manualCheckForUpdates() {
     if (typeof App !== 'undefined') App.showToast('🔍 Comprobando actualizaciones…', 2000);
 
@@ -191,7 +244,7 @@ const Install = {
     banner.innerHTML = `
       <div class="update-banner-text">
         <strong>🔄 Actualización disponible</strong>
-        <span>Hay una nueva versión de la app</span>
+        <span>Hay una nueva versión — tus datos se conservan al actualizar</span>
       </div>
       <div class="update-banner-actions">
         <button class="btn btn-primary btn-sm" id="updateBannerBtn">Actualizar ahora</button>
@@ -200,6 +253,19 @@ const Install = {
     document.body.appendChild(banner);
 
     document.getElementById('updateBannerBtn').addEventListener('click', async () => {
+      if (typeof Store !== 'undefined') {
+        Store._backup?.('pre-update-reload');
+        try {
+          const prefs = typeof StoragePrefs !== 'undefined' ? StoragePrefs.getPrefs() : {};
+          if (prefs.autoBackupToFolder && Store.exportJSON) {
+            const stamp = new Date().toISOString().split('T')[0];
+            await StoragePrefs.mirrorBackupToFolder(
+              Store.exportJSON(),
+              `presupuesto_pre_update_${stamp}.json`
+            );
+          }
+        } catch { /* ignore */ }
+      }
       const reg = this._swRegistration || await navigator.serviceWorker.getRegistration();
       if (reg?.waiting) {
         reg.waiting.postMessage({ type: 'SKIP_WAITING' });
@@ -240,23 +306,25 @@ const Install = {
   },
 
   _isMac() {
-    return /Mac/i.test(navigator.platform) || /Mac OS X/i.test(navigator.userAgent);
+    const p = navigator.platform || '';
+    const ua = navigator.userAgent || '';
+    return /Mac/i.test(p) || /Mac OS X/i.test(ua);
   },
 
   _isElectron() {
-    return !!(
-      (window.CapacitorCustomPlatform && window.CapacitorCustomPlatform.name === 'electron') ||
-      /Electron/i.test(navigator.userAgent)
-    );
+    this._refreshInstallState();
+    return this._isElectronApp;
   },
 
   getInstallKind() {
-    if (this._isElectron()) {
-      if (this._isWindows()) return 'electron-windows';
-      if (this._isMac()) return 'electron-macos';
+    this._refreshInstallState();
+    if (this._isElectronApp) {
+      const plat = this._desktopPlatform();
+      if (plat === 'darwin' || this._isMac()) return 'electron-macos';
+      if (plat === 'win32' || this._isWindows()) return 'electron-windows';
       return 'electron';
     }
-    if (this._isStandalone) {
+    if (this.isInstalled()) {
       if (this._isIos()) return 'pwa-ios';
       if (this._isAndroid()) return 'pwa-android';
       if (this._isWindows()) return 'pwa-windows';
@@ -291,7 +359,11 @@ const Install = {
   },
 
   isInstalled() {
-    return this._isStandalone || this._isElectron();
+    this._refreshInstallState();
+    if (this._isElectronApp) return true;
+    if (this._isStandalone) return true;
+    if (localStorage.getItem(PWA_INSTALLED_KEY) === '1' && this._inInstalledDisplayMode()) return true;
+    return false;
   },
 
   async promptInstall() {
@@ -363,7 +435,7 @@ const Install = {
   },
 
   _showBanner() {
-    if (this._isStandalone) return;
+    if (this.isInstalled()) return;
     let banner = document.getElementById('installBanner');
     if (!banner) {
       banner = document.createElement('div');

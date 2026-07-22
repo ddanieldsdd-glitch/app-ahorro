@@ -345,20 +345,7 @@ const Calendario = {
           </select>
         </div>
         <div class="form-group"><label>Emoticono <span style="font-size:10px;color:var(--text-secondary)">(opcional)</span></label>
-          <div style="display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap">
-            <input type="text" id="calEditEmoji" placeholder="😀" value="${esc(t.emoji || '')}" style="width:48px;text-align:center;font-size:20px;padding:4px;border:1px solid var(--border);border-radius:6px;flex-shrink:0">
-            <div style="display:flex;flex-wrap:wrap;gap:3px;max-width:240px">
-              ${(typeof MovementForm !== 'undefined' ? MovementForm._EMOJI_PALETTE : ['😀','🎉','🛒','🍔','☕','🚗','💊','📚','🎮','✈️','🎁','💪']).slice(0, 15).map(e =>
-                `<button type="button" style="font-size:15px;background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;padding:2px 3px;line-height:1" onclick="document.getElementById('calEditEmoji').value='${e}'">${e}</button>`
-              ).join('')}
-              <button type="button" onclick="Calendario._toggleEditMoreEmoji()" style="font-size:11px;background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;padding:2px 5px;color:var(--primary)">+más</button>
-            </div>
-          </div>
-          <div id="calEditEmojiExtra" style="display:none;flex-wrap:wrap;gap:3px;margin-top:4px">
-            ${(typeof MovementForm !== 'undefined' ? MovementForm._EMOJI_PALETTE : []).slice(15).map(e =>
-              `<button type="button" style="font-size:15px;background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;padding:2px 3px;line-height:1" onclick="document.getElementById('calEditEmoji').value='${e}'">${e}</button>`
-            ).join('')}
-          </div>
+          ${EmojiUtils.renderPicker('calEditEmoji', { value: t.emoji || '', compact: true })}
         </div>
         ${Store.isDebtExpense(t) ? Deudas.inlineFormHtml('calEdit', t.amount.toString(), t.description || '', null, Store.getDebtsByLinkedTx(id)) : ''}`,
       actions: [
@@ -456,16 +443,7 @@ const Calendario = {
       </div>
       <div class="form-group">
         <label>Emoticono <span style="font-size:10px;color:var(--text-secondary)">(opcional)</span></label>
-        <div style="display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap">
-          <input type="text" id="calEmoji" placeholder="😀" style="width:48px;text-align:center;font-size:20px;padding:4px;border:1px solid var(--border);border-radius:6px;flex-shrink:0">
-          <div style="display:flex;flex-wrap:wrap;gap:3px;max-width:240px">
-            ${(typeof MovementForm !== 'undefined' ? MovementForm._EMOJI_PALETTE : ['😀','🎉','🛒','🍔','☕','🚗','💊','📚','🎮','✈️','🎁','💪','🌟','🔧','📱']).slice(0, 15).map(e => `<button type="button" onclick="document.getElementById('calEmoji').value='${e}'" style="font-size:15px;background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;padding:2px 3px;line-height:1">${e}</button>`).join('')}
-            <button type="button" onclick="Calendario._toggleAddMoreEmoji()" style="font-size:11px;background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;padding:2px 5px;color:var(--primary)">+más</button>
-          </div>
-        </div>
-        <div id="calAddEmojiExtra" style="display:none;flex-wrap:wrap;gap:3px;margin-top:4px">
-          ${(typeof MovementForm !== 'undefined' ? MovementForm._EMOJI_PALETTE : []).slice(15).map(e => `<button type="button" onclick="document.getElementById('calEmoji').value='${e}'" style="font-size:15px;background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;padding:2px 3px;line-height:1">${e}</button>`).join('')}
-        </div>
+        ${EmojiUtils.renderPicker('calEmoji', { compact: true })}
       </div>
       <input type="hidden" id="calDate" value="${dateStr}">
       <input type="hidden" id="calTransferType" value="to_savings">
@@ -587,18 +565,6 @@ const Calendario = {
       const descInput = document.getElementById('calDesc');
       if (descInput) descInput.value = 'Gasto de ahorro (imprevisto)';
     }
-  },
-
-  _toggleEditMoreEmoji() {
-    const el = document.getElementById('calEditEmojiExtra');
-    if (!el) return;
-    el.style.display = el.style.display === 'none' ? 'flex' : 'none';
-  },
-
-  _toggleAddMoreEmoji() {
-    const el = document.getElementById('calAddEmojiExtra');
-    if (!el) return;
-    el.style.display = el.style.display === 'none' ? 'flex' : 'none';
   },
 
   _syncAccountFromMethod() {

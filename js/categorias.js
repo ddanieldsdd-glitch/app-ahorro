@@ -82,6 +82,7 @@ const Categorias = {
         ${(() => {
           const installed = typeof Install !== 'undefined' && Install.isInstalled();
           const isWin = typeof Install !== 'undefined' && Install._isWindows();
+          const isMac = typeof Install !== 'undefined' && Install._isMac();
           const isIos = typeof Install !== 'undefined' && Install._isIos();
           const isAndroid = typeof Install !== 'undefined' && Install._isAndroid();
 
@@ -165,7 +166,27 @@ const Categorias = {
               </div>`;
           }
 
-          // macOS / other
+          if (isMac) {
+            return `<p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">
+                Instala la app en macOS desde Chrome, Edge o Safari.
+              </p>
+              <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px">
+                <button onclick="Install.promptInstall()"
+                  style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:10px;background:var(--primary);border:none;color:#fff;cursor:pointer;font-size:13px;text-align:left;width:100%">
+                  <span style="font-size:22px">⬇️</span>
+                  <div>
+                    <div style="font-weight:600">Instalar como app (Chrome / Edge)</div>
+                    <div style="font-size:11px;opacity:.85">Icono ⊕ en la barra de direcciones → Instalar</div>
+                  </div>
+                </button>
+              </div>
+              <div style="font-size:11px;color:var(--text-secondary);line-height:1.5;background:var(--bg);padding:8px 10px;border-radius:8px">
+                <strong>Safari:</strong> Archivo → Añadir al Dock.<br>
+                Tras instalar, Configuración mostrará <em>macOS (PWA)</em> o <em>macOS (app de escritorio)</em> si usas el .dmg.
+              </div>`;
+          }
+
+          // otros sistemas
           return `<p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">
               Instala la app desde el navegador — funciona sin conexión y se actualiza automáticamente.
             </p>
@@ -437,8 +458,8 @@ END $$;</code>
           <span class="card-title">💾 Backup y Excel</span>
         </div>
         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;line-height:1.5">
-          Exporta o importa tus datos eligiendo <strong>dónde guardar</strong> en el dispositivo.
-          Puedes filtrar por meses o años. Si hay datos solapados, eliges: sustituir, conservar o fusionar.
+          Exporta o importa tus datos. Se abrirá el selector de archivos para elegir
+          <strong>dónde guardar</strong> o qué archivo abrir (con carpeta preferida si la configuraste).
         </p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
           <button class="btn btn-primary btn-sm" onclick="BackupIO.exportFlow()">⬇ Exportar</button>
@@ -446,17 +467,19 @@ END $$;</code>
         </div>
         <div style="font-size:11px;color:var(--text-secondary);line-height:1.5">
           <strong>JSON</strong> — copia exacta para restaurar al 100%.<br>
-          <strong>Excel</strong> — hojas planas fáciles de editar (Movimientos, Deudas, Metas, Saldos, Config…).<br>
-          En Windows/Electron se abre el selector de carpeta del sistema.
+          <strong>Excel</strong> — hojas planas fáciles de editar (Movimientos, Deudas, Metas, Saldos, Config…).
         </div>
       </div>
+
+      ${typeof StoragePrefs !== 'undefined' ? StoragePrefs.renderSettingsCard() : ''}
 
       <div class="card" style="margin-bottom:10px">
         <div class="card-header">
           <span class="card-title">🔄 Actualizaciones</span>
         </div>
         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">
-          La app detecta automáticamente cuando hay una nueva versión y muestra un aviso. También puedes comprobar manualmente.
+          Al abrir la app se comprueban actualizaciones automáticamente. Tus datos se conservan al actualizar
+          (localStorage + nube si está configurada).
         </p>
         <div style="font-size:11px;color:var(--text-secondary);margin-bottom:10px">
           Versión instalada: <code>${esc(typeof Install !== 'undefined' ? Install.getVersionLabel() : '—')}</code>
@@ -491,6 +514,7 @@ END $$;</code>
         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">
           Categorías, tipos de movimiento y métodos de pago se comparten con Movimientos, Calendario, Deudas y Ahorro.
           Si añades uno en cualquier pantalla, aparecerá aquí. Pulsa sincronizar para importar los que falten.
+          <strong>Pulsa el emoticono</strong> de cada ítem para editarlo (misma paleta que en movimientos y calendario).
         </p>
       </div>
 

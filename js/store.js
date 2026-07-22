@@ -1969,6 +1969,16 @@ const Store = {
     } catch {}
   },
 
+  maybeBackupAfterUpdate() {
+    const running = document.querySelector('meta[name="app-cache-version"]')?.content
+      || window.__APP_CACHE_VERSION || '';
+    const prev = localStorage.getItem('_appLastRunningVersion');
+    if (running && prev && running !== prev && this._data?.transactions) {
+      this._backup('pre-update-' + running.replace(/[^\w-]/g, ''));
+    }
+    if (running) localStorage.setItem('_appLastRunningVersion', running);
+  },
+
   getDebts() { return [...(this._data.debts || [])]; },
   getPendingDebts()  { return this.getDebts().filter(d => !d.isPaid); },
   getSettledDebts()  { return this.getDebts().filter(d => d.isPaid); },

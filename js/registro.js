@@ -68,12 +68,7 @@ const Registro = {
           </div>
           <div class="form-group" style="grid-column:1/-1">
             <label>Emoticono <span style="font-size:10px;color:var(--text-secondary)">(opcional)</span></label>
-            <div style="display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap">
-              <input type="text" id="txEmoji" placeholder="😀" style="width:48px;text-align:center;font-size:20px;padding:4px;border:1px solid var(--border);border-radius:6px;flex-shrink:0">
-              <div style="display:flex;flex-wrap:wrap;gap:3px;max-width:260px" id="txEmojiPicker"></div>
-              <button type="button" id="txEmojiMore" onclick="Registro._toggleMoreEmoji()" style="font-size:11px;background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;padding:2px 6px;color:var(--primary);white-space:nowrap">+más</button>
-            </div>
-            <div id="txEmojiExtra" style="display:none;flex-wrap:wrap;gap:3px;margin-top:4px"></div>
+            <div id="txEmojiPickerWrap">${typeof EmojiUtils !== 'undefined' ? EmojiUtils.renderPicker('txEmoji', { compact: true }) : ''}</div>
           </div>
           <input type="hidden" id="txTransferTypeHidden" value="to_savings">
         </form>
@@ -107,11 +102,8 @@ const Registro = {
     this._populateSelect('txMethod', Store.getPaymentMethods(), 'Tarjeta');
     this._setupInlineAdd();
     document.getElementById('txDate').valueAsDate = new Date();
-    // Inject debt inline block
     const debtContainer = document.getElementById('txDebtContainer');
     if (debtContainer) debtContainer.innerHTML = Deudas.inlineFormHtml('tx');
-    // Build emoji picker buttons
-    this._buildEmojiPicker();
 
     document.getElementById('txType').addEventListener('change', (e) => {
       const type = e.target.value;
@@ -133,26 +125,6 @@ const Registro = {
       e.preventDefault();
       this._handleSubmit();
     });
-  },
-
-  _buildEmojiPicker() {
-    const palette = typeof MovementForm !== 'undefined' ? MovementForm._EMOJI_PALETTE : ['😀','🎉','🛒','🍔','☕','🚗','💊','📚','🎮','✈️','🎁','💪','🌟','🔧','📱'];
-    const btnStyle = 'font-size:16px;background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;padding:2px 4px;line-height:1';
-    const picker = document.getElementById('txEmojiPicker');
-    const extra  = document.getElementById('txEmojiExtra');
-    if (!picker || !extra) return;
-    picker.innerHTML = palette.slice(0, 15).map(e =>
-      `<button type="button" style="${btnStyle}" onclick="document.getElementById('txEmoji').value='${e}'">${e}</button>`
-    ).join('');
-    extra.innerHTML = palette.slice(15).map(e =>
-      `<button type="button" style="${btnStyle}" onclick="document.getElementById('txEmoji').value='${e}'">${e}</button>`
-    ).join('');
-  },
-
-  _toggleMoreEmoji() {
-    const el = document.getElementById('txEmojiExtra');
-    if (!el) return;
-    el.style.display = el.style.display === 'none' ? 'flex' : 'none';
   },
 
   _toggleTraspasoMode(type) {

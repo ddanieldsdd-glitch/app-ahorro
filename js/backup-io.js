@@ -307,17 +307,27 @@ const FileIO = {
     return typeof window.showSaveFilePicker === 'function';
   },
 
+  supportsDirectoryPicker() {
+    return typeof StoragePrefs !== 'undefined' && StoragePrefs.supportsDirectoryPicker();
+  },
+
   async saveBlob(blob, suggestedName, mimeType) {
     const ext = suggestedName.includes('.') ? suggestedName.split('.').pop() : 'bin';
+    const startIn = typeof StoragePrefs !== 'undefined'
+      ? await StoragePrefs.getExportDirectoryHandle()
+      : null;
+
     if (typeof window.showSaveFilePicker === 'function') {
       try {
-        const handle = await window.showSaveFilePicker({
+        const opts = {
           suggestedName,
           types: [{
             description: ext.toUpperCase(),
             accept: { [mimeType]: ['.' + ext] },
           }],
-        });
+        };
+        if (startIn) opts.startIn = startIn;
+        const handle = await window.showSaveFilePicker(opts);
         const writable = await handle.createWritable();
         await writable.write(blob);
         await writable.close();
@@ -337,13 +347,18 @@ const FileIO = {
 
   async openFile(accept) {
     const exts = accept.split(',').map(s => s.trim()).filter(s => s.startsWith('.'));
+    const startIn = typeof StoragePrefs !== 'undefined'
+      ? await StoragePrefs.getExportDirectoryHandle()
+      : null;
+
     if (typeof window.showOpenFilePicker === 'function') {
       try {
-        const types = exts.length ? [{ accept: { 'application/octet-stream': exts } }] : undefined;
-        const [handle] = await window.showOpenFilePicker({
+        const opts = {
           multiple: false,
-          types,
-        });
+          types: exts.length ? [{ accept: { 'application/octet-stream': exts } }] : undefined,
+        };
+        if (startIn) opts.startIn = startIn;
+        const [handle] = await window.showOpenFilePicker(opts);
         return await handle.getFile();
       } catch (e) {
         if (e.name === 'AbortError') return null;
