@@ -34,6 +34,9 @@ const Install = {
     }
 
     this._setupUpdateDetection();
+    this._fetchRemoteVersion().then((v) => {
+      if (v && !this._getLocalVersion()) this._setLocalVersion(v);
+    });
   },
 
   // ── Update detection ──────────────────────────────────────────────────────
@@ -63,36 +66,96 @@ const Install = {
       if (!refreshing) { refreshing = true; window.location.reload(); }
     });
 
-    // 3. Detect server restart (= new code deployed without SW cache bump)
-    this._checkServerVersion();
-    setInterval(() => this._checkServerVersion(), 5 * 60 * 1000); // every 5 min
+    // 3. Detect new deployment via version.json (Vercel static — no /api/version)
+    this._checkRemoteVersion(false);
+    setInterval(() => this._checkRemoteVersion(false), 5 * 60 * 1000);
   },
 
-  async _checkServerVersion() {
+  async _fetchRemoteVersion() {
     try {
-      const res = await fetch('/api/version', { cache: 'no-store' });
-      if (!res.ok) return;
-      const { version } = await res.json();
-      const stored = sessionStorage.getItem('_appServerVersion');
-      if (!stored) { sessionStorage.setItem('_appServerVersion', version); return; }
-      if (String(stored) !== String(version)) {
-        // Server restarted = new deployment
-        sessionStorage.setItem('_appServerVersion', version);
-        this._showUpdateBanner('server');
-      }
-    } catch { /* offline */ }
+      const res = await fetch(`/version.json?_=${Date.now()}`, { cache: 'no-store' });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data.cache || data.version || null;
+    } catch {
+      return null;
+    }
+  },
+
+  _getRunningVersion() {
+    const meta = document.querySelector('meta[name="app-cache-version"]');
+    return meta?.content || window.__APP_CACHE_VERSION || '';
+  },
+
+  _getLocalVersion() {
+    return localStorage.getItem('_appCacheVersion') || this._getRunningVersion() || '';
+  },
+
+  _setLocalVersion(v) {
+    if (v) localStorage.setItem('_appCacheVersion', v);
+  },
+
+  async _checkRemoteVersion(showIfCurrent) {
+    const remote = await this._fetchRemoteVersion();
+    if (!remote) return false;
+    const running = this._getRunningVersion();
+    if (!running) {
+      this._setLocalVersion(remote);
+      return false;
+    }
+    if (running !== remote) {
+      this._showUpdateBanner('version');
+      return true;
+    }
+    this._setLocalVersion(remote);
+    if (showIfCurrent && typeof App !== 'undefined') {
+      App.showToast(`✅ App al día (${remote})`);
+    }
+    return false;
+  },
+
+  async _checkServiceWorkerUpdate() {
+    if (!('serviceWorker' in navigator)) return false;
+    const reg = await navigator.serviceWorker.getRegistration();
+    if (!reg) return false;
+    try { await reg.update(); } catch { /* ignore */ }
+    if (reg.waiting) return true;
+    if (reg.installing) {
+      await new Promise((resolve) => {
+        const w = reg.installing;
+        const finish = () => resolve();
+        w.addEventListener('statechange', () => {
+          if (w.state === 'installed' && navigator.serviceWorker.controller) finish();
+          if (w.state === 'activated' || w.state === 'redundant') finish();
+        });
+        setTimeout(finish, 4000);
+      });
+      if (reg.waiting) return true;
+    }
+    return false;
   },
 
   async manualCheckForUpdates() {
-    if (this._swRegistration) {
-      try { await this._swRegistration.update(); } catch { /* ignore */ }
+    if (typeof App !== 'undefined') App.showToast('🔍 Comprobando actualizaciones…', 2000);
+
+    const swUpdate = await this._checkServiceWorkerUpdate();
+    const remote = await this._fetchRemoteVersion();
+    const running = this._getRunningVersion();
+
+    const versionUpdate = !!(remote && running && remote !== running);
+    const bannerVisible = !!document.getElementById('updateBanner');
+
+    if (swUpdate || versionUpdate) {
+      if (!bannerVisible) this._showUpdateBanner(swUpdate ? 'sw' : 'version');
+      if (typeof App !== 'undefined') {
+        App.showToast('🔄 Hay una actualización disponible', 4000);
+      }
+      return;
     }
-    // Reset stored version to force re-check
-    sessionStorage.removeItem('_appServerVersion');
-    await this._checkServerVersion();
-    const banner = document.getElementById('updateBanner');
-    if (!banner || banner.style.display === 'none') {
-      if (typeof App !== 'undefined') App.showToast('✅ App al día, no hay actualizaciones');
+
+    if (typeof App !== 'undefined') {
+      const label = remote || running || 'desconocida';
+      App.showToast(`✅ App al día (${label})`);
     }
   },
 
@@ -114,10 +177,13 @@ const Install = {
 
     document.getElementById('updateBannerBtn').addEventListener('click', () => {
       const reg = this._swRegistration;
-      if (source === 'sw' && reg?.waiting) {
+      if (reg?.waiting) {
         reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-      } else {
-        // Clear SW cache then reload so fresh files are fetched
+        return;
+      }
+      this._fetchRemoteVersion().then((v) => {
+        if (v) this._setLocalVersion(v);
+      }).finally(() => {
         if (reg) {
           caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k)))).finally(() => {
             window.location.reload();
@@ -125,7 +191,7 @@ const Install = {
         } else {
           window.location.reload();
         }
-      }
+      });
     });
     document.getElementById('updateBannerDismiss').addEventListener('click', () => {
       banner.remove();
@@ -150,12 +216,59 @@ const Install = {
     return /Windows/i.test(navigator.userAgent) || /Win/i.test(navigator.platform);
   },
 
+  _isMac() {
+    return /Mac/i.test(navigator.platform) || /Mac OS X/i.test(navigator.userAgent);
+  },
+
+  _isElectron() {
+    return !!(
+      (window.CapacitorCustomPlatform && window.CapacitorCustomPlatform.name === 'electron') ||
+      /Electron/i.test(navigator.userAgent)
+    );
+  },
+
+  getInstallKind() {
+    if (this._isElectron()) {
+      if (this._isWindows()) return 'electron-windows';
+      if (this._isMac()) return 'electron-macos';
+      return 'electron';
+    }
+    if (this._isStandalone) {
+      if (this._isIos()) return 'pwa-ios';
+      if (this._isAndroid()) return 'pwa-android';
+      if (this._isWindows()) return 'pwa-windows';
+      if (this._isMac()) return 'pwa-macos';
+      return 'pwa';
+    }
+    return 'browser';
+  },
+
+  getInstallLabel() {
+    const labels = {
+      'electron-windows': 'Windows (app de escritorio)',
+      'electron-macos': 'macOS (app de escritorio)',
+      electron: 'Escritorio (app nativa)',
+      'pwa-ios': 'iPhone / iPad',
+      'pwa-android': 'Android',
+      'pwa-windows': 'Windows (PWA)',
+      'pwa-macos': 'macOS (PWA)',
+      pwa: 'App instalada (PWA)',
+      browser: 'Navegador',
+    };
+    return labels[this.getInstallKind()] || 'App instalada';
+  },
+
+  getVersionLabel() {
+    const running = this._getRunningVersion();
+    return running || this._getLocalVersion() || '—';
+  },
+
   canInstall() {
     return !!this._deferredPrompt;
   },
 
   isInstalled() {
-    return this._isStandalone;
+    return this._isStandalone || this._isElectron();
   },
 
   async promptInstall() {

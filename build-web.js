@@ -25,6 +25,7 @@ const ROOT_FILES = [
   'manifest.json',
   'sw.js',
   'icon.svg',
+  'version.json',
 ];
 
 // Carpetas a copiar completas
@@ -70,6 +71,32 @@ for (const f of ROOT_FILES) {
 for (const d of DIRS) {
   copyDir(path.join(SRC, d), path.join(DST, d));
   console.log(`  ✅ ${d}/`);
+}
+
+// version.json — sincronizado con sw.js + package.json + meta en index.html
+try {
+  const sw = fs.readFileSync(path.join(SRC, 'sw.js'), 'utf8');
+  const cacheMatch = sw.match(/const CACHE = '([^']+)'/);
+  const pkg = JSON.parse(fs.readFileSync(path.join(SRC, 'package.json'), 'utf8'));
+  const version = {
+    cache: cacheMatch ? cacheMatch[1] : 'unknown',
+    appVersion: pkg.version || '0.0.0',
+    builtAt: new Date().toISOString(),
+  };
+  fs.writeFileSync(path.join(SRC, 'version.json'), JSON.stringify(version, null, 2) + '\n');
+  fs.writeFileSync(path.join(DST, 'version.json'), JSON.stringify(version, null, 2) + '\n');
+  const indexPath = path.join(SRC, 'index.html');
+  let html = fs.readFileSync(indexPath, 'utf8');
+  if (html.includes('name="app-cache-version"')) {
+    html = html.replace(/name="app-cache-version" content="[^"]*"/, `name="app-cache-version" content="${version.cache}"`);
+  } else {
+    html = html.replace('</head>', `  <meta name="app-cache-version" content="${version.cache}">\n</head>`);
+  }
+  fs.writeFileSync(indexPath, html);
+  copyFile(indexPath, path.join(DST, 'index.html'));
+  console.log(`  ✅ version.json (${version.cache})`);
+} catch (e) {
+  console.log(`  ⚠️  version.json no generado: ${e.message}`);
 }
 
 // Eliminar sw.js de www/ en apps nativas — Capacitor gestiona el caché de otra forma

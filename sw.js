@@ -1,7 +1,7 @@
-const CACHE = 'presupuesto-v23';
+const CACHE = 'presupuesto-v24';
 
 const ASSETS = [
-  '/', '/index.html', '/styles.css', '/manifest.json', '/icon.svg',
+  '/', '/index.html', '/styles.css', '/manifest.json', '/icon.svg', '/version.json',
   '/icons/icon-192.png', '/icons/icon-512.png',
   '/js/crypto-e2e.js', '/js/store.js', '/js/budget-engine.js', '/js/install.js',
   '/js/presupuesto.js', '/js/dashboard.js', '/js/registro.js', '/js/calendario.js',

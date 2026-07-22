@@ -84,11 +84,23 @@ const Categorias = {
           const isAndroid = typeof Install !== 'undefined' && Install._isAndroid();
 
           if (installed) {
+            const label = Install.getInstallLabel();
+            const kind = Install.getInstallKind();
+            const icons = {
+              'electron-windows': '🖥️',
+              'electron-macos': '🖥️',
+              electron: '🖥️',
+              'pwa-ios': '📱',
+              'pwa-android': '📱',
+              'pwa-windows': '🌐',
+              'pwa-macos': '🌐',
+              pwa: '📲',
+            };
             return `<div style="display:flex;align-items:center;gap:10px;padding:12px;border-radius:10px;background:var(--bg);border:1.5px solid var(--income)">
-              <span style="font-size:24px">✅</span>
+              <span style="font-size:24px">${icons[kind] || '✅'}</span>
               <div>
                 <div style="font-size:13px;font-weight:700;color:var(--income)">App instalada correctamente</div>
-                <div style="font-size:11px;color:var(--text-secondary)">La estás usando como app independiente.</div>
+                <div style="font-size:11px;color:var(--text-secondary)">Plataforma: <strong>${esc(label)}</strong></div>
               </div>
             </div>`;
           }
@@ -408,6 +420,9 @@ END $$;</code>
         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">
           La app detecta automáticamente cuando hay una nueva versión y muestra un aviso. También puedes comprobar manualmente.
         </p>
+        <div style="font-size:11px;color:var(--text-secondary);margin-bottom:10px">
+          Versión instalada: <code>${esc(typeof Install !== 'undefined' ? Install.getVersionLabel() : '—')}</code>
+        </div>
         <button class="btn btn-secondary btn-sm" onclick="Install.manualCheckForUpdates()">🔍 Comprobar actualizaciones</button>
       </div>
 
