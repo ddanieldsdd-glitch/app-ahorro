@@ -4,7 +4,6 @@ import type { MenuItemConstructorOptions } from 'electron';
 import { app, MenuItem } from 'electron';
 import electronIsDev from 'electron-is-dev';
 import unhandled from 'electron-unhandled';
-import { autoUpdater } from 'electron-updater';
 
 import { ElectronCapacitorApp, setupContentSecurityPolicy, setupReloadWatcher } from './setup';
 
@@ -45,8 +44,9 @@ if (electronIsDev) {
   setupContentSecurityPolicy(myCapacitorApp.getCustomURLScheme());
   // Initialize our app, build windows, and load content.
   await myCapacitorApp.init();
-  // Check for updates if we are in a packaged app.
-  autoUpdater.checkForUpdatesAndNotify();
+  // Auto-update disabled: app data syncs via Supabase; code updates via
+  // GitHub Releases / Vercel PWA. electron-updater needs app-update.yml
+  // which is only generated when publish is configured.
 })();
 
 // Handle when all of our windows are close (platforms have their own expectations).

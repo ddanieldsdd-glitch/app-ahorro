@@ -1,6 +1,6 @@
 {
   "name": "presupuesto-personal",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "private": true,
   "description": "App de presupuesto personal con cifrado E2E y sincronización en la nube",
   "scripts": {

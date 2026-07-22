@@ -1,4 +1,4 @@
-const WINDOWS_EXE_URL = 'https://github.com/ddanieldsdd-glitch/app-ahorro/releases/download/v2.0.0/Presupuesto.Personal.Setup.2.0.0.exe';
+const WINDOWS_EXE_URL = 'https://github.com/ddanieldsdd-glitch/app-ahorro/releases/download/v2.0.1/Presupuesto.Personal.Setup.2.0.1.exe';
 
 const Install = {
   _deferredPrompt: null,
@@ -204,6 +204,9 @@ const Install = {
                 <div style="font-size:11px;color:var(--text-secondary)">Busca el icono ⊕ en la barra de direcciones o menú ⋮ → Instalar</div>
               </div>
             </button>
+          </div>
+          <div style="font-size:11px;color:var(--text-secondary);line-height:1.5;background:var(--bg);padding:8px 10px;border-radius:8px">
+            Si Windows muestra <strong>"Windows protegió tu PC"</strong> → <em>Más información</em> → <em>Ejecutar de todas formas</em>. Es normal: el instalador no está firmado con certificado de pago.
           </div>`,
         actions: [],
       });
