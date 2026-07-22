@@ -102,6 +102,7 @@ try {
   } else {
     html = html.replace('</head>', `  <script>window.__APP_BUILD_VERSION='${version.cache}';</script>\n</head>`);
   }
+  html = html.replace(/\?v=presupuesto-v[0-9]+/g, `?v=${version.cache}`);
   fs.writeFileSync(indexPath, html);
   copyFile(indexPath, path.join(DST, 'index.html'));
   const installPath = path.join(SRC, 'js', 'install.js');

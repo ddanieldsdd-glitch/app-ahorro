@@ -1,4 +1,4 @@
-const APP_BUILD_ID = 'presupuesto-v42';
+const APP_BUILD_ID = 'presupuesto-v46';
 const WINDOWS_EXE_URL = 'https://github.com/ddanieldsdd-glitch/app-ahorro/releases/download/v2.0.4/Presupuesto.Personal.Setup.2.0.4.exe';
 const PWA_INSTALLED_KEY = 'ahorro_pwa_installed';
 
@@ -11,7 +11,13 @@ const Install = {
   init() {
     this._refreshInstallState();
 
-    if (window.__PENDING_APP_VERSION) {
+    const justUpdated = sessionStorage.getItem('_appUpdateReload');
+    if (justUpdated) {
+      sessionStorage.removeItem('_appUpdateReload');
+      const running = this._getRunningVersion();
+      if (running) this._setLocalVersion(running);
+      delete window.__PENDING_APP_VERSION;
+    } else if (window.__PENDING_APP_VERSION) {
       setTimeout(() => this._showUpdateBanner('version'), 300);
     }
 
@@ -303,9 +309,12 @@ const Install = {
 
   /** Versión del código JS que está ejecutándose (fiable en macOS con caché parcial). */
   _getRunningVersion() {
-    if (typeof APP_BUILD_ID !== 'undefined' && APP_BUILD_ID) return APP_BUILD_ID;
+    // Inline en index.html es la fuente más fiable tras recargar (install.js puede venir de caché antigua)
     if (window.__APP_BUILD_VERSION) return window.__APP_BUILD_VERSION;
-    return this._getMetaVersion();
+    const meta = this._getMetaVersion();
+    if (meta) return meta;
+    if (typeof APP_BUILD_ID !== 'undefined' && APP_BUILD_ID) return APP_BUILD_ID;
+    return this._getLocalVersion() || '';
   },
 
   async _needsVersionUpdate(remote) {
@@ -338,9 +347,13 @@ const Install = {
       this._showUpdateBanner('version');
       return true;
     }
-    this._setLocalVersion(this._getRunningVersion() || remote);
+    const running = this._getRunningVersion() || remote;
+    this._setLocalVersion(running);
+    const banner = document.getElementById('updateBanner');
+    if (banner) banner.remove();
+    delete window.__PENDING_APP_VERSION;
     if (showIfCurrent && typeof App !== 'undefined') {
-      App.showToast(`✅ App al día (${this._getRunningVersion() || remote})`);
+      App.showToast(`✅ App al día (${running})`);
     }
     return false;
   },
@@ -429,6 +442,11 @@ const Install = {
     document.body.appendChild(banner);
 
     document.getElementById('updateBannerBtn').addEventListener('click', async () => {
+      const btn = document.getElementById('updateBannerBtn');
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Actualizando…';
+      }
       if (typeof Store !== 'undefined') {
         Store._backup?.('pre-update-reload');
         try {
@@ -442,26 +460,35 @@ const Install = {
           }
         } catch { /* ignore */ }
       }
-      const reg = this._swRegistration || await navigator.serviceWorker.getRegistration();
+      let remote = null;
+      try {
+        remote = await this._fetchRemoteVersion();
+        if (remote) {
+          this._setLocalVersion(remote);
+          sessionStorage.setItem('_appUpdateReload', remote);
+        }
+        delete window.__PENDING_APP_VERSION;
+      } catch { /* ignore */ }
+      const reg = this._swRegistration || (navigator.serviceWorker?.getRegistration
+        ? await navigator.serviceWorker.getRegistration()
+        : null);
       if (reg?.waiting) {
         reg.waiting.postMessage({ type: 'SKIP_WAITING' });
       } else if (reg?.installing) {
         reg.installing.postMessage({ type: 'SKIP_WAITING' });
       }
       try {
-        const remote = await this._fetchRemoteVersion();
-        if (remote) this._setLocalVersion(remote);
-        delete window.__PENDING_APP_VERSION;
-      } catch { /* ignore */ }
-      try {
         if ('serviceWorker' in navigator) {
           const regs = await navigator.serviceWorker.getRegistrations();
           await Promise.all(regs.map((r) => r.unregister()));
         }
-        const keys = await caches.keys();
-        await Promise.all(keys.map((k) => caches.delete(k)));
+        if ('caches' in window) {
+          const keys = await caches.keys();
+          await Promise.all(keys.map((k) => caches.delete(k)));
+        }
       } catch { /* ignore */ }
-      window.location.href = window.location.pathname + '?_=' + Date.now();
+      const bust = Date.now();
+      window.location.replace(`${window.location.origin}/index.html?_=${bust}${remote ? '&v=' + encodeURIComponent(remote) : ''}`);
     });
     document.getElementById('updateBannerDismiss').addEventListener('click', () => {
       banner.remove();
