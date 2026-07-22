@@ -403,7 +403,7 @@ const App = {
     const remaining = limit - projectedTotal;
     const colors = { good: 'var(--income)', caution: '#F59E0B', warning: '#F97316', danger: 'var(--expense)' };
     const labels = { good: '✅ Bien', caution: '🟡 Cuidado', warning: '⚠️ Casi al límite', danger: '🔴 Excedido' };
-    const bgs = { good: 'var(--income-bg)', caution: '#FFFBEB', warning: '#FFFBEB', danger: 'var(--expense-bg)' };
+    const bgs = { good: 'var(--income-bg)', caution: 'var(--warn-bg)', warning: 'var(--warn-bg)', danger: 'var(--expense-bg)' };
     el.style.display = 'block';
     el.style.background = bgs[level];
     el.style.color = colors[level];
@@ -633,7 +633,7 @@ const App = {
               <div style="font-size:18px;font-weight:800;color:var(--income)">${monthsIfSaved.toFixed(1)} meses</div>
             </div>
           </div>
-          <div style="background:#FFF7ED;border:1px solid #FDE68A;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:#78350F">
+          <div style="background:var(--warn-bg);border:1px solid var(--warn-border);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:var(--warn-text)">
             <strong>💡 Recomendación:</strong> Aparta la mayor parte al ahorro. Vive del saldo ya existente en corriente y usa este ingreso para ganar autonomía financiera.
           </div>
           <div style="margin-bottom:10px">

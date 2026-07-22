@@ -21,8 +21,13 @@
   <script>
     (function() {
       var t = localStorage.getItem('appTheme');
-      if (t === 'dark') document.documentElement.setAttribute('data-theme','dark');
-      else if (t === 'light') document.documentElement.setAttribute('data-theme','light');
+      if (t === 'dark') {
+        document.documentElement.setAttribute('data-theme','dark');
+        var m = document.querySelector('meta[name="theme-color"]');
+        if (m) m.setAttribute('content','#0F172A');
+      } else if (t === 'light') {
+        document.documentElement.setAttribute('data-theme','light');
+      }
     })();
   </script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>

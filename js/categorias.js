@@ -14,7 +14,7 @@ const Categorias = {
         <div class="card-header"><span class="card-title">🏦 Mis cuentas</span></div>
         <div class="sa-cuentas-grid">
           <div class="sa-cuenta">
-            <div class="sa-cuenta-icon" style="background:#EEF2FF;color:var(--primary)">💳</div>
+            <div class="sa-cuenta-icon" style="background:var(--primary-light);color:var(--primary)">💳</div>
             <div class="sa-cuenta-info">
               <span class="sa-cuenta-label">Cuenta corriente</span>
               <div style="display:flex;align-items:center;gap:6px">
@@ -28,7 +28,7 @@ const Categorias = {
             <span>💸 Disponible: <strong style="color:var(--income)">${checkingAvailable.toFixed(2)} €</strong></span>
           </div>` : ''}
           <div class="sa-cuenta">
-            <div class="sa-cuenta-icon" style="background:#ECFDF5;color:var(--income)">🐷</div>
+            <div class="sa-cuenta-icon" style="background:var(--income-bg);color:var(--income)">🐷</div>
             <div class="sa-cuenta-info">
               <span class="sa-cuenta-label">Cuenta ahorro</span>
               <div style="display:flex;align-items:center;gap:6px">
@@ -38,7 +38,7 @@ const Categorias = {
             </div>
           </div>
           <div class="sa-cuenta">
-            <div class="sa-cuenta-icon" style="background:#FFF7ED;color:#D97706">💵</div>
+            <div class="sa-cuenta-icon" style="background:var(--warn-bg);color:var(--warn)">💵</div>
             <div class="sa-cuenta-info">
               <span class="sa-cuenta-label">Dinero en efectivo</span>
               <div style="display:flex;align-items:center;gap:6px">
@@ -1328,6 +1328,8 @@ END $$;</code>
     const next = current === 'dark' ? 'light' : 'dark';
     document.documentElement.setAttribute('data-theme', next);
     localStorage.setItem('appTheme', next);
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', next === 'dark' ? '#0F172A' : '#4F46E5');
     this.render();
   },
 
