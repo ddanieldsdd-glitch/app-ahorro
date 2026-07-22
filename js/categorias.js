@@ -101,21 +101,23 @@ const Categorias = {
           La nube solo almacena datos cifrados — nadie puede leerlos sin tu frase.
         </p>
 
-        <div class="form-group" style="margin-bottom:12px">
-          <label style="font-size:12px;font-weight:600;margin-bottom:6px;display:block">Proveedor de sincronización</label>
-          <div class="debt-view-toggle">
-            <button type="button" id="providerBtnSupabase"
-              class="cal-type-btn${(Store.getSyncSettings().provider || 'custom') === 'supabase' ? ' active' : ''}"
-              onclick="Categorias._switchSyncProvider('supabase')">
-              🟢 Supabase <span style="font-size:10px;opacity:.7">(gratis)</span>
-            </button>
-            <button type="button" id="providerBtnCustom"
-              class="cal-type-btn${(Store.getSyncSettings().provider || 'custom') !== 'supabase' ? ' active' : ''}"
-              onclick="Categorias._switchSyncProvider('custom')">
-              🖥 Servidor propio
-            </button>
+        <details style="margin-bottom:10px" ${(Store.getSyncSettings().provider || 'supabase') !== 'supabase' ? 'open' : ''}>
+          <summary style="font-size:11px;color:var(--text-secondary);cursor:pointer">Opciones avanzadas — servidor propio</summary>
+          <div style="margin-top:8px">
+            <div class="debt-view-toggle">
+              <button type="button" id="providerBtnSupabase"
+                class="cal-type-btn${(Store.getSyncSettings().provider || 'supabase') === 'supabase' ? ' active' : ''}"
+                onclick="Categorias._switchSyncProvider('supabase')">
+                🟢 Supabase <span style="font-size:10px;opacity:.7">(recomendado)</span>
+              </button>
+              <button type="button" id="providerBtnCustom"
+                class="cal-type-btn${(Store.getSyncSettings().provider || 'supabase') !== 'supabase' ? ' active' : ''}"
+                onclick="Categorias._switchSyncProvider('custom')">
+                🖥 Servidor propio
+              </button>
+            </div>
           </div>
-        </div>
+        </details>
 
         <!-- Estado de sincronización -->
         <div class="form-group" style="margin-bottom:10px">
@@ -143,12 +145,21 @@ const Categorias = {
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 ALTER TABLE sync_data ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "allow_all" ON sync_data
-  FOR ALL USING (true) WITH CHECK (true);</code>
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE tablename = 'sync_data'
+      AND policyname = 'allow_all'
+  ) THEN
+    CREATE POLICY "allow_all" ON sync_data
+      FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+END $$;</code>
               <strong style="color:var(--text)">3. Copiar URL y clave</strong><br>
-              En Supabase → <em>Settings → API</em> → copia:<br>
+              En Supabase → <em>Settings → <strong>API Keys</strong></em> → copia:<br>
               • <strong>Project URL</strong> (ej: <code>https://xxxxx.supabase.co</code>)<br>
-              • <strong>anon / public</strong> key (empieza por <code>eyJ…</code>)
+              • <strong>Publishable key</strong> (empieza por <code>sb_publishable_…</code>)
             </div>
           </details>
 
@@ -159,9 +170,9 @@ CREATE POLICY "allow_all" ON sync_data
               style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px">
           </div>
           <div class="form-group" style="margin-bottom:8px">
-            <label style="font-size:12px;font-weight:600">Clave anon (anon / public key)</label>
+            <label style="font-size:12px;font-weight:600">Publishable key <span style="font-weight:400;color:var(--text-secondary)">(Settings → API Keys en Supabase)</span></label>
             <div style="position:relative">
-              <input type="password" id="supabaseAnonKey" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9…"
+              <input type="password" id="supabaseAnonKey" placeholder="sb_publishable_… (o eyJ… si usas clave legacy)"
                 value="${esc(Store.getSyncSettings().supabaseAnonKey || '')}"
                 style="width:100%;padding:8px 36px 8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;box-sizing:border-box">
               <button type="button" onclick="Categorias._toggleFieldVisibility('supabaseAnonKey','supabaseKeyToggle')"
@@ -169,7 +180,7 @@ CREATE POLICY "allow_all" ON sync_data
                 style="position:absolute;right:8px;top:50%;transform:translateY(-50%);border:none;background:none;cursor:pointer;font-size:14px;color:var(--text-secondary)">👁</button>
             </div>
             <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">
-              La clave pública (anon) es segura en el cliente porque los datos están cifrados E2E.
+              Segura en el cliente — los datos viajan cifrados AES-256 antes de salir del dispositivo.
             </div>
           </div>
           <div class="form-group" style="margin-bottom:8px">
@@ -289,12 +300,24 @@ CREATE POLICY "allow_all" ON sync_data
 
       <div class="card" style="margin-bottom:10px">
         <div class="card-header">
-          <span class="card-title">🔄 Actualizaciones</span>
+          <span class="card-title">⚙️ Apariencia</span>
         </div>
-        <p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">
-          La app detecta automáticamente cuando hay una nueva versión y muestra un aviso. También puedes comprobar manualmente.
-        </p>
-        <button class="btn btn-secondary btn-sm" onclick="Install.manualCheckForUpdates()">🔍 Comprobar actualizaciones</button>
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0">
+          <span style="font-size:13px;font-weight:600">Modo oscuro</span>
+          <button id="themeToggleBtn" class="btn btn-sm btn-secondary" onclick="Categorias._toggleTheme()" style="min-width:80px">
+            ${document.documentElement.getAttribute('data-theme') === 'dark' ? '☀️ Claro' : '🌙 Oscuro'}
+          </button>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border)">
+          <div>
+            <div style="font-size:13px;font-weight:600">PIN de bloqueo</div>
+            <div style="font-size:11px;color:var(--text-secondary)">${Store.getPinCode() ? '🔒 Activado' : 'No configurado'}</div>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-sm btn-secondary" onclick="Categorias._setPin()">✏️ ${Store.getPinCode() ? 'Cambiar' : 'Activar'}</button>
+            ${Store.getPinCode() ? `<button class="btn btn-sm btn-danger" onclick="Categorias._clearPin()">✕</button>` : ''}
+          </div>
+        </div>
       </div>
 
       <div class="card" style="margin-bottom:10px">
@@ -317,6 +340,16 @@ CREATE POLICY "allow_all" ON sync_data
         </div>
       </div>
 
+      <div class="card" style="margin-bottom:10px">
+        <div class="card-header">
+          <span class="card-title">🔄 Actualizaciones</span>
+        </div>
+        <p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">
+          La app detecta automáticamente cuando hay una nueva versión y muestra un aviso. También puedes comprobar manualmente.
+        </p>
+        <button class="btn btn-secondary btn-sm" onclick="Install.manualCheckForUpdates()">🔍 Comprobar actualizaciones</button>
+      </div>
+
       <div class="card" style="margin-bottom:10px;border-color:var(--expense)">
         <div class="card-header">
           <span class="card-title" style="color:var(--expense)">⚠️ Zona de restablecimiento</span>
@@ -333,28 +366,6 @@ CREATE POLICY "allow_all" ON sync_data
         </div>
         <div style="font-size:11px;color:var(--text-secondary);margin-top:8px;line-height:1.5">
           Antes de borrar, te recomendamos exportar a Excel o descargar el backup JSON.
-        </div>
-      </div>
-
-      <div class="card" style="margin-bottom:10px">
-        <div class="card-header">
-          <span class="card-title">⚙️ Apariencia</span>
-        </div>
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0">
-          <span style="font-size:13px;font-weight:600">Modo oscuro</span>
-          <button id="themeToggleBtn" class="btn btn-sm btn-secondary" onclick="Categorias._toggleTheme()" style="min-width:80px">
-            ${document.documentElement.getAttribute('data-theme') === 'dark' ? '☀️ Claro' : '🌙 Oscuro'}
-          </button>
-        </div>
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border)">
-          <div>
-            <div style="font-size:13px;font-weight:600">PIN de bloqueo</div>
-            <div style="font-size:11px;color:var(--text-secondary)">${Store.getPinCode() ? '🔒 Activado' : 'No configurado'}</div>
-          </div>
-          <div style="display:flex;gap:6px">
-            <button class="btn btn-sm btn-secondary" onclick="Categorias._setPin()">✏️ ${Store.getPinCode() ? 'Cambiar' : 'Activar'}</button>
-            ${Store.getPinCode() ? `<button class="btn btn-sm btn-danger" onclick="Categorias._clearPin()">✕</button>` : ''}
-          </div>
         </div>
       </div>
 
