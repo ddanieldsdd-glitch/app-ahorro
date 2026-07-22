@@ -190,22 +190,22 @@ const Dashboard = {
       </div>
 
       ${uncategorized.length > 0 ? `
-      <div style="margin:0 0 12px;padding:10px 14px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;display:flex;align-items:center;gap:10px">
+      <div style="margin:0 0 12px;padding:10px 14px;background:var(--warn-bg);border:1px solid var(--warn-border);border-radius:10px;display:flex;align-items:center;gap:10px">
         <span style="font-size:20px">⚠️</span>
         <div style="flex:1">
-          <div style="font-size:13px;font-weight:700;color:#92400E">${uncategorized.length} categoría${uncategorized.length !== 1 ? 's' : ''} de gasto sin agrupar</div>
-          <div style="font-size:11px;color:#B45309;margin-top:2px">${uncategorized.slice(0,3).map(c => `${c.name} (${c.total.toFixed(0)}€)`).join(' · ')}${uncategorized.length > 3 ? ` · y ${uncategorized.length - 3} más` : ''}. Agrúpalas para mejorar el plan financiero.</div>
+          <div style="font-size:13px;font-weight:700;color:var(--warn-text)">${uncategorized.length} categoría${uncategorized.length !== 1 ? 's' : ''} de gasto sin agrupar</div>
+          <div style="font-size:11px;color:var(--warn-text);margin-top:2px;opacity:.85">${uncategorized.slice(0,3).map(c => `${c.name} (${c.total.toFixed(0)}€)`).join(' · ')}${uncategorized.length > 3 ? ` · y ${uncategorized.length - 3} más` : ''}. Agrúpalas para mejorar el plan financiero.</div>
         </div>
-        <button class="btn btn-sm" style="background:#F59E0B;color:#fff;border:none;border-radius:8px;padding:6px 10px;font-size:11px;font-weight:700;white-space:nowrap;cursor:pointer" onclick="App._switchTab('categorias')">Organizar →</button>
+        <button class="btn btn-sm" style="background:var(--warn);color:#fff;border:none;border-radius:8px;padding:6px 10px;font-size:11px;font-weight:700;white-space:nowrap;cursor:pointer" onclick="App._switchTab('categorias')">Organizar →</button>
       </div>` : ''}
 
       ${sustainability.status !== 'good' ? `
-      <div style="margin:0 0 12px;padding:10px 14px;background:${sustainability.status === 'danger' ? '#FEF2F2' : '#FFFBEB'};border:1px solid ${sustainability.status === 'danger' ? '#FECACA' : '#FDE68A'};border-radius:10px">
+      <div style="margin:0 0 12px;padding:10px 14px;background:${sustainability.status === 'danger' ? 'var(--expense-bg)' : 'var(--warn-bg)'};border:1px solid ${sustainability.status === 'danger' ? 'color-mix(in srgb, var(--expense) 40%, transparent)' : 'var(--warn-border)'};border-radius:10px">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
           <span style="font-size:18px">${sustainability.status === 'danger' ? '🔴' : '🟡'}</span>
-          <span style="font-size:13px;font-weight:700;color:${sustainability.status === 'danger' ? '#991B1B' : '#92400E'}">${sustainability.statusLabel}</span>
+          <span style="font-size:13px;font-weight:700;color:${sustainability.status === 'danger' ? 'var(--expense)' : 'var(--warn-text)'}">${sustainability.statusLabel}</span>
         </div>
-        <div style="font-size:12px;color:${sustainability.status === 'danger' ? '#B91C1C' : '#B45309'}">${sustainability.statusAdvice}</div>
+        <div style="font-size:12px;color:${sustainability.status === 'danger' ? 'var(--expense)' : 'var(--warn-text)'}">${sustainability.statusAdvice}</div>
       </div>` : ''}
 
       ${recommendedWeeklySaving > 0 || imprevistosSavings > 0 ? `

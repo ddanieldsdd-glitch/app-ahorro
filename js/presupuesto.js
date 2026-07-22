@@ -82,13 +82,13 @@ const Presupuesto = {
 
     el.innerHTML = `
       ${uncategorized.length > 0 ? `
-      <div style="margin:0 0 12px;padding:10px 14px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;display:flex;align-items:center;gap:10px">
+      <div style="margin:0 0 12px;padding:10px 14px;background:var(--warn-bg);border:1px solid var(--warn-border);border-radius:10px;display:flex;align-items:center;gap:10px">
         <span style="font-size:20px">⚠️</span>
         <div style="flex:1">
-          <div style="font-size:13px;font-weight:700;color:#92400E">${uncategorized.length} categoría${uncategorized.length !== 1 ? 's' : ''} sin grupo de gasto</div>
-          <div style="font-size:11px;color:#B45309;margin-top:2px">Asigna estas categorías a un grupo para que el plan financiero sea más preciso: ${uncategorized.slice(0,4).map(c => `<strong>${c.name}</strong>`).join(', ')}${uncategorized.length > 4 ? ` y ${uncategorized.length - 4} más` : ''}</div>
+          <div style="font-size:13px;font-weight:700;color:var(--warn-text)">${uncategorized.length} categoría${uncategorized.length !== 1 ? 's' : ''} sin grupo de gasto</div>
+          <div style="font-size:11px;color:var(--warn-text);margin-top:2px;opacity:.85">Asigna estas categorías a un grupo para que el plan financiero sea más preciso: ${uncategorized.slice(0,4).map(c => `<strong>${c.name}</strong>`).join(', ')}${uncategorized.length > 4 ? ` y ${uncategorized.length - 4} más` : ''}</div>
         </div>
-        <button class="btn btn-sm" style="background:#F59E0B;color:#fff;border:none;border-radius:8px;padding:6px 10px;font-size:11px;font-weight:700;white-space:nowrap;cursor:pointer" onclick="App._switchTab('categorias')">Organizar →</button>
+        <button class="btn btn-sm" style="background:var(--warn);color:#fff;border:none;border-radius:8px;padding:6px 10px;font-size:11px;font-weight:700;white-space:nowrap;cursor:pointer" onclick="App._switchTab('categorias')">Organizar →</button>
       </div>` : ''}
 
       <div class="sa-card" style="margin-bottom:12px;background:linear-gradient(135deg,${savingsGuide.color}15,var(--card));border:1px solid ${savingsGuide.color}40">
