@@ -1,4 +1,4 @@
-const APP_BUILD_ID = 'presupuesto-v57';
+const APP_BUILD_ID = 'presupuesto-v59';
 const WINDOWS_EXE_URL = 'https://github.com/ddanieldsdd-glitch/app-ahorro/releases/download/v2.0.4/Presupuesto.Personal.Setup.2.0.4.exe';
 const PWA_INSTALLED_KEY = 'ahorro_pwa_installed';
 

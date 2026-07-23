@@ -1,550 +1,460 @@
+/**
+ * Graficos — Dashboard personalizable de gráficas financieras.
+ */
 const Graficos = {
-  _chart: null,
+  _charts: new Map(),
+  _editMode: false,
+  _dragId: null,
+  _layoutKey: 'ahorro_chart_dashboard',
+  _maxPanels: 6,
+
+  TEMPLATES: [
+    {
+      id: 'cat-doughnut',
+      title: 'Gastos por categoría',
+      icon: '🍩',
+      size: 'half',
+      config: { range: 'month', group: 'category', type: 'doughnut', metrics: ['expense'], cumulative: false, budgetVsActual: false, saldoView: 'none' },
+    },
+    {
+      id: 'income-expense-trend',
+      title: 'Ingresos vs gastos',
+      icon: '📈',
+      size: 'half',
+      config: { range: 'quarter', group: 'week', type: 'area', metrics: ['income', 'expense'], cumulative: false, budgetVsActual: false, saldoView: 'none' },
+    },
+    {
+      id: 'budget-category',
+      title: 'Presupuesto vs real',
+      icon: '🎯',
+      size: 'half',
+      config: { range: 'month', group: 'category', type: 'bar', metrics: ['expense'], cumulative: false, budgetVsActual: true, saldoView: 'none' },
+    },
+    {
+      id: 'saldo-evolution',
+      title: 'Evolución de saldo',
+      icon: '💳',
+      size: 'half',
+      config: { range: 'quarter', group: 'week', type: 'line', metrics: ['balance'], cumulative: false, budgetVsActual: false, saldoView: 'checking' },
+    },
+    {
+      id: 'group-bars',
+      title: 'Gastos por grupo',
+      icon: '📦',
+      size: 'half',
+      config: { range: 'month', group: 'group', type: 'bar', metrics: ['expense'], cumulative: false, budgetVsActual: false, saldoView: 'none' },
+    },
+    {
+      id: 'method-pie',
+      title: 'Métodos de pago',
+      icon: '💳',
+      size: 'half',
+      config: { range: 'month', group: 'method', type: 'pie', metrics: ['expense'], cumulative: false, budgetVsActual: false, saldoView: 'none' },
+    },
+    {
+      id: 'budget-group',
+      title: 'Presupuesto por grupo',
+      icon: '🏷️',
+      size: 'half',
+      config: { range: 'month', group: 'group', type: 'bar', metrics: ['expense'], cumulative: false, budgetVsActual: true, saldoView: 'none' },
+    },
+    {
+      id: 'year-monthly',
+      title: 'Tendencia anual',
+      icon: '📅',
+      size: 'full',
+      config: { range: 'year', group: 'month', type: 'bar', metrics: ['income', 'expense'], cumulative: false, budgetVsActual: false, saldoView: 'none' },
+    },
+  ],
+
+  _defaultLayout() {
+    const ids = ['cat-doughnut', 'income-expense-trend', 'budget-category', 'saldo-evolution'];
+    return {
+      version: 1,
+      panels: ids.map((tid, i) => {
+        const tpl = this.TEMPLATES.find(t => t.id === tid);
+        return {
+          id: 'p_' + tid,
+          templateId: tid,
+          title: tpl.title,
+          order: i,
+          size: tpl.size,
+          visible: true,
+          config: { ...tpl.config },
+        };
+      }),
+    };
+  },
+
+  _loadLayout() {
+    try {
+      const raw = localStorage.getItem(this._layoutKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.version === 1 && Array.isArray(parsed.panels)) return parsed;
+      }
+    } catch { /* ignore */ }
+    return this._defaultLayout();
+  },
+
+  _saveLayout(layout) {
+    localStorage.setItem(this._layoutKey, JSON.stringify(layout));
+  },
+
+  _newPanelId() {
+    return 'p_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  },
 
   render() {
+    this._destroyAllCharts();
     const el = document.getElementById('tab-graficos');
+    if (!el) return;
+
+    const layout = this._loadLayout();
+    const visibleCount = layout.panels.filter(p => p.visible).length;
+    const showBanner = !localStorage.getItem('ahorro_graficos_tutorial_seen');
+
     el.innerHTML = `
+      ${showBanner ? `
+      <div class="gc-welcome-banner" id="gcWelcomeBanner">
+        <div>
+          <strong>📊 Nuevo dashboard de gráficas</strong>
+          <p>Añade, reordena y personaliza cada gráfica. Pulsa <em>Personalizar</em> o el botón ? para aprender.</p>
+        </div>
+        <div class="gc-welcome-actions">
+          <button class="btn btn-primary btn-sm" onclick="GraficosTutorial.open(0);Graficos._dismissWelcome()">Ver tutorial</button>
+          <button class="btn btn-secondary btn-sm" onclick="Graficos._dismissWelcome()">Entendido</button>
+        </div>
+      </div>` : ''}
       <div class="gc-stats" id="gcStats"></div>
-      <div class="card">
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
-          <button class="gc-range active" data-range="month">Este mes</button>
-          <button class="gc-range" data-range="week">Esta semana</button>
-          <button class="gc-range" data-range="quarter">3 meses</button>
-          <button class="gc-range" data-range="year">Este año</button>
-          <button class="gc-range" data-range="all">Todo</button>
-        </div>
-        <div class="chart-controls">
-          <div class="form-group">
-            <label>Agrupar</label>
-            <select id="gcGroup">
-              <option value="day">Día</option>
-              <option value="week">Semana</option>
-              <option value="month">Mes</option>
-              <option value="category">Categoría</option>
-              <option value="group">Grupo</option>
-              <option value="method">Método</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Tipo</label>
-            <select id="gcType">
-              <option value="bar">Barras</option>
-              <option value="line">Línea</option>
-              <option value="area">Área</option>
-              <option value="pie">Circular</option>
-              <option value="doughnut">Anillo</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Saldo en gráfica</label>
-            <select id="gcSaldoView">
-              <option value="none">No mostrar</option>
-              <option value="checking">Cuenta corriente</option>
-              <option value="total_liquid">CC + Ahorro</option>
-              <option value="total_wealth">CC + Ahorro + Efectivo</option>
-            </select>
-          </div>
-          <div class="checkbox-group">
-            <label><input type="checkbox" class="gc-metric" value="income" checked> Ingresos</label>
-            <label><input type="checkbox" class="gc-metric" value="expense" checked> Gastos</label>
-            <label><input type="checkbox" class="gc-metric" value="balance"> Balance</label>
-            <label><input type="checkbox" class="gc-metric" value="savings"> Ahorro</label>
-          </div>
-          <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer">
-            <input type="checkbox" id="gcCumulative"> Acumulado
-          </label>
-          <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer" id="gcBudgetWrap">
-            <input type="checkbox" id="gcBudgetVsActual"> Vs Presupuesto
-          </label>
-        </div>
-        <div class="chart-container" id="gcChartContainer">
-          <canvas id="gcChart"></canvas>
-        </div>
-        <div style="margin-top:8px;font-size:12px;color:var(--text-secondary);text-align:center" id="gcInfo"></div>
+      <div class="gc-toolbar">
+        <button class="btn btn-sm ${this._editMode ? 'btn-primary' : 'btn-secondary'}" id="gcEditBtn" onclick="Graficos._toggleEdit()">
+          ${this._editMode ? '✓ Listo' : '⚙ Personalizar'}
+        </button>
+        <button class="btn btn-secondary btn-sm" onclick="Graficos._openAddPanel()">＋ Añadir gráfica</button>
+        <button class="btn btn-secondary btn-sm" onclick="Graficos._restoreDefault()" title="Restaurar diseño inicial">↺ Restaurar</button>
+        <button class="btn btn-secondary btn-sm gc-help-btn" onclick="GraficosTutorial.open(0)" title="Tutorial de gráficas">?</button>
       </div>
+      <div class="gc-dashboard ${this._editMode ? 'gc-dashboard-edit' : ''}" id="gcDashboard">
+        ${this._renderPanelsHtml(layout)}
+      </div>
+      ${visibleCount === 0 ? '<div class="gc-empty">No hay gráficas visibles. Pulsa <strong>Añadir gráfica</strong> para empezar.</div>' : ''}
     `;
 
-    document.querySelectorAll('.gc-range').forEach(b => b.addEventListener('click', () => {
-      document.querySelectorAll('.gc-range').forEach(x => x.classList.remove('active'));
-      b.classList.add('active');
-      this._updateChart();
-    }));
-    document.getElementById('gcGroup').addEventListener('change', () => this._updateChart());
-    document.getElementById('gcType').addEventListener('change', () => this._updateChart());
-    document.getElementById('gcSaldoView').addEventListener('change', () => this._updateChart());
-    document.querySelectorAll('.gc-metric').forEach(c => c.addEventListener('change', () => this._updateChart()));
-    document.getElementById('gcCumulative').addEventListener('change', () => this._updateChart());
-    document.getElementById('gcBudgetVsActual').addEventListener('change', () => this._updateChart());
-    this._updateChart();
+    this._renderGlobalStats();
+    this._bindDashboardEvents(layout);
+    layout.panels.filter(p => p.visible).sort((a, b) => a.order - b.order).forEach(p => this._renderPanelChart(p));
   },
 
-  _getRange() {
-    const active = document.querySelector('.gc-range.active');
-    const mode = active ? active.dataset.range : 'month';
-    const now = new Date();
-    let end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-    let start;
-    const [vy, vm] = App.getCurrentViewMonth().split('-').map(Number);
-
-    if (mode === 'week') {
-      const dow = now.getDay();
-      const diff = dow === 0 ? -6 : 1 - dow;
-      start = new Date(now); start.setDate(now.getDate() + diff); start.setHours(0,0,0,0);
-    } else if (mode === 'quarter') {
-      start = new Date(now); start.setMonth(start.getMonth() - 3); start.setHours(0,0,0,0);
-    } else if (mode === 'year') {
-      start = new Date(now.getFullYear(), 0, 1);
-    } else if (mode === 'all') {
-      start = new Date(2020, 0, 1);
-    } else {
-      start = new Date(vy, vm - 1, 1);
-      end = new Date(vy, vm, 0, 23, 59, 59, 999);
-    }
-    return { start, end, days: Math.ceil((end - start) / 86400000) };
+  _dismissWelcome() {
+    localStorage.setItem('ahorro_graficos_tutorial_seen', '1');
+    const b = document.getElementById('gcWelcomeBanner');
+    if (b) b.remove();
   },
 
-  _updateChart() {
-    const ctx = document.getElementById('gcChart');
-    if (!ctx) return;
-    if (this._chart) { this._chart.destroy(); this._chart = null; }
-
-    const range = this._getRange();
-    let group = document.getElementById('gcGroup').value;
-    const type = document.getElementById('gcType').value;
-    const cumulative = document.getElementById('gcCumulative').checked;
-    const budgetVsActual = document.getElementById('gcBudgetVsActual').checked;
-    const metrics = [];
-    document.querySelectorAll('.gc-metric:checked').forEach(c => metrics.push(c.value));
-
-    const isPie = type === 'pie' || type === 'doughnut';
-    const isArea = type === 'area';
-    const saldoView = (document.getElementById('gcSaldoView') || {}).value || 'none';
-    document.getElementById('gcChartContainer').className = 'chart-container' + (isPie ? ' pie-chart' : '');
-
-    document.getElementById('gcBudgetWrap').style.display = (group === 'category' || group === 'group') ? '' : 'none';
-
-    const allTx = Store.getTransactions().filter(t => !Store.isAdjustment(t));
-    const filtered = allTx.filter(t => {
-      const d = new Date(t.date + 'T00:00:00');
-      return d >= range.start && d <= range.end;
-    });
-
-    this._renderStats(filtered, range);
-
-    document.getElementById('gcInfo').textContent = `${filtered.length} movimientos · ${range.start.toLocaleDateString()} - ${range.end.toLocaleDateString()}`;
-    if (filtered.length === 0) { ctx.getContext('2d').clearRect(0,0,ctx.width,ctx.height); return; }
-
-    if (range.days > 93 && group === 'day') group = 'week';
-    if (range.days > 365 && group === 'week') group = 'month';
-
-    if (isPie) {
-      this._renderPie(ctx, filtered, type, metrics, group);
-    } else if (budgetVsActual && group === 'category') {
-      this._renderBudgetVsActual(ctx, filtered, range);
-    } else if (budgetVsActual && group === 'group') {
-      this._renderGroupBudgetVsActual(ctx, filtered, range);
-    } else {
-      this._renderBars(ctx, filtered, isArea ? 'line' : type, metrics, group, cumulative, range, isArea, saldoView);
-    }
+  _renderPanelsHtml(layout) {
+    return layout.panels
+      .filter(p => p.visible)
+      .sort((a, b) => a.order - b.order)
+      .map(p => this._panelHtml(p))
+      .join('');
   },
 
-  _renderStats(tx, range) {
+  _panelHtml(panel) {
+    const cfg = panel.config;
+    const isPie = cfg.type === 'pie' || cfg.type === 'doughnut';
+    const metricsHtml = ['income', 'expense', 'balance', 'savings'].map(m => {
+      const labels = { income: 'Ingresos', expense: 'Gastos', balance: 'Balance', savings: 'Ahorro' };
+      const checked = (cfg.metrics || []).includes(m) ? 'checked' : '';
+      return `<label><input type="checkbox" class="gc-panel-metric" data-metric="${m}" ${checked}> ${labels[m]}</label>`;
+    }).join('');
+
+    return `
+      <div class="gc-panel gc-panel-${panel.size}" data-panel-id="${panel.id}" draggable="${this._editMode ? 'true' : 'false'}">
+        <div class="gc-panel-header">
+          ${this._editMode ? '<span class="gc-panel-drag" title="Arrastrar">⠿</span>' : ''}
+          <span class="gc-panel-title">${panel.title}</span>
+          <div class="gc-panel-actions">
+            <button class="gc-panel-btn" title="Configurar" onclick="Graficos._togglePanelConfig('${panel.id}')">⚙</button>
+            ${this._editMode ? `
+              <button class="gc-panel-btn" title="Subir" onclick="Graficos._movePanel('${panel.id}',-1)">↑</button>
+              <button class="gc-panel-btn" title="Bajar" onclick="Graficos._movePanel('${panel.id}',1)">↓</button>
+              <button class="gc-panel-btn" title="Ancho completo" onclick="Graficos._togglePanelSize('${panel.id}')">↔</button>
+              <button class="gc-panel-btn gc-panel-btn-danger" title="Eliminar" onclick="Graficos._removePanel('${panel.id}')">✕</button>
+            ` : ''}
+          </div>
+        </div>
+        <div class="gc-panel-config" id="gcCfg_${panel.id}" style="display:none">
+          <div class="gc-panel-config-row">
+            <label>Rango</label>
+            <select class="gc-cfg-range" data-field="range">
+              <option value="week" ${cfg.range === 'week' ? 'selected' : ''}>Esta semana</option>
+              <option value="month" ${cfg.range === 'month' ? 'selected' : ''}>Este mes</option>
+              <option value="quarter" ${cfg.range === 'quarter' ? 'selected' : ''}>3 meses</option>
+              <option value="year" ${cfg.range === 'year' ? 'selected' : ''}>Este año</option>
+              <option value="all" ${cfg.range === 'all' ? 'selected' : ''}>Todo</option>
+            </select>
+          </div>
+          <div class="gc-panel-config-row">
+            <label>Agrupar</label>
+            <select class="gc-cfg-group" data-field="group">
+              <option value="day" ${cfg.group === 'day' ? 'selected' : ''}>Día</option>
+              <option value="week" ${cfg.group === 'week' ? 'selected' : ''}>Semana</option>
+              <option value="month" ${cfg.group === 'month' ? 'selected' : ''}>Mes</option>
+              <option value="category" ${cfg.group === 'category' ? 'selected' : ''}>Categoría</option>
+              <option value="group" ${cfg.group === 'group' ? 'selected' : ''}>Grupo</option>
+              <option value="method" ${cfg.group === 'method' ? 'selected' : ''}>Método</option>
+            </select>
+          </div>
+          <div class="gc-panel-config-row">
+            <label>Tipo</label>
+            <select class="gc-cfg-type" data-field="type">
+              <option value="bar" ${cfg.type === 'bar' ? 'selected' : ''}>Barras</option>
+              <option value="line" ${cfg.type === 'line' ? 'selected' : ''}>Línea</option>
+              <option value="area" ${cfg.type === 'area' ? 'selected' : ''}>Área</option>
+              <option value="pie" ${cfg.type === 'pie' ? 'selected' : ''}>Circular</option>
+              <option value="doughnut" ${cfg.type === 'doughnut' ? 'selected' : ''}>Anillo</option>
+            </select>
+          </div>
+          <div class="gc-panel-config-row gc-cfg-saldo-row" style="${isPie ? 'display:none' : ''}">
+            <label>Saldo</label>
+            <select class="gc-cfg-saldo" data-field="saldoView">
+              <option value="none" ${cfg.saldoView === 'none' ? 'selected' : ''}>No mostrar</option>
+              <option value="checking" ${cfg.saldoView === 'checking' ? 'selected' : ''}>Cuenta corriente</option>
+              <option value="total_liquid" ${cfg.saldoView === 'total_liquid' ? 'selected' : ''}>CC + Ahorro</option>
+              <option value="total_wealth" ${cfg.saldoView === 'total_wealth' ? 'selected' : ''}>CC + Ahorro + Efectivo</option>
+            </select>
+          </div>
+          <div class="gc-panel-config-row checkbox-group gc-cfg-metrics">${metricsHtml}</div>
+          <div class="gc-panel-config-row gc-cfg-flags">
+            <label><input type="checkbox" class="gc-cfg-cumulative" ${cfg.cumulative ? 'checked' : ''}> Acumulado</label>
+            <label class="gc-cfg-budget-wrap" style="${cfg.group === 'category' || cfg.group === 'group' ? '' : 'display:none'}">
+              <input type="checkbox" class="gc-cfg-budget" ${cfg.budgetVsActual ? 'checked' : ''}> Vs Presupuesto
+            </label>
+          </div>
+        </div>
+        <div class="chart-container gc-panel-chart${isPie ? ' pie-chart' : ''}" id="gcChartWrap_${panel.id}">
+          <canvas id="gcChart_${panel.id}"></canvas>
+        </div>
+        <div class="gc-panel-info" id="gcInfo_${panel.id}"></div>
+      </div>`;
+  },
+
+  _renderGlobalStats() {
     const el = document.getElementById('gcStats');
-    const checkingBalance = Store.getCheckingBalance();
-    const checkingTracked = checkingBalance !== null && checkingBalance !== undefined;
-    const income = checkingTracked ? Store.sumCheckingInflow(tx) : tx.filter(t => t.type === 'Ingreso').reduce((s, t) => s + t.amount, 0);
-    const expense = checkingTracked ? Store.sumCheckingOutflow(tx) : tx.filter(t => Store.isSpendableExpense(t)).reduce((s, t) => s + t.amount, 0);
-    const traspasos = tx.filter(t => Store.isTraspaso(t) && (t.transferType || 'to_savings') === 'to_savings').reduce((s, t) => s + t.amount, 0);
-    const balance = income - expense;
-    const savingsBalance = Store.getSavingsBalance();
-    const cashBalance = Store.getCashBalance();
-    const days = Math.max(1, Math.ceil((range.end - range.start) / 86400000));
+    if (!el) return;
+    const range = ChartEngine.resolveRange('month');
+    const tx = ChartEngine.filterTransactions(range);
+    const s = ChartEngine.computeStats(tx, range);
     el.innerHTML = `
-      <div class="gc-stat-card"><span class="gc-stat-label">Ingresos</span><span class="gc-stat-val income">+${income.toFixed(0)}€</span></div>
-      <div class="gc-stat-card"><span class="gc-stat-label">Gastos</span><span class="gc-stat-val expense">-${expense.toFixed(0)}€</span></div>
-      <div class="gc-stat-card"><span class="gc-stat-label">Balance</span><span class="gc-stat-val" style="color:${balance >= 0 ? 'var(--income)' : 'var(--expense)'}">${balance >= 0 ? '+' : ''}${balance.toFixed(0)}€</span></div>
-      ${checkingBalance !== null ? `<div class="gc-stat-card"><span class="gc-stat-label">💳 Cuenta</span><span class="gc-stat-val" style="color:var(--primary)">${checkingBalance.toFixed(0)}€</span></div>` : ''}
-      <div class="gc-stat-card"><span class="gc-stat-label">🔒 Ahorro</span><span class="gc-stat-val" style="color:var(--primary)">${savingsBalance.toFixed(0)}€</span></div>
-      ${checkingBalance !== null ? `<div class="gc-stat-card"><span class="gc-stat-label">Total disponible</span><span class="gc-stat-val" style="color:#8B5CF6">${(checkingBalance + savingsBalance + cashBalance).toFixed(0)}€</span></div>` : ''}
-      <div class="gc-stat-card"><span class="gc-stat-label">Media/día</span><span class="gc-stat-val">${(expense / days).toFixed(1)}€</span></div>
-      ${traspasos > 0 ? `<div class="gc-stat-card"><span class="gc-stat-label">Traspasos</span><span class="gc-stat-val" style="color:#4F46E5">⇄${traspasos.toFixed(0)}€</span></div>` : ''}
+      <div class="gc-stat-card"><span class="gc-stat-label">Ingresos (mes)</span><span class="gc-stat-val income">+${s.income.toFixed(0)}€</span></div>
+      <div class="gc-stat-card"><span class="gc-stat-label">Gastos (mes)</span><span class="gc-stat-val expense">-${s.expense.toFixed(0)}€</span></div>
+      <div class="gc-stat-card"><span class="gc-stat-label">Balance (mes)</span><span class="gc-stat-val" style="color:${s.balance >= 0 ? 'var(--income)' : 'var(--expense)'}">${s.balance >= 0 ? '+' : ''}${s.balance.toFixed(0)}€</span></div>
+      ${s.checkingBalance !== null ? `<div class="gc-stat-card"><span class="gc-stat-label">💳 Cuenta</span><span class="gc-stat-val" style="color:var(--primary)">${s.checkingBalance.toFixed(0)}€</span></div>` : ''}
+      <div class="gc-stat-card"><span class="gc-stat-label">Media/día</span><span class="gc-stat-val">${(s.expense / s.days).toFixed(1)}€</span></div>
     `;
   },
 
-  _aggregate(tx, group) {
-    const map = {};
-    // Pre-build category → group map for 'group' mode
-    let catToGroup = null;
-    if (group === 'group') {
-      catToGroup = {};
-      Store.getCategoryGroups().forEach(g => {
-        (g.categories || []).forEach(cat => { catToGroup[cat] = (g.emoji ? g.emoji + ' ' : '') + g.name; });
+  _bindDashboardEvents(layout) {
+    const dash = document.getElementById('gcDashboard');
+    if (!dash) return;
+
+    dash.querySelectorAll('.gc-panel').forEach(panelEl => {
+      const panelId = panelEl.dataset.panelId;
+      panelEl.querySelectorAll('select, input').forEach(input => {
+        input.addEventListener('change', () => this._onPanelConfigChange(panelId));
       });
-    }
-    tx.forEach(t => {
-      const isIncome = t.type === 'Ingreso';
-      let key;
-      const d = new Date(t.date + 'T00:00:00');
-      if (group === 'day') key = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
-      else if (group === 'week') {
-        const dow = d.getDay();
-        const mon = new Date(d); mon.setDate(d.getDate() + (dow === 0 ? -6 : 1 - dow));
-        key = `Sem ${String(mon.getDate()).padStart(2,'0')}/${String(mon.getMonth()+1).padStart(2,'0')}`;
-      } else if (group === 'month') key = `${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
-      else if (group === 'category') key = t.category || 'Otros';
-      else if (group === 'group') {
-        const g = Store.getCategoryGroup(t.category);
-        key = g ? ((g.emoji ? g.emoji + ' ' : '') + g.name) : '📦 Sin grupo';
+
+      if (this._editMode) {
+        panelEl.addEventListener('dragstart', (e) => {
+          this._dragId = panelId;
+          panelEl.classList.add('gc-panel-dragging');
+          e.dataTransfer.effectAllowed = 'move';
+        });
+        panelEl.addEventListener('dragend', () => {
+          panelEl.classList.remove('gc-panel-dragging');
+          this._dragId = null;
+        });
+        panelEl.addEventListener('dragover', (e) => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+        });
+        panelEl.addEventListener('drop', (e) => {
+          e.preventDefault();
+          const targetId = panelEl.dataset.panelId;
+          if (this._dragId && this._dragId !== targetId) this._reorderPanels(this._dragId, targetId);
+        });
       }
-      else key = t.paymentMethod || 'Sin método';
-
-      if (!map[key]) map[key] = { income: 0, expense: 0 };
-      if (isIncome) map[key].income += t.amount;
-      else if (Store.isSpendableExpense(t)) map[key].expense += t.amount;
     });
-
-    let labels;
-    if (group === 'day' || group === 'week') {
-      labels = Object.keys(map).sort((a, b) => {
-        const ma = a.startsWith('Sem ') ? a.replace('Sem ','').split('/').reverse().map(Number) : (a.includes('/') ? a.split('/').reverse().map(Number) : [0,0]);
-        const mb = b.startsWith('Sem ') ? b.replace('Sem ','').split('/').reverse().map(Number) : (b.includes('/') ? b.split('/').reverse().map(Number) : [0,0]);
-        return (ma[0]||0) - (mb[0]||0) || (ma[1]||0) - (mb[1]||0);
-      });
-    } else {
-      labels = Object.keys(map).sort((a, b) => a.localeCompare(b));
-    }
-
-    const result = { labels };
-    result.values = {};
-    labels.forEach(l => {
-      result.values[l] = { income: map[l].income, expense: map[l].expense, balance: map[l].income - map[l].expense };
-    });
-    return result;
   },
 
-  _renderBars(ctx, tx, type, metrics, group, cumulative, range, isArea, saldoView) {
-    const data = this._aggregate(tx, group);
-    if (!data.labels.length) return;
-    const colors = {
-      income: { bg: 'rgba(16,185,129,0.6)', border: '#10B981', grad: ['rgba(16,185,129,0.6)','rgba(16,185,129,0.05)'] },
-      expense: { bg: 'rgba(239,68,68,0.6)', border: '#EF4444', grad: ['rgba(239,68,68,0.6)','rgba(239,68,68,0.05)'] },
-      balance: { bg: 'rgba(79,70,229,0.6)', border: '#4F46E5', grad: ['rgba(79,70,229,0.6)','rgba(79,70,229,0.05)'] },
-      savings: { bg: 'rgba(139,92,246,0.6)', border: '#8B5CF6', grad: ['rgba(139,92,246,0.6)','rgba(139,92,246,0.05)'] },
-    };
-    const names = { income: 'Ingresos', expense: 'Gastos', balance: 'Balance', savings: 'Ahorro' };
-    const datasets = [];
+  _onPanelConfigChange(panelId) {
+    const layout = this._loadLayout();
+    const panel = layout.panels.find(p => p.id === panelId);
+    if (!panel) return;
 
-    metrics.forEach(m => {
-      let values = data.labels.map(l => data.values[l][m]);
-      if (cumulative) {
-        let s = 0;
-        values = values.map(v => { s += v; return s; });
-      }
-      const cfg = {
-        label: names[m],
-        data: values,
-        backgroundColor: isArea ? this._gradient(ctx, colors[m].grad) : colors[m].bg,
-        borderColor: colors[m].border,
-        borderWidth: 2,
-        tension: 0.35,
-        fill: isArea,
-        pointRadius: isArea ? 2 : 3,
-        pointHoverRadius: 6,
-      };
-      if (type === 'bar') {
-        cfg.borderRadius = 4;
-        cfg.borderSkipped = false;
-      }
-      datasets.push(cfg);
-    });
+    const panelEl = document.querySelector(`[data-panel-id="${panelId}"]`);
+    if (!panelEl) return;
 
-    // Add running balance dataset(s) if requested
-    if (saldoView && saldoView !== 'none') {
-      const allTx = Store.getTransactions().filter(t => !Store.isAdjustment(t));
-      const checkingNow = Store.getCheckingBalance();
-      if (checkingNow !== null && checkingNow !== undefined) {
-        const runningChecking = this._computeRunningBalance(data, allTx, range);
-        if (runningChecking) {
-          const savingsBalance = Store.getSavingsBalance();
-          const cashBalance = Store.getCashBalance();
-          const saldoColors = {
-            checking: { border: '#0EA5E9', grad: ['rgba(14,165,233,0.5)','rgba(14,165,233,0.05)'] },
-            total_liquid: { border: '#6366F1', grad: ['rgba(99,102,241,0.5)','rgba(99,102,241,0.05)'] },
-            total_wealth: { border: '#8B5CF6', grad: ['rgba(139,92,246,0.5)','rgba(139,92,246,0.05)'] },
-          };
-          const saldoLabels = { checking: '💳 Cuenta corriente', total_liquid: '💳+🔒 CC + Ahorro', total_wealth: '💳+🔒+💵 Total' };
-          const offset = saldoView === 'total_liquid' ? savingsBalance : saldoView === 'total_wealth' ? savingsBalance + cashBalance : 0;
-          const values = runningChecking.map(v => v + offset);
-          const sc = saldoColors[saldoView];
-          datasets.push({
-            label: saldoLabels[saldoView],
-            data: values,
-            backgroundColor: this._gradient(ctx, sc.grad),
-            borderColor: sc.border,
-            borderWidth: 2,
-            tension: 0.4,
-            fill: true,
-            pointRadius: 2,
-            pointHoverRadius: 6,
-            type: 'line',
-            yAxisID: 'ySaldo',
-          });
-        }
-      }
+    panel.config.range = panelEl.querySelector('.gc-cfg-range').value;
+    panel.config.group = panelEl.querySelector('.gc-cfg-group').value;
+    panel.config.type = panelEl.querySelector('.gc-cfg-type').value;
+    panel.config.saldoView = panelEl.querySelector('.gc-cfg-saldo').value;
+    panel.config.cumulative = panelEl.querySelector('.gc-cfg-cumulative').checked;
+    panel.config.budgetVsActual = panelEl.querySelector('.gc-cfg-budget').checked;
+
+    const metrics = [];
+    panelEl.querySelectorAll('.gc-panel-metric:checked').forEach(c => metrics.push(c.dataset.metric));
+    panel.config.metrics = metrics.length ? metrics : ['expense'];
+
+    const isPie = panel.config.type === 'pie' || panel.config.type === 'doughnut';
+    const saldoRow = panelEl.querySelector('.gc-cfg-saldo-row');
+    if (saldoRow) saldoRow.style.display = isPie ? 'none' : '';
+    const budgetWrap = panelEl.querySelector('.gc-cfg-budget-wrap');
+    if (budgetWrap) {
+      budgetWrap.style.display = (panel.config.group === 'category' || panel.config.group === 'group') ? '' : 'none';
+      if (panel.config.group !== 'category' && panel.config.group !== 'group') panel.config.budgetVsActual = false;
     }
 
-    const hasSecondAxis = datasets.some(d => d.yAxisID === 'ySaldo');
-    this._chart = new Chart(ctx, {
-      type,
-      data: { labels: data.labels, datasets },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        animation: { duration: 500, easing: 'easeOutQuart' },
-        interaction: { intersect: false, mode: 'index' },
-        plugins: {
-          legend: { display: true, position: 'top', labels: { usePointStyle: true, padding: 16, font: { size: 12 } } },
-          tooltip: {
-            backgroundColor: 'rgba(30,41,59,0.95)',
-            titleFont: { size: 13, weight: '600' },
-            bodyFont: { size: 12 },
-            padding: 10,
-            cornerRadius: 8,
-            callbacks: {
-              label: (c) => {
-                const val = c.parsed.y;
-                const prefix = val >= 0 ? '' : '';
-                return ` ${c.dataset.label}: ${prefix}${val.toFixed(2)}€`;
-              }
-            }
-          }
-        },
-        scales: {
-          y: { beginAtZero: !cumulative, ticks: { callback: v => v.toFixed(0) + '€', font: { size: 11 } }, grid: { color: 'rgba(0,0,0,0.05)' } },
-          x: { grid: { display: false }, ticks: { font: { size: 10 } } },
-          ...(hasSecondAxis ? {
-            ySaldo: {
-              position: 'right',
-              grid: { display: false },
-              ticks: { callback: v => v.toFixed(0) + '€', font: { size: 10 }, color: '#0EA5E9' },
-            }
-          } : {}),
-        }
-      }
-    });
+    const wrap = document.getElementById('gcChartWrap_' + panelId);
+    if (wrap) wrap.className = 'chart-container gc-panel-chart' + (isPie ? ' pie-chart' : '');
+
+    this._saveLayout(layout);
+    this._renderPanelChart(panel);
   },
 
-  _renderBudgetVsActual(ctx, tx, range) {
-    const limits = Store.getCategoryLimits();
-    const cats = Object.keys(limits);
-    if (cats.length === 0) { ctx.getContext('2d').clearRect(0,0,ctx.width,ctx.height); return; }
+  _renderPanelChart(panel) {
+    const canvas = document.getElementById('gcChart_' + panel.id);
+    const info = document.getElementById('gcInfo_' + panel.id);
+    if (!canvas) return;
 
-    const periodWeeks = Math.max(1, range.days / 7);
-    const spent = {};
-    tx.filter(t => Store.isSpendableExpense(t)).forEach(t => {
-      const cat = t.category || 'Otros';
-      spent[cat] = (spent[cat] || 0) + t.amount;
-    });
+    const prev = this._charts.get(panel.id);
+    ChartEngine.destroyChart(prev);
 
-    const labels = cats.filter(c => limits[c] > 0).sort();
-    if (labels.length === 0) return;
+    const result = ChartEngine.buildChart(canvas, panel.config);
+    this._charts.set(panel.id, result?.chart || null);
 
-    const budgeted = labels.map(c => limits[c] * periodWeeks);
-    const actual = labels.map(c => spent[c] || 0);
-    const palette = ['#10B981','#EF4444','#3B82F6','#F59E0B','#8B5CF6','#EC4899','#06B6D4','#F97316','#14B8A6','#6366F1'];
-
-    this._chart = new Chart(ctx, {
-      type: 'bar',
-      data: {
-        labels,
-        datasets: [
-          {
-            label: 'Presupuestado',
-            data: budgeted,
-            backgroundColor: 'rgba(79,70,229,0.15)',
-            borderColor: '#4F46E5',
-            borderWidth: 2,
-            borderDash: [5,5],
-            borderRadius: 4,
-            borderSkipped: false,
-          },
-          {
-            label: 'Real',
-            data: actual,
-            backgroundColor: labels.map((_, i) => palette[i % palette.length]),
-            borderColor: labels.map((_, i) => palette[i % palette.length]),
-            borderWidth: 1,
-            borderRadius: 4,
-            borderSkipped: false,
-          }
-        ]
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        animation: { duration: 500 },
-        plugins: {
-          legend: { position: 'top', labels: { usePointStyle: true, padding: 16, font: { size: 12 } } },
-          tooltip: {
-            backgroundColor: 'rgba(30,41,59,0.95)',
-            padding: 10,
-            cornerRadius: 8,
-            callbacks: {
-              label: (c) => {
-                const budgetVal = budgeted[c.dataIndex];
-                const actualVal = actual[c.dataIndex];
-                const diff = budgetVal - actualVal;
-                const extra = diff >= 0 ? ` (${diff.toFixed(1)}€ bajo presupuesto)` : ` (${Math.abs(diff).toFixed(1)}€ sobre presupuesto)`;
-                return ` ${c.dataset.label}: ${c.parsed.y.toFixed(2)}€${c.datasetIndex === 1 ? extra : ''}`;
-              }
-            }
-          }
-        },
-        scales: {
-          y: { beginAtZero: true, ticks: { callback: v => v.toFixed(0) + '€', font: { size: 11 } } },
-          x: { grid: { display: false }, ticks: { font: { size: 10 } } }
-        }
-      }
-    });
-  },
-
-  _renderPie(ctx, tx, type, metrics, group) {
-    const data = this._aggregate(tx, group);
-    if (!data.labels.length) return;
-    const palette = ['#4F46E5','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#06B6D4','#F97316','#14B8A6','#6366F1'];
-    const names = { income: 'Ingreso', expense: 'Gasto', balance: 'Balance', savings: 'Ahorro' };
-    const labels = []; const values = []; const bgColors = []; let ci = 0;
-
-    metrics.forEach(m => {
-      data.labels.forEach(l => {
-        const v = data.values[l][m];
-        if (v > 0) {
-          labels.push(`${names[m]}: ${l}`);
-          values.push(v);
-          bgColors.push(palette[ci++ % palette.length]);
-        }
-      });
-    });
-
-    if (values.length === 0) { ctx.getContext('2d').clearRect(0,0,ctx.width,ctx.height); return; }
-    const total = values.reduce((s, v) => s + v, 0);
-    const displayTotal = total.toFixed(0) + '€';
-
-    this._chart = new Chart(ctx, {
-      type,
-      data: { labels, datasets: [{ data: values, backgroundColor: bgColors, borderColor: '#fff', borderWidth: 2, hoverOffset: 8 }] },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        animation: { animateRotate: true, duration: 600 },
-        cutout: type === 'doughnut' ? '55%' : 0,
-        plugins: {
-          legend: { display: true, position: 'right', labels: { usePointStyle: true, padding: 12, font: { size: 11 } } },
-          tooltip: {
-            backgroundColor: 'rgba(30,41,59,0.95)',
-            padding: 10,
-            cornerRadius: 8,
-            callbacks: {
-              label: (c) => {
-                const pct = ((c.parsed / total) * 100).toFixed(1);
-                return ` ${c.label}: ${c.parsed.toFixed(2)}€ (${pct}%)`;
-              }
-            }
-          }
-        }
-      }
-    });
-  },
-
-  _renderGroupBudgetVsActual(ctx, tx, range) {
-    const groups = Store.getCategoryGroups();
-    if (!groups.length) { ctx.getContext('2d').clearRect(0,0,ctx.width,ctx.height); return; }
-    const periodMonths = Math.max(1, range.days / 30);
-    // Build category → group mapping
-    const catToGroup = {};
-    groups.forEach(g => { (g.categories || []).forEach(cat => { catToGroup[cat] = g; }); });
-    // Aggregate actual spend per group
-    const spent = {};
-    tx.filter(t => Store.isSpendableExpense(t)).forEach(t => {
-      const g = Store.getCategoryGroup(t.category);
-      const key = g ? ((g.emoji ? g.emoji + ' ' : '') + g.name) : '📦 Sin grupo';
-      spent[key] = (spent[key] || 0) + t.amount;
-    });
-    // Build labels from groups with monthlyBudget or actual spend
-    const labels = [];
-    const budgeted = [];
-    const actual = [];
-    groups.filter(g => g.monthlyBudget > 0 || spent[(g.emoji ? g.emoji + ' ' : '') + g.name] > 0).forEach(g => {
-      const key = (g.emoji ? g.emoji + ' ' : '') + g.name;
-      labels.push(key);
-      budgeted.push((g.monthlyBudget || 0) * periodMonths);
-      actual.push(spent[key] || 0);
-    });
-    if (!labels.length) { ctx.getContext('2d').clearRect(0,0,ctx.width,ctx.height); return; }
-    const palette = ['#10B981','#EF4444','#3B82F6','#F59E0B','#8B5CF6','#EC4899','#06B6D4','#F97316','#14B8A6','#6366F1'];
-    this._chart = new Chart(ctx, {
-      type: 'bar',
-      data: {
-        labels,
-        datasets: [
-          { label: 'Presupuestado', data: budgeted, backgroundColor: 'rgba(79,70,229,0.15)', borderColor: '#4F46E5', borderWidth: 2, borderRadius: 4, borderSkipped: false },
-          { label: 'Real', data: actual, backgroundColor: labels.map((_, i) => palette[i % palette.length]), borderColor: labels.map((_, i) => palette[i % palette.length]), borderWidth: 1, borderRadius: 4, borderSkipped: false }
-        ]
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false, animation: { duration: 500 },
-        plugins: {
-          legend: { position: 'top', labels: { usePointStyle: true, padding: 16, font: { size: 12 } } },
-          tooltip: {
-            backgroundColor: 'rgba(30,41,59,0.95)', padding: 10, cornerRadius: 8,
-            callbacks: {
-              label: (c) => {
-                const diff = budgeted[c.dataIndex] - actual[c.dataIndex];
-                const extra = diff >= 0 ? ` (${diff.toFixed(1)}€ bajo presupuesto)` : ` (${Math.abs(diff).toFixed(1)}€ sobre presupuesto)`;
-                return ` ${c.dataset.label}: ${c.parsed.y.toFixed(2)}€${c.datasetIndex === 1 ? extra : ''}`;
-              }
-            }
-          }
-        },
-        scales: {
-          y: { beginAtZero: true, ticks: { callback: v => v.toFixed(0) + '€', font: { size: 11 } } },
-          x: { grid: { display: false }, ticks: { font: { size: 10 } } }
-        }
-      }
-    });
-  },
-
-  _computeRunningBalance(data, allTx, range) {
-    const checkingNow = Store.getCheckingBalance();
-    if (checkingNow === null || checkingNow === undefined) return null;
-
-    // Compute balance at end of range by undoing transactions that occurred after range.end
-    const txAfterRange = allTx.filter(t => {
-      const d = new Date(t.date + 'T00:00:00');
-      return d > range.end;
-    });
-    let balanceAtRangeEnd = checkingNow;
-    txAfterRange.forEach(t => {
-      if (t.type === 'Ingreso') balanceAtRangeEnd -= t.amount;
-      else if (Store.isSpendableExpense(t)) balanceAtRangeEnd += t.amount;
-    });
-
-    // Work backwards through periods to compute end-of-period balance for each label
-    const labels = data.labels;
-    const balances = new Array(labels.length);
-    balances[labels.length - 1] = balanceAtRangeEnd;
-    for (let i = labels.length - 2; i >= 0; i--) {
-      const nextLabel = labels[i + 1];
-      const delta = data.values[nextLabel].income - data.values[nextLabel].expense;
-      balances[i] = balances[i + 1] - delta;
+    if (info && result) {
+      const rangeLabel = { week: 'Semana', month: 'Mes', quarter: '3 meses', year: 'Año', all: 'Todo' }[panel.config.range] || panel.config.range;
+      info.textContent = `${result.count} movimientos · ${rangeLabel} · ${result.range.start.toLocaleDateString()} - ${result.range.end.toLocaleDateString()}`;
     }
-    return balances;
   },
 
-  _gradient(ctx, colors) {
-    if (!ctx || !ctx.getContext) return colors[0];
-    const c = ctx.getContext('2d');
-    const { width, height } = c.canvas;
-    const g = c.createLinearGradient(0, 0, 0, height);
-    g.addColorStop(0, colors[0]);
-    g.addColorStop(1, colors[1]);
-    return g;
+  _toggleEdit() {
+    this._editMode = !this._editMode;
+    this.render();
+  },
+
+  _togglePanelConfig(panelId) {
+    const el = document.getElementById('gcCfg_' + panelId);
+    if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+  },
+
+  _togglePanelSize(panelId) {
+    const layout = this._loadLayout();
+    const panel = layout.panels.find(p => p.id === panelId);
+    if (!panel) return;
+    panel.size = panel.size === 'full' ? 'half' : 'full';
+    this._saveLayout(layout);
+    this.render();
+  },
+
+  _movePanel(panelId, dir) {
+    const layout = this._loadLayout();
+    const visible = layout.panels.filter(p => p.visible).sort((a, b) => a.order - b.order);
+    const idx = visible.findIndex(p => p.id === panelId);
+    const newIdx = idx + dir;
+    if (idx < 0 || newIdx < 0 || newIdx >= visible.length) return;
+    const a = visible[idx];
+    const b = visible[newIdx];
+    const tmp = a.order;
+    a.order = b.order;
+    b.order = tmp;
+    this._saveLayout(layout);
+    this.render();
+  },
+
+  _reorderPanels(fromId, toId) {
+    const layout = this._loadLayout();
+    const visible = layout.panels.filter(p => p.visible).sort((a, b) => a.order - b.order);
+    const fromIdx = visible.findIndex(p => p.id === fromId);
+    const toIdx = visible.findIndex(p => p.id === toId);
+    if (fromIdx < 0 || toIdx < 0) return;
+    const [moved] = visible.splice(fromIdx, 1);
+    visible.splice(toIdx, 0, moved);
+    visible.forEach((p, i) => { p.order = i; });
+    this._saveLayout(layout);
+    this.render();
+  },
+
+  _removePanel(panelId) {
+    const layout = this._loadLayout();
+    const panel = layout.panels.find(p => p.id === panelId);
+    if (!panel) return;
+    panel.visible = false;
+    this._saveLayout(layout);
+    this.render();
+  },
+
+  _restoreDefault() {
+    if (!confirm('¿Restaurar el diseño inicial del dashboard? Se perderá tu layout personalizado.')) return;
+    localStorage.removeItem(this._layoutKey);
+    this._editMode = false;
+    this.render();
+    App.showToast('Dashboard restaurado');
+  },
+
+  _openAddPanel() {
+    const layout = this._loadLayout();
+    const visibleCount = layout.panels.filter(p => p.visible).length;
+    if (visibleCount >= this._maxPanels) {
+      App.showToast(`Máximo ${this._maxPanels} gráficas visibles`);
+      return;
+    }
+
+    const items = this.TEMPLATES.map(t => `
+      <button class="gc-template-btn" onclick="Graficos._addFromTemplate('${t.id}')">
+        <span class="gc-template-icon">${t.icon}</span>
+        <span class="gc-template-title">${t.title}</span>
+      </button>
+    `).join('');
+
+    App.openModal({
+      title: '＋ Añadir gráfica',
+      body: `<div class="gc-template-grid">${items}</div>`,
+      actions: [{ label: 'Cancelar' }],
+    });
+  },
+
+  _addFromTemplate(templateId) {
+    App._closeModal();
+    const layout = this._loadLayout();
+    const visibleCount = layout.panels.filter(p => p.visible).length;
+    if (visibleCount >= this._maxPanels) {
+      App.showToast(`Máximo ${this._maxPanels} gráficas visibles`);
+      return;
+    }
+
+    const tpl = this.TEMPLATES.find(t => t.id === templateId);
+    if (!tpl) return;
+
+    const maxOrder = layout.panels.reduce((m, p) => Math.max(m, p.order), -1);
+    layout.panels.push({
+      id: this._newPanelId(),
+      templateId: tpl.id,
+      title: tpl.title,
+      order: maxOrder + 1,
+      size: tpl.size,
+      visible: true,
+      config: { ...tpl.config },
+    });
+    this._saveLayout(layout);
+    this.render();
+    App.showToast(`Gráfica "${tpl.title}" añadida`);
+  },
+
+  _destroyAllCharts() {
+    this._charts.forEach(c => ChartEngine.destroyChart(c));
+    this._charts.clear();
   },
 };

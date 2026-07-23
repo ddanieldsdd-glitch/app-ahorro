@@ -709,17 +709,17 @@ const BudgetEngine = {
       .sort((a, b) => b.spent - a.spent);
 
     const byCategory = Object.entries(byCatMap)
+      .filter(([name]) => !Store.getCategoryGroup(name))
       .map(([name, spent]) => {
         const limit = limits[name] || 0;
         const budget = isWeek ? limit : limit * 4.33;
-        const grp = Store.getCategoryGroup(name);
         return {
           name,
           spent,
           budget,
           weeklyLimit: limit,
-          inGroup: !!grp,
-          groupName: grp?.name || null,
+          inGroup: false,
+          groupName: null,
           isFood: Store.isFoodCategory(name),
           priority: Store.getCategoryPriority(name),
           pct: budget > 0 ? (spent / budget) * 100 : 0,
@@ -939,9 +939,9 @@ const BudgetEngine = {
       }
     }
 
-    // ── Weekly category limits ────────────────────────────────────────────
+    // ── Weekly category limits (solo categorías sueltas, sin grupo) ─────────
     const weekExpenses = this.getWeekSpendableExpenses();
-    const limits = Store.getCategoryLimits();
+    const limits = Store.getUngroupedCategoryLimits();
     for (const [cat, limit] of Object.entries(limits)) {
       if (!(limit > 0)) continue;
       const spent = weekExpenses.filter(t => Store._categoryKeysMatch(t.category, cat)).reduce((s, t) => s + t.amount, 0);
@@ -1130,29 +1130,34 @@ const BudgetEngine = {
    * Usa la semana actual como periodo (igual que el plan).
    */
   checkCategoryLimit(category, newAmount) {
-    const limits = Store.getCategoryLimits();
+    const group = Store.getCategoryGroup(category);
     const weekExpenses = this.getWeekSpendableExpenses();
 
-    // Check individual category limit
+    if (group && group.monthlyBudget > 0) {
+      const groupWeekLimit = group.monthlyBudget / 4.33;
+      const groupSpent = weekExpenses.filter(t => Store.txInCategoryGroup(t, group)).reduce((s, t) => s + t.amount, 0);
+      const projected = groupSpent + (newAmount || 0);
+      const pct = (projected / groupWeekLimit) * 100;
+      const level = pct >= 100 ? 'danger' : pct >= 80 ? 'warning' : pct >= 50 ? 'caution' : 'good';
+      return {
+        limit: groupWeekLimit,
+        alreadySpent: groupSpent,
+        projected,
+        pct,
+        level,
+        groupInfo: { groupName: group.name, groupTotal: groupSpent },
+        isGroup: true,
+      };
+    }
+
+    const limits = Store.getUngroupedCategoryLimits();
     const catLimit = limits[category];
+    if (!(catLimit > 0)) return null;
+
     const catSpent = weekExpenses.filter(t => Store._categoryKeysMatch(t.category, category)).reduce((s, t) => s + t.amount, 0);
-
-    const group = Store.getCategoryGroup(category);
-    const groupWeekLimit = group && group.monthlyBudget > 0 ? group.monthlyBudget / 4.33 : null;
-    const groupSpent = group
-      ? weekExpenses.filter(t => Store.txInCategoryGroup(t, group)).reduce((s, t) => s + t.amount, 0)
-      : 0;
-
-    if (!catLimit && !groupWeekLimit) return null;
-
-    // Use category limit if set, otherwise group weekly limit
-    const limit = catLimit > 0 ? catLimit : groupWeekLimit;
-    const alreadySpent = catLimit > 0 ? catSpent : groupSpent;
-    const groupInfo = !catLimit && group ? { groupName: group.name, groupTotal: groupSpent } : null;
-
-    const projected = alreadySpent + (newAmount || 0);
-    const pct = (projected / limit) * 100;
+    const projected = catSpent + (newAmount || 0);
+    const pct = (projected / catLimit) * 100;
     const level = pct >= 100 ? 'danger' : pct >= 80 ? 'warning' : pct >= 50 ? 'caution' : 'good';
-    return { limit, alreadySpent, projected, pct, level, groupInfo };
+    return { limit: catLimit, alreadySpent: catSpent, projected, pct, level, groupInfo: null, isGroup: false };
   },
 };

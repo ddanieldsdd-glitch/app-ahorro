@@ -231,7 +231,10 @@ const MovementForm = {
       hint.style.background = isOver ? '#FEE2E2' : '#FFFBEB';
       hint.style.color = isOver ? '#991B1B' : '#B45309';
       const icon = isOver ? '🔴' : result.level === 'warning' ? '🟡' : '⚠️';
-      hint.textContent = `${icon} ${isOver ? 'Superarás' : 'Te acercas al'} límite semanal de ${category} (${result.limit.toFixed(0)} €/sem). Gastado: ${result.alreadySpent.toFixed(2)} € → Proyección: ${result.projected.toFixed(2)} €`;
+      const label = result.isGroup && result.groupInfo
+        ? `presupuesto del grupo ${result.groupInfo.groupName}`
+        : `límite semanal de ${category}`;
+      hint.textContent = `${icon} ${isOver ? 'Superarás' : 'Te acercas al'} ${label} (${result.limit.toFixed(0)} €/sem). Gastado: ${result.alreadySpent.toFixed(2)} € → Proyección: ${result.projected.toFixed(2)} €`;
       return;
     }
     hint.style.display = 'none';

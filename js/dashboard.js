@@ -46,11 +46,12 @@ const Dashboard = {
       ? Math.min(100, (b.weekDiscSpent / b.discretionaryBudget) * 100)
       : 0;
 
-    const limits = Store.getCategoryLimits();
+    const ungroupedLimits = Store.getUngroupedCategoryLimits();
     const weekExpenses = BudgetEngine.getWeekSpendableExpenses();
-    const catsWithLimits = Object.keys(limits).filter(c => limits[c] > 0);
     const categoryGroups = Store.getCategoryGroups();
-    const nonFoodGroupsWithBudget = categoryGroups.filter(g => !g.isFoodGroup && g.monthlyBudget > 0);
+    const budgetGroups = categoryGroups.filter(g => !g.isFoodGroup && g.monthlyBudget > 0);
+    const ungroupedLimitCats = Object.keys(ungroupedLimits).filter(c => ungroupedLimits[c] > 0);
+    const hasBudgetTracking = budgetGroups.length > 0 || ungroupedLimitCats.length > 0;
     const plannedExpenses = Store.getPlannedExpenses();
     const owedToMe  = Store.getPendingOwedToMe();
     const iOwe      = Store.getPendingIOwe();
@@ -278,10 +279,10 @@ const Dashboard = {
           <div class="dh-alloc-item"><span>🎯 Ahorro</span><span class="dh-alloc-val">${recommendedWeeklySaving.toFixed(2)} €/sem</span></div>
           <div class="dh-alloc-item dh-alloc-item-total"><span>💰 Disponible tras ahorro</span><span class="dh-alloc-val" style="color:${adjustedDaily > 0 ? 'var(--income)' : 'var(--expense)'}">${Math.max(0, adjustedRemaining).toFixed(2)} €</span></div>
         </div>
-        ${nonFoodGroupsWithBudget.length > 0 ? `
+        ${hasBudgetTracking ? `
         <div style="margin-top:12px">
-          <div style="font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.3px;margin-bottom:6px">📂 Por grupo esta semana</div>
-          ${nonFoodGroupsWithBudget.map(g => {
+          <div style="font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.3px;margin-bottom:6px">📊 Presupuesto esta semana</div>
+          ${budgetGroups.map(g => {
             const weeklyLimit = g.monthlyBudget / 4.33;
             const spent = weekExpenses.filter(t => Store.txInCategoryGroup(t, g)).reduce((s, t) => s + t.amount, 0);
             const pct = weeklyLimit > 0 ? Math.min(100, (spent / weeklyLimit) * 100) : 0;
@@ -289,26 +290,22 @@ const Dashboard = {
             const barColor = pct >= 100 ? 'var(--expense)' : pct >= 80 ? '#F97316' : pct >= 50 ? '#F59E0B' : 'var(--income)';
             const groupEmoji = g.emoji ? `${g.emoji} ` : '';
             return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-              <span style="min-width:80px;font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${groupEmoji}${esc(g.name)}</span>
+              <span style="min-width:80px;font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(g.name)}">${groupEmoji}${esc(g.name)}</span>
               <div style="flex:1;height:6px;background:var(--bg);border-radius:3px;overflow:hidden">
                 <div style="width:${pct}%;height:100%;background:${barColor};border-radius:3px;transition:width .3s"></div>
               </div>
               <span style="min-width:65px;text-align:right;font-size:11px;font-weight:600;color:${remain >= 0 ? 'var(--text-secondary)' : 'var(--expense)'}">${remain >= 0 ? remain.toFixed(0) + '€' : Math.abs(remain).toFixed(0) + '€ +'}</span>
             </div>`;
           }).join('')}
-        </div>` : ''}
-        ${catsWithLimits.length > 0 ? `
-        <div style="margin-top:12px">
-          <div style="font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.3px;margin-bottom:6px">🏷️ Por categoría esta semana</div>
-          ${catsWithLimits.map(cat => {
-            const limit = limits[cat];
+          ${ungroupedLimitCats.map(cat => {
+            const limit = ungroupedLimits[cat];
             const spent = weekExpenses.filter(t => Store._categoryKeysMatch(t.category, cat)).reduce((s, t) => s + t.amount, 0);
             const pct = limit > 0 ? Math.min(100, (spent / limit) * 100) : 0;
             const remain = limit - spent;
             const level = pct >= 100 ? 'danger' : pct >= 80 ? 'warning' : pct >= 50 ? 'caution' : 'good';
             const barColor = { good: 'var(--income)', caution: '#F59E0B', warning: '#F97316', danger: 'var(--expense)' }[level];
             return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-              <span style="min-width:70px;font-size:12px;font-weight:600">${cat}</span>
+              <span style="min-width:70px;font-size:12px;font-weight:600">${esc(cat)}</span>
               <div style="flex:1;height:6px;background:var(--bg);border-radius:3px;overflow:hidden">
                 <div style="width:${pct}%;height:100%;background:${barColor};border-radius:3px;transition:width .3s"></div>
               </div>

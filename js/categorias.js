@@ -74,6 +74,7 @@ const Categorias = {
           Repasa cómo usar la app, configurar la sincronización en la nube e instalarla en todos tus dispositivos.
         </p>
         <button class="btn btn-primary btn-sm" onclick="Tutorial.open(0)">▶ Ver tutorial</button>
+        <button class="btn btn-secondary btn-sm" style="margin-left:8px" onclick="GraficosTutorial.open(0)">📊 Tutorial de gráficos</button>
       </div>
 
       <div class="card" style="margin-bottom:10px">
@@ -591,8 +592,8 @@ END $$;</code>
           <span class="card-title">🎯 Prioridad de gastos</span>
         </div>
         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">
-          Elige si cada gasto se gestiona por <strong>grupo</strong> o por <strong>categoría</strong> (puedes mezclar ambos).
-          Lo ideal es que <strong>todas las categorías de gasto</strong> estén cubiertas en la lista.
+          Presupuesto unificado: cada categoría va en un <strong>grupo (mensual)</strong> o con <strong>límite semanal propio</strong> — no en ambos.
+          Lo ideal es que todas las categorías de gasto estén cubiertas.
         </p>
         <div class="prio-legend">
           <span class="prio-pill" style="--prio:#059669">1 Esencial</span>
@@ -610,8 +611,9 @@ END $$;</code>
           <button class="btn btn-primary btn-sm" onclick="Categorias._addCategoryGroup()">+ Nuevo grupo</button>
         </div>
         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">
-          Agrupa categorías para asignarles un presupuesto mensual y un <strong>emoticono propio</strong> (pulsa el icono del grupo).
-          Los grupos con <strong>Plan comida</strong> activado se deducen del presupuesto semanal como gasto obligatorio y mejoran el cálculo de "HOY PUEDES GASTAR".
+          Agrupa categorías con presupuesto <strong>mensual</strong> (seguimiento semanal automático).
+          Si una categoría está aquí, no puede tener límite semanal aparte.
+          Los grupos con <strong>Plan comida</strong> se deducen del plan semanal como gasto obligatorio.
         </p>
         <div id="categoryGroupsList"></div>
       </div>

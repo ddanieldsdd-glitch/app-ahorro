@@ -1363,6 +1363,7 @@ const Store = {
     this._ensureFoodCategoriesSynced({ save: false });
     this._reconcileIncomeGroupsFromData();
     this._normalizeCategoryLimitsKeys();
+    if (this._enforceBudgetExclusivity()) this._save();
     this._ensureTransactionMonths();
     this._syncFoodCategoriesFromGroups();
     this._syncPlanFields();
@@ -1678,6 +1679,35 @@ const Store = {
 
   getData() { return this._data; },
   getTransactions() { return this._data.transactions; },
+
+  /** Transacciones activas + archivadas en un rango de fechas (para gráficos e informes). */
+  getTransactionsForRange(start, end) {
+    const seen = new Set();
+    const result = [];
+    const inRange = (t) => {
+      const d = new Date(t.date + 'T00:00:00');
+      return d >= start && d <= end;
+    };
+    const push = (t) => {
+      if (this.isAdjustment(t)) return;
+      const id = t.id || `${t.date}|${t.amount}|${t.category}|${t.type}`;
+      if (seen.has(id)) return;
+      if (inRange(t)) {
+        seen.add(id);
+        result.push(t);
+      }
+    };
+    Object.keys(this._data.archives || {}).forEach(month => {
+      const [y, m] = month.split('-').map(Number);
+      const monthStart = new Date(y, m - 1, 1);
+      const monthEnd = new Date(y, m, 0, 23, 59, 59, 999);
+      if (monthEnd < start || monthStart > end) return;
+      (this._data.archives[month] || []).forEach(push);
+    });
+    (this._data.transactions || []).forEach(push);
+    return result;
+  },
+
   getCurrentMonth() { return this._data.currentMonth; },
 
   setCurrentMonth(month) { this._data.currentMonth = month; this._save(); },
@@ -2365,7 +2395,53 @@ const Store = {
   },
 
   getCategoryLimits() { return this._data.budgetConfig?.categoryLimits ?? {}; },
-  setCategoryLimit(cat, amount) { this._data.budgetConfig.categoryLimits[cat] = amount; this._save(); },
+
+  /** Límites semanales solo de categorías que NO están en un grupo. */
+  getUngroupedCategoryLimits() {
+    const limits = this.getCategoryLimits();
+    const out = {};
+    for (const [cat, amt] of Object.entries(limits)) {
+      if (amt > 0 && !this.getCategoryGroup(cat)) out[cat] = amt;
+    }
+    return out;
+  },
+
+  /**
+   * Elimina límites semanales de categorías que pertenecen a un grupo
+   * (presupuesto unificado: grupo mensual XOR límite semanal por categoría).
+   */
+  _enforceBudgetExclusivity() {
+    const limits = this._data.budgetConfig?.categoryLimits;
+    if (!limits) return false;
+    let changed = false;
+    for (const cat of Object.keys(limits)) {
+      if (this.getCategoryGroup(cat)) {
+        delete limits[cat];
+        changed = true;
+      }
+    }
+    return changed;
+  },
+
+  /** Suma semanal de presupuestos de seguimiento (grupos no-comida + límites sueltos). */
+  getTrackingBudgetWeeklyTotal() {
+    let total = 0;
+    for (const g of this.getCategoryGroups()) {
+      if (g.isFoodGroup || !(g.monthlyBudget > 0)) continue;
+      total += g.monthlyBudget / 4.33;
+    }
+    for (const amt of Object.values(this.getUngroupedCategoryLimits())) {
+      total += amt;
+    }
+    return total;
+  },
+
+  setCategoryLimit(cat, amount) {
+    if (this.getCategoryGroup(cat)) return false;
+    this._data.budgetConfig.categoryLimits[cat] = amount;
+    this._save();
+    return true;
+  },
   removeCategoryLimit(cat) { delete this._data.budgetConfig.categoryLimits[cat]; this._save(); },
 
   /** Normaliza nombre de categoría para comparar variantes (Comida fuera / comida fuera). */
@@ -2611,7 +2687,14 @@ const Store = {
     const g = (this._data.categoryGroups || []).find(x => x.id === id);
     if (!g) return;
     if (updates.name !== undefined) g.name = updates.name.trim();
-    if (updates.categories !== undefined) g.categories = [...new Set(updates.categories)];
+    if (updates.categories !== undefined) {
+      g.categories = [...new Set(updates.categories)];
+      for (const cat of g.categories) {
+        if (this._data.budgetConfig?.categoryLimits?.[cat] !== undefined) {
+          delete this._data.budgetConfig.categoryLimits[cat];
+        }
+      }
+    }
     if (updates.monthlyBudget !== undefined) g.monthlyBudget = updates.monthlyBudget;
     if (updates.isFoodGroup !== undefined) g.isFoodGroup = updates.isFoodGroup;
     if (updates.color !== undefined) g.color = updates.color;
@@ -2820,18 +2903,18 @@ const Store = {
       priority: this.getExpensePriority('__imprevistos__', 2),
       removable: false,
     });
-    const limits = this.getCategoryLimits();
+    const limits = this.getUngroupedCategoryLimits();
     for (const cat of inc.categories) {
       if (!(this._data.categories || []).includes(cat)) continue;
+      if (this.getCategoryGroup(cat)) continue;
       const hasLimit = (limits[cat] || 0) > 0;
-      const inGroup = this.getCategoryGroup(cat);
       items.push({
         key: 'cat:' + cat,
         kind: 'category',
         id: cat,
         name: cat,
         emoji: this.getCatalogDisplayEmoji('category', cat),
-        hint: `${hasLimit ? `Límite ${limits[cat].toFixed(0)}€/sem` : 'Sin límite semanal'}${inGroup ? ` · también en grupo ${inGroup.name}` : ''}`,
+        hint: hasLimit ? `Límite ${limits[cat].toFixed(0)}€/sem` : 'Sin límite · categoría suelta',
         priority: this.getExpensePriority('cat:' + cat, 3),
         removable: true,
       });

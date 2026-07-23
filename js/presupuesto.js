@@ -280,30 +280,7 @@ const Presupuesto = {
       ${this._renderLearnedBudget(learnedBudget)}
       ${this._renderPriorityRecommendations()}
 
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title">🏷️ Límites semanales</span>
-          <span style="font-size:11px;color:var(--text-secondary)">Por categoría</span>
-        </div>
-        ${Object.keys(limits).length > 0 ? (() => {
-          const totalLimits = Object.values(limits).reduce((s, v) => s + v, 0);
-          const exceeds = totalLimits > Math.max(0, available);
-          return `<div style="display:flex;justify-content:space-between;font-size:12px;padding:8px 0;border-bottom:1px solid var(--border);margin-bottom:6px">
-            <span>📊 Total límites: <strong>${totalLimits.toFixed(0)} €/sem</strong></span>
-            <span>💸 Disponible plan: <strong style="color:var(--primary)">${Math.max(0, available).toFixed(2)} €/sem</strong></span>
-            <span style="color:${exceeds ? 'var(--expense)' : 'var(--income)'}">${exceeds ? `🔴 Excede en ${(totalLimits - available).toFixed(2)}€` : '✅ En plan'}</span>
-          </div>`;
-        })() : ''}
-        <div id="categoryLimitsList">${this._renderCategoryLimits(categories, limits, weekExpenses)}</div>
-        <div class="add-cat-form" style="margin-top:10px">
-          <select id="newLimitCategory" style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)">
-            ${categories.filter(c => !limits[c]).map(c => `<option value="${c}">${c}</option>`).join('')}
-          </select>
-          <input type="number" id="newLimitAmount" placeholder="€" step="1" style="width:70px;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)">
-          <button class="btn btn-primary" onclick="Presupuesto._addLimit()">+</button>
-        </div>
-        <div id="budgetLimitHint" style="display:none;margin-top:6px;padding:6px 8px;border-radius:4px;font-size:12px;text-align:center;font-weight:600"></div>
-      </div>
+      ${this._renderUnifiedBudgetTracking(categoryGroups, limits, weekExpenses, categories, available)}
 
       ${this._renderMonthVariance()}
 
@@ -380,39 +357,6 @@ const Presupuesto = {
         </div>
       </div>
 
-      ${nonFoodGroups.length > 0 ? `
-      <div class="sa-card" style="border-left:3px solid #6366F1">
-        <div class="card-header">
-          <span class="card-title">📂 Grupos de gasto — seguimiento mensual</span>
-          <button class="btn btn-secondary btn-sm" onclick="App._switchTab('categorias')">Gestionar</button>
-        </div>
-        ${nonFoodGroups.map(g => {
-          const spent = BudgetEngine.getGroupMonthSpending(g.id);
-          const pct = g.monthlyBudget > 0 ? Math.min(100, (spent / g.monthlyBudget) * 100) : 0;
-          const remaining = g.monthlyBudget - spent;
-          const color = pct >= 100 ? 'var(--expense)' : pct >= 80 ? '#F97316' : pct >= 50 ? '#F59E0B' : 'var(--income)';
-          const weeklyBudget = g.monthlyBudget / 4.33;
-          const weekSpent = BudgetEngine.getGroupWeekSpending(g.id);
-          const groupEmoji = g.emoji ? `${g.emoji} ` : '';
-          return `<div style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border)">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-              <span style="font-weight:700;font-size:14px">${groupEmoji}${esc(g.name)}</span>
-              <span style="font-size:12px;color:${color};font-weight:600">${spent.toFixed(2)} € / ${g.monthlyBudget.toFixed(0)} € mes</span>
-            </div>
-            <div class="progress-bar" style="height:8px"><div class="progress-fill" style="width:${pct}%;background:${color};border-radius:4px"></div></div>
-            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-secondary);margin-top:3px">
-              <span>${pct.toFixed(0)}% consumido · ${weekSpent.toFixed(1)} €/sem esta semana</span>
-              <span style="color:${remaining >= 0 ? 'var(--income)' : 'var(--expense)'}">
-                ${remaining >= 0 ? remaining.toFixed(2) + ' € restan' : Math.abs(remaining).toFixed(2) + ' € excedido'}
-              </span>
-            </div>
-            <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">
-              ${g.categories.map(c => `<span style="font-size:10px;background:var(--bg);border:1px solid var(--border);padding:1px 6px;border-radius:8px">${esc(c)}</span>`).join('')}
-            </div>
-          </div>`;
-        }).join('')}
-      </div>` : ''}
-
       ${imprevistosInPlan || imprevistosSavings > 0 ? `<div class="sa-card" style="border-left:3px solid #EC4899">
         <div class="sa-food-header">
           <span>⚠️ Reserva para imprevistos</span>
@@ -472,7 +416,7 @@ const Presupuesto = {
     const sectionMeta = [
       { selector: '.sa-card-plan', id: 'plan', title: '🧠 Plan financiero', defaultOpen: true },
       { selector: '.sa-card-saving', id: 'goals', title: '🎯 Metas de ahorro', defaultOpen: true },
-      { selector: '.card:has(#categoryLimitsList)', id: 'limits', title: '📊 Límites y control semanal', defaultOpen: true },
+      { selector: '.card:has(#unifiedBudgetList)', id: 'limits', title: '📊 Presupuesto y seguimiento', defaultOpen: true },
       { selector: '.sa-card-period-summaries', id: 'weeksummary', title: '📊 Resúmenes semanal y mensual', defaultOpen: true },
       { selector: '.sa-card-priority-recs', id: 'priorityrecs', title: '🎯 Recomendaciones por prioridad', defaultOpen: true },
       { selector: '.sa-card-monthvariance', id: 'monthvariance', title: '📅 Seguimiento mensual', defaultOpen: true },
@@ -542,21 +486,22 @@ const Presupuesto = {
     const amt = parseFloat(document.getElementById('newLimitAmount')?.value) || 0;
     if (!cat || amt <= 0) { el.style.display = 'none'; return; }
     const b = BudgetEngine.calcWeekly();
-    const limits = Store.getCategoryLimits();
-    const totalOtherLimits = Object.entries(limits).filter(([c]) => c !== cat).reduce((s, [, v]) => s + v, 0);
+    const ungroupedLimits = Store.getUngroupedCategoryLimits();
+    const totalOther = Object.entries(ungroupedLimits).filter(([c]) => c !== cat).reduce((s, [, v]) => s + v, 0);
+    const groupsWeekly = Store.getTrackingBudgetWeeklyTotal() - Object.values(ungroupedLimits).reduce((s, v) => s + v, 0);
     const available = b.discretionaryBudget;
-    const projectedTotalLimits = totalOtherLimits + amt;
-    const exceeds = projectedTotalLimits > Math.max(0, available);
+    const projectedTotal = totalOther + groupsWeekly + amt;
+    const exceeds = projectedTotal > Math.max(0, available);
     el.style.display = 'block';
     if (exceeds) {
       el.style.background = 'var(--expense-bg)';
       el.style.color = 'var(--expense)';
-      el.textContent = `🔴 Los límites totales (${projectedTotalLimits.toFixed(2)} €/sem) superan el disponible del plan (${Math.max(0, available).toFixed(2)} €/sem) en ${(projectedTotalLimits - available).toFixed(2)} €`;
+      el.textContent = `🔴 El seguimiento total (${projectedTotal.toFixed(0)} €/sem) supera el disponible (${Math.max(0, available).toFixed(0)} €/sem)`;
       return;
     }
     const alert = this.getAlertLevel(cat, amt);
     if (!alert) { el.style.display = 'none'; return; }
-    const { alreadySpent, projectedTotal, limit, level } = alert;
+    const { alreadySpent, projectedTotal: catProjected, limit, level } = alert;
     if (!limit) {
       el.style.background = 'var(--income-bg)';
       el.style.color = 'var(--income)';
@@ -568,7 +513,72 @@ const Presupuesto = {
     const labels = { good: 'Dentro del presupuesto', caution: '🟡 Cuidado', warning: '⚠️ Casi al límite', danger: '🔴 Excedido' };
     el.style.background = bgs[level];
     el.style.color = colors[level];
-    el.textContent = `${labels[level]} — ${alreadySpent.toFixed(2)} € + ${amt.toFixed(2)} € = ${projectedTotal.toFixed(2)} € / ${limit.toFixed(2)} €`;
+    el.textContent = `${labels[level]} — ${alreadySpent.toFixed(2)} € + ${amt.toFixed(2)} € = ${catProjected.toFixed(2)} € / ${limit.toFixed(2)} €`;
+  },
+
+  _renderUnifiedBudgetTracking(categoryGroups, limits, weekExpenses, categories, available) {
+    const ungroupedLimits = Store.getUngroupedCategoryLimits();
+    const nonFoodGroups = categoryGroups.filter(g => !g.isFoodGroup);
+    const groupsWithBudget = nonFoodGroups.filter(g => g.monthlyBudget > 0);
+    const groupsTracking = nonFoodGroups.filter(g => g.monthlyBudget <= 0 && g.categories.length > 0);
+    const totalTrackingWeekly = Store.getTrackingBudgetWeeklyTotal();
+    const exceeds = totalTrackingWeekly > Math.max(0, available);
+
+    const groupRows = [...groupsWithBudget, ...groupsTracking].map(g => {
+      const monthSpent = BudgetEngine.getGroupMonthSpending(g.id);
+      const weekSpent = BudgetEngine.getGroupWeekSpending(g.id);
+      const weeklyBudget = g.monthlyBudget > 0 ? g.monthlyBudget / 4.33 : 0;
+      const weekPct = weeklyBudget > 0 ? Math.min(100, (weekSpent / weeklyBudget) * 100) : 0;
+      const monthPct = g.monthlyBudget > 0 ? Math.min(100, (monthSpent / g.monthlyBudget) * 100) : 0;
+      const color = (g.monthlyBudget > 0 ? monthPct : weekPct) >= 100 ? 'var(--expense)' : (g.monthlyBudget > 0 ? monthPct : weekPct) >= 80 ? '#F97316' : 'var(--income)';
+      const groupEmoji = g.emoji ? `${g.emoji} ` : '';
+      return `<div class="ub-item" style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <span style="font-weight:700;font-size:14px">${groupEmoji}${esc(g.name)} <span style="font-size:10px;color:var(--primary);font-weight:600">grupo · mensual</span></span>
+          <span style="font-size:12px;color:${color};font-weight:600">${g.monthlyBudget > 0 ? `${monthSpent.toFixed(0)} / ${g.monthlyBudget.toFixed(0)} € mes` : `${monthSpent.toFixed(0)} € mes`}</span>
+        </div>
+        ${g.monthlyBudget > 0 ? `<div class="progress-bar" style="height:8px"><div class="progress-fill" style="width:${monthPct}%;background:${color};border-radius:4px"></div></div>` : ''}
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-secondary);margin-top:3px">
+          <span>Semana: ${weekSpent.toFixed(1)}€${weeklyBudget > 0 ? ` / ${weeklyBudget.toFixed(0)}€` : ''}</span>
+          ${g.monthlyBudget > 0 ? `<span style="color:${monthSpent <= g.monthlyBudget ? 'var(--income)' : 'var(--expense)'}">${(g.monthlyBudget - monthSpent).toFixed(0)}€ restan este mes</span>` : '<span>Solo seguimiento</span>'}
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">
+          ${g.categories.map(c => `<span style="font-size:10px;background:var(--bg);border:1px solid var(--border);padding:1px 6px;border-radius:8px">${esc(c)}</span>`).join('')}
+        </div>
+      </div>`;
+    }).join('');
+
+    const ungroupedCats = categories.filter(c => !Store.getCategoryGroup(c) && !Store.isFoodCategory(c));
+    const limitRows = this._renderCategoryLimits(ungroupedCats, ungroupedLimits, weekExpenses);
+
+    return `<div class="card" style="border-left:3px solid #6366F1">
+      <div class="card-header">
+        <span class="card-title">📊 Presupuesto y seguimiento</span>
+        <button class="btn btn-secondary btn-sm" onclick="App._switchTab('categorias')">Gestionar grupos</button>
+      </div>
+      <p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">
+        Sistema unificado: cada categoría va en un <strong>grupo con presupuesto mensual</strong> o con <strong>límite semanal propio</strong> — nunca ambos.
+        La alimentación se gestiona aparte arriba.
+      </p>
+      ${totalTrackingWeekly > 0 ? `<div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;font-size:12px;padding:8px 0;border-bottom:1px solid var(--border);margin-bottom:8px">
+        <span>📊 Seguimiento: <strong>${totalTrackingWeekly.toFixed(0)} €/sem</strong></span>
+        <span>💸 Disponible plan: <strong style="color:var(--primary)">${Math.max(0, available).toFixed(2)} €/sem</strong></span>
+        <span style="color:${exceeds ? 'var(--expense)' : 'var(--income)'}">${exceeds ? `🔴 Excede en ${(totalTrackingWeekly - available).toFixed(0)}€` : '✅ En plan'}</span>
+      </div>` : ''}
+      <div id="unifiedBudgetList">
+        ${groupRows || ''}
+        ${groupRows ? '<div style="font-size:11px;font-weight:700;color:var(--text-secondary);margin:10px 0 6px">🏷️ Categorías sueltas (límite semanal)</div>' : ''}
+        <div id="categoryLimitsList">${limitRows}</div>
+      </div>
+      <div class="add-cat-form" style="margin-top:10px">
+        <select id="newLimitCategory" style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)">
+          ${ungroupedCats.filter(c => !ungroupedLimits[c]).map(c => `<option value="${c}">${c}</option>`).join('')}
+        </select>
+        <input type="number" id="newLimitAmount" placeholder="€/sem" step="1" style="width:70px;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)">
+        <button class="btn btn-primary" onclick="Presupuesto._addLimit()">+</button>
+      </div>
+      <div id="budgetLimitHint" style="display:none;margin-top:6px;padding:6px 8px;border-radius:4px;font-size:12px;text-align:center;font-weight:600"></div>
+    </div>`;
   },
 
   _renderCategoryLimits(categories, limits, weekExpenses) {
@@ -942,10 +952,10 @@ const Presupuesto = {
       `;
     };
 
-    const limitRemain = Object.keys(limits).filter(c => limits[c] > 0 && categories.includes(c)).length > 0 ? `
+    const limitRemain = Object.keys(Store.getUngroupedCategoryLimits()).length > 0 ? `
       <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border)">
-        <div style="font-size:11px;font-weight:700;color:var(--text-secondary);margin-bottom:4px">🏷️ Lo que te queda por categoría (semana):</div>
-        ${Object.entries(limits).filter(([c, l]) => l > 0 && categories.includes(c)).map(([cat, limit]) => {
+        <div style="font-size:11px;font-weight:700;color:var(--text-secondary);margin-bottom:4px">🏷️ Categorías sueltas (semana):</div>
+        ${Object.entries(Store.getUngroupedCategoryLimits()).map(([cat, limit]) => {
           const spent = weekExpenses.filter(t => Store._categoryKeysMatch(t.category, cat)).reduce((s, t) => s + t.amount, 0);
           const remain = limit - spent;
           const pct = limit > 0 ? Math.min(100, (spent / limit) * 100) : 0;
@@ -1222,9 +1232,10 @@ const Presupuesto = {
   _ensureDefaultLimits() {
     const limits = Store.getCategoryLimits();
     if (Object.keys(limits).length === 0) {
-      Store.setCategoryLimit('Comida', 40);
-      Store.setCategoryLimit('Salidas', 20);
-      Store.setCategoryLimit('Caprichos', 10);
+      const defaults = [['Comida', 40], ['Salidas', 20], ['Caprichos', 10]];
+      for (const [cat, amt] of defaults) {
+        if (!Store.getCategoryGroup(cat)) Store.setCategoryLimit(cat, amt);
+      }
     }
   },
 
@@ -1572,11 +1583,16 @@ const Presupuesto = {
     const cat = document.getElementById('newLimitCategory').value;
     const amt = parseFloat(document.getElementById('newLimitAmount').value);
     if (!cat || !amt || amt <= 0) return;
+    if (Store.getCategoryGroup(cat)) {
+      App.showToast(`"${cat}" está en un grupo — edita el presupuesto mensual del grupo en Ajustes`);
+      return;
+    }
     const budget = this._calc();
-    const limits = Store.getCategoryLimits();
-    const totalExisting = Object.values(limits).reduce((s, v) => s + v, 0);
-    const oldCatLimit = limits[cat] || 0;
-    const newTotal = totalExisting - oldCatLimit + amt;
+    const ungroupedLimits = Store.getUngroupedCategoryLimits();
+    const oldCatLimit = ungroupedLimits[cat] || 0;
+    const groupsWeekly = Store.getTrackingBudgetWeeklyTotal() - Object.values(ungroupedLimits).reduce((s, v) => s + v, 0);
+    const totalOther = Object.entries(ungroupedLimits).filter(([c]) => c !== cat).reduce((s, [, v]) => s + v, 0);
+    const newTotal = groupsWeekly + totalOther + amt;
     const foodBudget = Store.getFoodBudget();
     const foodWeekly = foodBudget / 4.33;
     const goals = Store.getSavingGoals();
@@ -1587,10 +1603,13 @@ const Presupuesto = {
     const totalDeductions = foodWeekly + recommendedWeeklySaving + peWeekly + imprevistosWeekly;
     const available = budget.totalWeekly - totalDeductions;
     if (newTotal > Math.max(0, available)) {
-      App.showToast(`🔴 Límite no añadido — total (${newTotal.toFixed(2)}€) supera el disponible (${Math.max(0,available).toFixed(2)}€)`);
+      App.showToast(`🔴 No añadido — seguimiento total (${newTotal.toFixed(0)}€/sem) supera disponible (${Math.max(0, available).toFixed(0)}€/sem)`);
       return;
     }
-    Store.setCategoryLimit(cat, amt);
+    if (!Store.setCategoryLimit(cat, amt)) {
+      App.showToast(`"${cat}" pertenece a un grupo — usa presupuesto mensual del grupo`);
+      return;
+    }
     this.render();
   },
 

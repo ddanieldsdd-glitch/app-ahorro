@@ -1170,6 +1170,66 @@ html {
 .gc-stat-val.income { color: var(--income); }
 .gc-stat-val.expense { color: var(--expense); }
 
+/* Chart dashboard */
+.gc-welcome-banner {
+  display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 12%, var(--card)), var(--card));
+  border: 1px solid color-mix(in srgb, var(--primary) 30%, var(--border));
+  border-radius: var(--radius-lg); padding: 14px 16px; margin-bottom: 12px;
+}
+.gc-welcome-banner p { font-size: 12px; color: var(--text-secondary); margin: 4px 0 0; line-height: 1.5; }
+.gc-welcome-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.gc-toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; align-items: center; }
+.gc-help-btn { width: 32px; height: 32px; padding: 0; border-radius: 50%; font-weight: 700; }
+.gc-dashboard {
+  display: grid; grid-template-columns: 1fr; gap: 12px;
+}
+@media (min-width: 768px) {
+  .gc-dashboard { grid-template-columns: repeat(2, 1fr); }
+}
+.gc-panel {
+  background: var(--card); border-radius: var(--radius-lg); padding: 12px;
+  box-shadow: var(--shadow); border: 1px solid var(--border);
+  transition: box-shadow 0.2s, transform 0.15s;
+}
+.gc-panel-full { grid-column: 1 / -1; }
+.gc-dashboard-edit .gc-panel { border-color: color-mix(in srgb, var(--primary) 40%, var(--border)); }
+.gc-panel-dragging { opacity: 0.5; transform: scale(0.98); }
+.gc-panel-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.gc-panel-drag { cursor: grab; color: var(--text-secondary); font-size: 16px; user-select: none; }
+.gc-panel-title { flex: 1; font-size: 13px; font-weight: 700; color: var(--text); }
+.gc-panel-actions { display: flex; gap: 2px; flex-shrink: 0; }
+.gc-panel-btn {
+  width: 28px; height: 28px; border: none; background: var(--bg); border-radius: 6px;
+  cursor: pointer; font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; justify-content: center;
+}
+.gc-panel-btn:hover { background: var(--primary-light); color: var(--primary); }
+.gc-panel-btn-danger:hover { background: color-mix(in srgb, var(--expense) 15%, var(--bg)); color: var(--expense); }
+.gc-panel-config {
+  background: var(--bg); border-radius: 8px; padding: 10px; margin-bottom: 10px;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px;
+}
+.gc-panel-config-row { display: flex; flex-direction: column; gap: 3px; }
+.gc-panel-config-row label { font-size: 10px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.3px; }
+.gc-panel-config-row select { font-size: 12px; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--card); color: var(--text); }
+.gc-panel-config-row.checkbox-group { flex-direction: row; flex-wrap: wrap; align-items: center; }
+.gc-panel-config-row.checkbox-group label { font-size: 11px; text-transform: none; font-weight: 500; color: var(--text); }
+.gc-cfg-flags { flex-direction: row !important; flex-wrap: wrap; gap: 10px !important; align-items: center; }
+.gc-cfg-flags label { flex-direction: row; font-size: 11px; text-transform: none; font-weight: 500; color: var(--text); gap: 4px; }
+.gc-panel-chart { height: 220px; max-height: 220px; }
+.gc-panel-chart.pie-chart { max-width: 280px; margin: 0 auto; }
+.gc-panel-info { font-size: 11px; color: var(--text-secondary); text-align: center; margin-top: 6px; }
+.gc-empty { text-align: center; padding: 40px 20px; color: var(--text-secondary); font-size: 13px; }
+.gc-template-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.gc-template-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 10px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--bg); cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.gc-template-btn:hover { border-color: var(--primary); background: var(--primary-light); }
+.gc-template-icon { font-size: 24px; }
+.gc-template-title { font-size: 11px; font-weight: 600; color: var(--text); text-align: center; line-height: 1.3; }
+
 /* ============================================== */
 
 /* Tooltips */

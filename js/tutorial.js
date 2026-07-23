@@ -171,6 +171,31 @@ const Tutorial = {
         </div>`,
     },
     {
+      title: '📊 Gráficos y dashboard',
+      body: `
+        <p style="font-size:13px;line-height:1.7;color:var(--text);margin-bottom:12px">
+          En <strong>📊 Gráficos</strong> puedes ver <strong>varias gráficas a la vez</strong>, cada una con filtros distintos:
+          gastos por categoría, tendencias, presupuesto vs real y evolución del saldo.
+        </p>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">
+          <div style="display:flex;align-items:center;gap:10px;background:var(--bg);padding:10px;border-radius:8px;font-size:12px">
+            <span style="font-size:18px">⚙</span>
+            <span><strong>Personalizar</strong> para reordenar, añadir o quitar paneles</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;background:var(--bg);padding:10px;border-radius:8px;font-size:12px">
+            <span style="font-size:18px">＋</span>
+            <span><strong>Añadir gráfica</strong> desde plantillas preconfiguradas</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;background:var(--bg);padding:10px;border-radius:8px;font-size:12px">
+            <span style="font-size:18px">?</span>
+            <span>Tutorial dedicado dentro de la pestaña Gráficos</span>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--text-secondary);line-height:1.5">
+          Los rangos largos incluyen meses archivados para ver tu historial completo.
+        </div>`,
+    },
+    {
       title: '📲 Instalar en todos tus dispositivos',
       body: `
         <p style="font-size:13px;line-height:1.7;color:var(--text);margin-bottom:12px">
