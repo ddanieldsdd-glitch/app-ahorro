@@ -60,8 +60,8 @@ const ExcelIO = {
     this._appendSheet(wb, 'Personas', (d.people || []).map(p => (
       typeof p === 'string'
         ? { Nombre: p }
-        : { ID: p.id || '', Nombre: p.name || '', Grupo: p.group || '', Usos: p.count ?? '' }
-    )), [12,24,16,8]);
+        : { ID: p.id || '', Nombre: p.name || '', Emoji: p.emoji || '', Grupo: p.group || '', Usos: p.count ?? '' }
+    )), [12,24,8,16,8]);
 
     this._appendSheet(wb, 'Metas', (d.savingGoals || []).map(g => ({
       ID: g.id || '',

@@ -309,6 +309,19 @@ END $$;</code>
               Mismo ID en todos <strong>tus</strong> dispositivos. Tu pareja usará otro (ej. <code>pareja</code>).
             </div>
           </div>
+          <div class="form-group" style="margin-bottom:8px">
+            <label style="font-size:12px;font-weight:600">Tu nombre (visible para tu pareja)</label>
+            <div style="display:flex;gap:8px;align-items:center">
+              <button type="button" id="profileEmojiBtn" onclick="Categorias._pickProfileEmoji()"
+                style="font-size:22px;width:44px;height:44px;border:1px solid var(--border);border-radius:var(--radius);background:var(--card);cursor:pointer;flex-shrink:0">${esc(Store.getProfileEmoji() || Store.getPersonDisplayEmoji(Store.getProfileDisplayName()))}</button>
+              <input type="text" id="profileDisplayName" placeholder="ej: Dani"
+                value="${esc(Store.getSyncSettings().profileDisplayName || '')}"
+                style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--card);color:var(--text)">
+            </div>
+            <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">
+              Así te verá tu pareja en las deudas compartidas. El emoji es opcional.
+            </div>
+          </div>
         </div>
 
         <div class="form-group" style="margin:12px 0 10px;padding:10px;border-radius:8px;background:var(--bg);border:1.5px solid ${Store.isEncryptionEnabled() ? 'var(--income)' : 'var(--border)'}">
@@ -411,6 +424,17 @@ END $$;</code>
           Ninguno puede ver los gastos privados del otro — solo las deudas compartidas.<br>
           <span style="color:var(--income)">🔒 Cifrado AES-256 independiente del cifrado personal.</span>
         </p>
+
+        <div class="form-group" style="margin-bottom:8px">
+          <label style="font-size:12px;font-weight:600">Persona que usa la app contigo</label>
+          <select id="partnerPersonName" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--card);color:var(--text)">
+            <option value="">— Selecciona —</option>
+            ${Store.getUnifiedPeople().map(p => `<option value="${esc(p.name)}"${(Store.getPartnerPersonName() || '').toLowerCase() === p.name.toLowerCase() ? ' selected' : ''}>${p.emoji ? esc(p.emoji) + ' ' : ''}${esc(p.name)}</option>`).join('')}
+          </select>
+          <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">
+            Las deudas con esta persona se sincronizan automáticamente (estilo Tricount). Añádela primero en Personas y grupos si no aparece.
+          </div>
+        </div>
 
         <div class="form-group" style="margin-bottom:8px">
           <label style="font-size:12px;font-weight:600">ID de fila compartida</label>
@@ -706,14 +730,53 @@ END $$;</code>
   _renderPeople() {
     const el = document.getElementById('peopleList');
     if (!el) return;
-    const people = Store.getPeople();
+    const people = Store.getPeopleRecords();
     el.innerHTML = people.length ? people.map(p => {
-      const safe = p.replace(/'/g, "\\'");
-      const used = (Store.getDebts() || []).filter(d => d.person === p).length;
-      return `<div class="cat-item"><span class="cat-name">${esc(p)}${used ? ` <span style="font-size:10px;color:var(--text-secondary)">(${used} deuda${used !== 1 ? 's' : ''})</span>` : ''}</span>
+      const name = Store._personName(p);
+      const safe = name.replace(/'/g, "\\'");
+      const emoji = Store.getPersonDisplayEmoji(name);
+      const used = (Store.getUnifiedDebts() || []).filter(d => d.person === name).length;
+      const isPartner = Store.getPartnerPersonName().toLowerCase() === name.toLowerCase();
+      return `<div class="cat-item"><span class="cat-name"><button type="button" onclick="Categorias._pickPersonEmoji('${safe}')" style="border:none;background:none;cursor:pointer;font-size:18px;padding:0 4px 0 0">${esc(emoji)}</button>${esc(name)}${isPartner ? ' 🤝' : ''}${used ? ` <span style="font-size:10px;color:var(--text-secondary)">(${used} deuda${used !== 1 ? 's' : ''})</span>` : ''}</span>
         <div style="display:flex;gap:4px"><button class="btn-sm" style="border:1px solid var(--border);border-radius:4px;background:var(--card);cursor:pointer;font-size:11px;padding:2px 6px" onclick="Categorias._renamePerson('${safe}')">✏️</button>
         <button class="delete-cat" onclick="Categorias._deletePerson('${safe}')">✕</button></div></div>`;
     }).join('') : '<div style="font-size:12px;color:var(--text-secondary);padding:8px 0">Sin personas guardadas aún</div>';
+  },
+
+  _pickProfileEmoji() {
+    if (typeof EmojiUtils === 'undefined') return;
+    const name = document.getElementById('profileDisplayName')?.value.trim() || Store.getProfileDisplayName();
+    const current = Store.getProfileEmoji() || '';
+    const auto = EmojiUtils.inferDefault(name, 'person');
+    App.showCustom(`Emoticono — ${esc(name || 'Tu perfil')}`, `
+      ${EmojiUtils.renderPicker('profileEmojiInput', { value: current, compact: true })}
+      <div style="font-size:11px;color:var(--text-secondary);margin-top:8px">Automático: <strong>${auto}</strong></div>
+    `, 'Guardar', () => {
+      const val = document.getElementById('profileEmojiInput')?.value.trim() || '';
+      Store.setProfileIdentity({
+        displayName: document.getElementById('profileDisplayName')?.value.trim(),
+        emoji: val,
+      });
+      const btn = document.getElementById('profileEmojiBtn');
+      if (btn) btn.textContent = val || auto;
+      App.showToast(val ? '✅ Emoticono guardado' : '↩ Emoticono automático');
+    });
+  },
+
+  _pickPersonEmoji(name) {
+    if (typeof EmojiUtils === 'undefined') return;
+    const current = Store.getPersonRecord(name)?.emoji || Store.getCatalogEmoji('person', name) || '';
+    const auto = EmojiUtils.inferDefault(name, 'person');
+    App.showCustom(`Emoticono — ${esc(name)}`, `
+      ${EmojiUtils.renderPicker('personEmojiInput', { value: current, compact: true })}
+      <div style="font-size:11px;color:var(--text-secondary);margin-top:8px">Automático: <strong>${auto}</strong> · Se sincroniza en deudas compartidas.</div>
+    `, 'Guardar', () => {
+      const val = document.getElementById('personEmojiInput')?.value.trim() || '';
+      Store.setPersonEmoji(name, val);
+      this._renderPeople();
+      Deudas.render();
+      App.showToast(val ? '✅ Emoticono guardado' : '↩ Emoticono automático');
+    });
   },
 
   _renderGroups() {
@@ -1871,6 +1934,8 @@ END $$;</code>
         supabaseUrl: document.getElementById('supabaseUrl')?.value.trim() || '',
         supabaseAnonKey: document.getElementById('supabaseAnonKey')?.value || '',
         supabaseRowId: document.getElementById('supabaseRowId')?.value.trim() || 'default',
+        profileDisplayName: document.getElementById('profileDisplayName')?.value.trim() || '',
+        profileEmoji: document.getElementById('profileEmojiBtn')?.textContent.trim() || '',
         serverUrl: Store.getSyncSettings().serverUrl,
         syncKey: Store.getSyncSettings().syncKey,
       });
@@ -1894,6 +1959,7 @@ END $$;</code>
   _saveSharedSettings() {
     const rowId      = document.getElementById('sharedRowId')?.value.trim() || 'compartido';
     const passphrase = document.getElementById('sharedPassphrase')?.value || '';
+    const partnerPersonName = document.getElementById('partnerPersonName')?.value.trim() || '';
     // Inherit Supabase URL/key from personal sync settings
     const personal = Store.getSyncSettings();
     Store.setSharedSyncSettings({
@@ -1901,6 +1967,7 @@ END $$;</code>
       supabaseAnonKey:  personal.supabaseAnonKey || '',
       rowId,
       passphrase,
+      partnerPersonName,
     });
     if (rowId && passphrase) {
       App.showToast('🤝 Espacio compartido guardado y activado');

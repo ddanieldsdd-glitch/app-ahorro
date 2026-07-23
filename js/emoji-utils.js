@@ -196,6 +196,7 @@ const EmojiUtils = {
       method: '💳',
       expenseGroup: '📂',
       incomeGroup: '💰',
+      person: '👤',
     };
     return defaults[kind] || '🏷️';
   },

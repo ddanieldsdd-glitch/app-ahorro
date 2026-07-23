@@ -1,6 +1,5 @@
 const Deudas = {
   viewMode: { owed: 'debt', iowe: 'debt', main: 'net' },
-  scope: 'personal',          // 'personal' | 'shared'
   _collapsedGroups: new Set(),
   _collapsedPersons: new Set(),
   _collapsedNetPersons: new Set(),
@@ -10,50 +9,53 @@ const Deudas = {
     this.render();
   },
 
-  // ── Scope helpers — route operations to personal or shared store ──────────
-  _setScope(s) { this.scope = s; this.render(); },
+  // ── Unified debt helpers (personal + shared partner debts) ─────────────────
+  _getPendingDebts()  { return Store.getUnifiedPendingDebts(); },
+  _getSettledDebts()  { return Store.getUnifiedSettledDebts(); },
+  _getDebts()         { return Store.getUnifiedDebts(); },
 
-  _getPendingDebts()  { return this.scope === 'shared' ? Store.getPendingSharedDebts()  : Store.getPendingDebts(); },
-  _getSettledDebts()  { return this.scope === 'shared' ? Store.getSettledSharedDebts()  : Store.getSettledDebts(); },
-  _getDebts()         { return this.scope === 'shared' ? Store.getSharedDebts()         : Store.getDebts(); },
+  _isSharedDebt(d) { return !!(d?._isShared || d?._shared); },
 
-  _scopeAddDebtsForPeople(opts) {
-    return this.scope === 'shared'
-      ? Store.addSharedDebtsForPeople(opts)
-      : Store.addDebtsForPeople(opts);
-  },
-
-  _scopeDeleteDebt(id) {
-    if (this.scope === 'shared') Store.deleteSharedDebt(id);
+  _deleteDebtById(id) {
+    const found = Store.findDebtById(id);
+    if (!found) return;
+    if (found.shared) Store.deleteSharedDebt(id);
     else Store.deleteDebt(id);
   },
 
-  _scopeSettleDebt(id) {
-    if (this.scope === 'shared') { Store.settleSharedDebt(id); return null; }
+  _settleDebtById(id) {
+    const found = Store.findDebtById(id);
+    if (!found) return null;
+    if (found.shared) { Store.settleSharedDebt(id); return null; }
     return Store.settleDebt(id);
   },
 
-  _scopeReopenDebt(id) {
-    if (this.scope === 'shared') Store.reopenSharedDebt(id);
+  _reopenDebtById(id) {
+    const found = Store.findDebtById(id);
+    if (!found) return;
+    if (found.shared) Store.reopenSharedDebt(id);
     else Store.updateDebt(id, { isPaid: false, paidDate: null, paidTxId: null });
   },
 
-  _scopeUpdateDebt(id, patch) {
-    if (this.scope === 'shared') Store.updateSharedDebt(id, patch);
+  _updateDebtById(id, patch) {
+    const found = Store.findDebtById(id);
+    if (!found) return;
+    if (found.shared) Store.updateSharedDebt(id, patch);
     else Store.updateDebt(id, patch);
   },
 
-  _scopeGetNetBalance(person)   { return this.scope === 'shared' ? Store.getSharedNetBalance(person) : Store.getNetBalance(person); },
-  _scopeSettlePersonNet(person) {
-    if (this.scope === 'shared') { Store.settleSharedPersonNet(person); return null; }
-    return Store.settlePersonNet(person);
-  },
+  _getNetBalance(person) { return Store.getUnifiedNetBalance(person); },
 
-  _scopeSave() {
-    if (this.scope !== 'shared') Store._save();
-  },
+  _settlePersonNet(person) { return Store.settleUnifiedPersonNet(person); },
 
-  _scopeGetPeople() { return Store.getPeople(); },
+  _personAvatar(name) { return Store.getPersonAvatar(name); },
+
+  _shouldRouteToShared(persons, forcePersonal) {
+    if (forcePersonal || !Store.isSharedEnabled()) return false;
+    const partner = Store.getPartnerPersonName();
+    if (!partner) return false;
+    return persons.some(p => Store.isPartnerPerson(p));
+  },
 
   _setMainView(mode) {
     this.viewMode.main = mode;
@@ -202,7 +204,7 @@ const Deudas = {
     return `<div class="debt-card debt-person-card ${isZero ? '' : (isPositive ? 'debt-owed-to-me' : 'debt-i-owe')}">
       <div class="debt-group-header" onclick="Deudas._toggleNetPerson('${safePerson}')">
         <div class="debt-card-main" style="margin-bottom:0">
-          <div class="debt-avatar">${esc(entry.person.charAt(0).toUpperCase())}</div>
+          <div class="debt-avatar">${esc(this._personAvatar(entry.person))}</div>
           <div class="debt-info">
             <div class="debt-person">${esc(entry.person)}</div>
             <div class="debt-desc" style="font-size:12px;margin-top:2px">${netLabel}</div>
@@ -234,7 +236,7 @@ const Deudas = {
     return `<div class="debt-member-row">
       <div class="debt-member-main">
         <div class="debt-info" style="margin-left:0">
-          <div class="debt-person" style="font-size:13px">${esc(d.description || d.category || 'Sin descripción')}</div>
+          <div class="debt-person" style="font-size:13px">${esc(d.description || d.category || 'Sin descripción')}${this._isSharedDebt(d) ? ' <span class="tx-adj-badge" style="background:#E0E7FF;color:#4F46E5;font-size:10px">🤝</span>' : ''}</div>
           <div class="debt-meta">
             <span style="${urgency}">${dateLabel}${daysAgo > 0 ? ` · hace ${daysAgo}d` : ''}</span>
             ${d.linkedTxId ? '<span class="tx-adj-badge" style="background:#E0E7FF;color:#4F46E5">📋 mov.</span>' : ''}
@@ -251,24 +253,24 @@ const Deudas = {
   },
 
   _settlePersonNetAction(person) {
-    const net = this._scopeGetNetBalance(person);
-    const isShared = this.scope === 'shared';
+    const net = this._getNetBalance(person);
+    const hasShared = this._getPendingDebts().some(d => d.person === person && this._isSharedDebt(d));
     if (Math.abs(net) < 0.01) {
       const pending = this._getPendingDebts().filter(d => d.person === person);
       App.showConfirm('Estáis a mano', `¿Marcar las ${pending.length} deuda(s) con ${esc(person)} como liquidadas? El saldo neto es cero, no se creará ningún movimiento.`, () => {
-        this._scopeSettlePersonNet(person);
+        this._settlePersonNet(person);
         this._refreshAll();
         App.showToast(`${person}: todas las deudas liquidadas`);
       });
       return;
     }
     const isPositive = net > 0;
-    const sharedNote = isShared ? ' (espacio compartido — no afecta a tu saldo personal)' : '';
+    const sharedNote = hasShared ? ' (parte compartida con tu pareja — no afecta a tu saldo personal)' : '';
     const msg = isPositive
       ? `${esc(person)} te paga ${net.toFixed(2)} € (neto)${sharedNote}. Todas las deudas con ${esc(person)} quedarán saldadas.`
       : `Pagas ${Math.abs(net).toFixed(2)} € a ${esc(person)} (neto)${sharedNote}. Todas las deudas con ${esc(person)} quedarán saldadas.`;
     App.showConfirm(`⚖️ Saldar con ${esc(person)}`, msg, () => {
-      const tx = this._scopeSettlePersonNet(person);
+      const tx = this._settlePersonNet(person);
       this._refreshAll();
       App.showToast(tx
         ? `${person} saldado · ${isPositive ? 'cobrado' : 'pagado'} ${Math.abs(net).toFixed(2)}€`
@@ -822,8 +824,9 @@ const Deudas = {
   _readDebtFormFromExclusions(prefix, persons) { return this._readDebtFormFromManual(prefix, persons); },
 
   personPickerHtml(prefix, selected = []) {
-    const people = Store.getPeople();
+    const people = Store.getUnifiedPeople();
     const groups = Store.getPeopleGroups();
+    const partner = Store.getPartnerPersonName();
     const sel = new Set(selected);
     return `
       <div class="form-group">
@@ -833,7 +836,7 @@ const Deudas = {
           style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:6px">
         <input type="hidden" id="${prefix}SelectedPeople" value="${selected.join('|')}">
         ${people.length ? `<div class="person-chips" id="${prefix}PeopleChips">
-          ${people.map(p => `<button type="button" class="person-chip${sel.has(p) ? ' active' : ''}" data-person="${esc(p)}" onclick="Deudas._pickPerson('${prefix}','${p.replace(/'/g, "\\'")}')">${esc(p)}</button>`).join('')}
+          ${people.map(p => `<button type="button" class="person-chip${sel.has(p.name) ? ' active' : ''}${partner && p.name.toLowerCase() === partner.toLowerCase() ? ' partner' : ''}" data-person="${esc(p.name)}" onclick="Deudas._pickPerson('${prefix}','${p.name.replace(/'/g, "\\'")}')">${p.emoji ? esc(p.emoji) + ' ' : ''}${esc(p.name)}${partner && p.name.toLowerCase() === partner.toLowerCase() ? ' 🤝' : ''}</button>`).join('')}
         </div>` : '<div style="font-size:11px;color:var(--text-secondary)">Las personas que uses se guardarán aquí.</div>'}
         ${groups.length ? `<div style="margin-top:8px;font-size:11px;font-weight:600;color:var(--text-secondary)">Grupos</div>
           <div class="person-chips">${groups.map(g => `<button type="button" class="person-chip group" onclick="Deudas._pickGroup('${prefix}','${g.id}')">👥 ${esc(g.name)} (${g.members.length})</button>`).join('')}</div>` : ''}
@@ -955,9 +958,13 @@ const Deudas = {
       showTxBanner = null,
       splitMode = 'simple',
       splitLines = null,
+      forcePersonal = false,
     } = opts;
     const categories = Store.getCategories();
     const isOwed = type === 'owed_to_me';
+    const partner = Store.getPartnerPersonName();
+    const sharedEnabled = Store.isSharedEnabled() && partner;
+    const defaultSelected = selectedPeople.length ? selectedPeople : (sharedEnabled && partner ? [partner] : []);
     const catOptions = categories.map(c =>
       `<option value="${esc(c)}"${c === category ? ' selected' : ''}>${esc(c)}</option>`
     ).join('');
@@ -975,21 +982,29 @@ const Deudas = {
     return `
       ${txBanner}
       <div style="display:flex;gap:6px;margin-bottom:14px">
-        <button type="button" class="cal-type-btn${isOwed ? ' active' : ''}" id="${prefix}TypeOwed" onclick="Deudas._switchDebtType('owed_to_me','${prefix}')">🟢 Me deben</button>
-        <button type="button" class="cal-type-btn${!isOwed ? ' active' : ''}" id="${prefix}TypeIOwe" onclick="Deudas._switchDebtType('i_owe','${prefix}')">🔴 Debo yo</button>
+        <button type="button" class="cal-type-btn${isOwed ? ' active' : ''}" id="${prefix}TypeOwed" onclick="Deudas._switchDebtType('owed_to_me','${prefix}')">${sharedEnabled ? '🟢 A mi favor' : '🟢 Me deben'}</button>
+        <button type="button" class="cal-type-btn${!isOwed ? ' active' : ''}" id="${prefix}TypeIOwe" onclick="Deudas._switchDebtType('i_owe','${prefix}')">${sharedEnabled ? '🔴 En mi contra' : '🔴 Debo yo'}</button>
       </div>
       <input type="hidden" id="${prefix}Type" value="${type}">
       <div id="${prefix}TypeHint" class="debt-type-hint ${isOwed ? 'owed-hint' : 'iowe-hint'}">
-        ${isOwed
-          ? (prefix === 'link'
-            ? 'Pagaste tú este gasto. Registra quién te debe su parte.'
-            : 'Pagaste tú el gasto entero. Se creará el movimiento automáticamente. Cuando te lo devuelvan, márcalo como cobrado.')
-          : (prefix === 'link'
-            ? 'Alguien pagó por ti. El gasto queda pendiente hasta que lo pagues.'
-            : 'Alguien pagó por ti. Se creará un movimiento pendiente que no afectará al saldo hasta que lo pagues.')}
+        ${sharedEnabled
+          ? (isOwed
+            ? `Registras que ${esc(partner)} te debe. En su app verá que te debe a ti.`
+            : `Registras que le debes a ${esc(partner)}. En su app verá que te debe a él/ella.`)
+          : (isOwed
+            ? (prefix === 'link'
+              ? 'Pagaste tú este gasto. Registra quién te debe su parte.'
+              : 'Pagaste tú el gasto entero. Se creará el movimiento automáticamente. Cuando te lo devuelvan, márcalo como cobrado.')
+            : (prefix === 'link'
+              ? 'Alguien pagó por ti. El gasto queda pendiente hasta que lo pagues.'
+              : 'Alguien pagó por ti. Se creará un movimiento pendiente que no afectará al saldo hasta que lo pagues.'))}
       </div>
+      ${sharedEnabled ? `<label style="display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:10px;color:var(--text-secondary)">
+        <input type="checkbox" id="${prefix}ForcePersonal"${forcePersonal ? ' checked' : ''}>
+        Guardar solo en mis deudas (sin sincronizar con ${esc(partner)})
+      </label>` : ''}
       ${this._splitModeHtml(prefix, totalStr, splitCount, splitMode, splitLines, type)}
-      ${this.personPickerHtml(prefix, selectedPeople)}
+      ${this.personPickerHtml(prefix, defaultSelected)}
       <div class="form-group">
         <label>Descripción</label>
         <input type="text" id="${prefix}Desc" value="${esc(description)}" placeholder="Ej: Cena, gasolina..." maxlength="100" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)">
@@ -1026,6 +1041,9 @@ const Deudas = {
 
   _getRelatedDebts(d) {
     if (!d || d.isPaid) return d ? [d] : [];
+    if (this._isSharedDebt(d)) {
+      return this._getPendingDebts().filter(x => x.id === d.id);
+    }
     if (d.splitGroupId) {
       const group = Store.getDebts().filter(x => x.splitGroupId === d.splitGroupId && !x.isPaid);
       if (group.length > 1) return group;
@@ -1038,11 +1056,12 @@ const Deudas = {
   },
 
   _replaceDebts(related, prefix, extra) {
-    related.forEach(r => Store.deleteDebt(r.id));
+    related.forEach(r => this._deleteDebtById(r.id));
     return this._saveDebtsFromForm(prefix, {
       ...extra,
       linkedTxId: extra.linkedTxId || null,
       skipAutoTx: !!extra.linkedTxId,
+      forcePersonal: extra.forcePersonal,
     });
   },
 
@@ -1053,31 +1072,40 @@ const Deudas = {
     if (persons.length === 0) { App.showToast('Indica al menos una persona'); return null; }
     if (!amountsByPerson && (!amount || amount <= 0)) { App.showToast('Importe inválido'); return null; }
     const type = extra.type || document.getElementById(prefix + 'Type')?.value || 'owed_to_me';
+    const forcePersonal = extra.forcePersonal || document.getElementById(prefix + 'ForcePersonal')?.checked;
     let created;
 
-    if (this.scope === 'shared') {
-      // Shared debts: simple per-person entries, no balance transactions
+    const sharedPersons = persons.filter(p => this._shouldRouteToShared([p], forcePersonal));
+    const personalPersons = persons.filter(p => !this._shouldRouteToShared([p], forcePersonal));
+
+    if (sharedPersons.length) {
       const perPerson = amountsByPerson
-        ? Object.entries(amountsByPerson).map(([p, a]) => ({ person: p, amount: a }))
-        : persons.map(p => ({ person: p, amount: amount }));
-      created = perPerson.map(({ person, amount: amt }) =>
+        ? sharedPersons.map(p => ({ person: p, amount: amountsByPerson[p] || amount }))
+        : sharedPersons.map(p => ({ person: p, amount: amount }));
+      const sharedCreated = perPerson.map(({ person, amount: amt }) =>
         Store.addSharedDebt({ person, amount: amt, type, description: extra.description || '', category: extra.category || 'Otros', date: extra.date })
       );
-      persons.forEach(p => Store.rememberPerson(p, false));
-    } else {
+      created = (created || []).concat(sharedCreated);
+      sharedPersons.forEach(p => Store.rememberPerson(p, false));
+    }
+
+    if (personalPersons.length) {
       const payload = {
-        ...extra, totalAmount, splitCount, amount, amountsByPerson, splitLines, type,
+        ...extra, totalAmount, splitCount, amount, amountsByPerson, splitLines, type, forcePersonal,
       };
+      let personalCreated;
       if (extra.linkedTxId) {
         const existing = Store.getDebtsByLinkedTx(extra.linkedTxId);
         existing.forEach(d => Store.deleteDebt(d.id));
-        created = Store.addDebtsForPeople({ persons, ...payload, linkedTxId: extra.linkedTxId, skipAutoTx: true });
+        personalCreated = Store.addDebtsForPeople({ persons: personalPersons, ...payload, linkedTxId: extra.linkedTxId, skipAutoTx: true });
       } else {
-        created = Store.addDebtsForPeople({ persons, ...payload, skipAutoTx: extra.skipAutoTx });
+        personalCreated = Store.addDebtsForPeople({ persons: personalPersons, ...payload, skipAutoTx: extra.skipAutoTx });
       }
-      persons.forEach(p => Store.rememberPerson(p, false));
+      personalPersons.forEach(p => Store.rememberPerson(p, false));
+      created = (created || []).concat(personalCreated);
       Store._save();
     }
+
     if (!created || created.length === 0) { App.showToast('Sin importes: comprueba el desglose'); return null; }
     return created;
   },
@@ -1085,30 +1113,6 @@ const Deudas = {
   render() {
     const el = document.getElementById('tab-deudas');
     if (!el) return;
-
-    // ── Scope: if shared selected but not configured, show notice ────────────
-    const isShared = this.scope === 'shared';
-    if (isShared && !Store.isSharedEnabled()) {
-      el.innerHTML = `
-        <div class="card" style="margin-bottom:10px">
-          <div class="card-header">
-            <span class="card-title">💸 Deudas</span>
-          </div>
-          <div class="debt-view-toggle" style="margin-bottom:12px">
-            <button type="button" class="cal-type-btn" onclick="Deudas._setScope('personal')">👤 Mis deudas</button>
-            <button type="button" class="cal-type-btn active" onclick="Deudas._setScope('shared')">🤝 Compartidas</button>
-          </div>
-          <div class="empty-state" style="padding:24px 16px;text-align:center">
-            <div style="font-size:32px;margin-bottom:10px">🔒</div>
-            <div style="font-weight:700;margin-bottom:6px">Espacio compartido no configurado</div>
-            <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-bottom:14px">
-              Ve a <strong>⚙️ Ajustes → Espacio compartido</strong> e introduce el ID de fila y la frase compartida con tu pareja.
-            </div>
-            <button class="btn btn-primary btn-sm" onclick="App._switchTab('categorias')">Ir a Ajustes</button>
-          </div>
-        </div>`;
-      return;
-    }
 
     const pending   = this._getPendingDebts();
     const owedToMe  = pending.filter(d => (d.type || 'owed_to_me') === 'owed_to_me');
@@ -1125,21 +1129,25 @@ const Deudas = {
     const netBalances   = this._buildNetBalances();
 
     const isNet = this.viewMode.main === 'net';
-    const scopeLabel = isShared
-      ? `<span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:10px;background:#E0E7FF;color:#4F46E5;margin-left:6px">Compartidas 🔒</span>`
-      : '';
+    const partner = Store.getPartnerPersonName();
+    const sharedBanner = Store.isSharedEnabled() && partner
+      ? `<div style="font-size:11px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5;padding:8px 10px;background:var(--bg);border-radius:8px">
+          🤝 Deudas con <strong>${esc(partner)}</strong> se sincronizan automáticamente (estilo Tricount). Otras personas son deudas personales.
+        </div>`
+      : (!Store.isSharedEnabled()
+        ? `<div style="font-size:11px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">
+            Configura el <strong>espacio compartido</strong> en Ajustes para sincronizar deudas con tu pareja.
+            <button class="btn btn-secondary btn-sm" style="margin-left:6px" onclick="App._switchTab('categorias')">Ir a Ajustes</button>
+          </div>`
+        : '');
 
     el.innerHTML = `
       <div class="card">
         <div class="card-header">
-          <span class="card-title">💸 Deudas${scopeLabel}</span>
+          <span class="card-title">💸 Deudas</span>
           <button class="btn btn-primary btn-sm" onclick="Deudas._openNew()">+ Nueva deuda</button>
         </div>
-
-        <div class="debt-view-toggle" style="margin-bottom:12px">
-          <button type="button" class="cal-type-btn${!isShared ? ' active' : ''}" onclick="Deudas._setScope('personal')">👤 Mis deudas</button>
-          <button type="button" class="cal-type-btn${isShared ? ' active' : ''}" onclick="Deudas._setScope('shared')">🤝 Compartidas</button>
-        </div>
+        ${sharedBanner}
 
         <div class="debt-summary-row">
           <div class="debt-pill owed-to-me">
@@ -1217,7 +1225,7 @@ const Deudas = {
     const { dateLabel, daysAgo, urgency } = this._dateMeta(d.date);
     return `<div class="debt-member-row">
       <div class="debt-member-main">
-        <div class="debt-avatar debt-avatar-sm">${esc(d.person.charAt(0).toUpperCase())}</div>
+        <div class="debt-avatar debt-avatar-sm">${esc(this._personAvatar(d.person))}</div>
         <div class="debt-info">
           <div class="debt-person">${esc(d.person)}</div>
           <div class="debt-meta">
@@ -1252,7 +1260,7 @@ const Deudas = {
     return `<div class="debt-card debt-group-card ${isOwedToMe ? 'debt-owed-to-me' : 'debt-i-owe'}">
       <div class="debt-group-header" onclick="Deudas._toggleGroup('${safeKey}')">
         <div class="debt-card-main" style="margin-bottom:0">
-          <div class="debt-avatar">${multi ? '👥' : esc(group.primary.person.charAt(0).toUpperCase())}</div>
+          <div class="debt-avatar">${multi ? '👥' : esc(this._personAvatar(group.primary.person))}</div>
           <div class="debt-info">
             <div class="debt-person">${esc(group.description)}</div>
             <div class="debt-desc">${multi ? esc(peopleLabel) : esc(group.primary.person)}</div>
@@ -1292,7 +1300,7 @@ const Deudas = {
     return `<div class="debt-card debt-person-card ${isOwedToMe ? 'debt-owed-to-me' : 'debt-i-owe'}">
       <div class="debt-group-header" onclick="Deudas._togglePerson('${safeKey}')">
         <div class="debt-card-main" style="margin-bottom:0">
-          <div class="debt-avatar">${esc(entry.person.charAt(0).toUpperCase())}</div>
+          <div class="debt-avatar">${esc(this._personAvatar(entry.person))}</div>
           <div class="debt-info">
             <div class="debt-person">${esc(entry.person)}</div>
             <div class="debt-desc">${debtCount} deuda${debtCount !== 1 ? 's' : ''} pendiente${debtCount !== 1 ? 's' : ''}</div>
@@ -1337,7 +1345,7 @@ const Deudas = {
     const paidLabel  = d.paidDate ? new Date(d.paidDate + 'T12:00:00').toLocaleDateString('es', { day: 'numeric', month: 'short' }) : '';
     return `<div class="debt-card debt-settled">
       <div class="debt-card-main">
-        <div class="debt-avatar" style="opacity:0.5">${esc(d.person.charAt(0).toUpperCase())}</div>
+        <div class="debt-avatar" style="opacity:0.5">${esc(this._personAvatar(d.person))}</div>
         <div class="debt-info">
           <div class="debt-person" style="opacity:0.7">${esc(d.person)} <span class="tx-adj-badge" style="background:#D1FAE5;color:#065F46">liquidada</span></div>
           <div class="debt-desc">${esc(d.description || d.category || '')}</div>
@@ -1374,6 +1382,8 @@ const Deudas = {
     });
     setTimeout(() => {
       Deudas._switchDebtType('owed_to_me', 'debt');
+      const partner = Store.getPartnerPersonName();
+      if (partner && Store.isSharedEnabled()) Deudas._setSelectedPeople('debt', [partner]);
       document.getElementById('debtPerson')?.focus();
     }, 80);
   },
@@ -1396,15 +1406,23 @@ const Deudas = {
     document.getElementById(prefix + 'TypeIOwe')?.classList.toggle('active', type === 'i_owe');
     const hint = document.getElementById(prefix + 'TypeHint');
     const isLink = prefix === 'link';
+    const partner = Store.getPartnerPersonName();
+    const sharedEnabled = Store.isSharedEnabled() && partner;
     if (hint) {
       hint.className = `debt-type-hint ${type === 'owed_to_me' ? 'owed-hint' : 'iowe-hint'}`;
-      hint.textContent = type === 'owed_to_me'
-        ? (isLink
-          ? 'Pagaste tú este gasto. Registra quién te debe su parte.'
-          : 'Pagaste tú el gasto entero. Se creará el movimiento automáticamente. Cuando te lo devuelvan, márcalo como cobrado.')
-        : (isLink
-          ? 'Alguien pagó por ti. El gasto queda pendiente hasta que lo pagues.'
-          : 'Alguien pagó por ti. Se creará un movimiento pendiente que no afectará al saldo hasta que lo pagues.');
+      if (sharedEnabled && !isLink) {
+        hint.textContent = type === 'owed_to_me'
+          ? `Registras que ${partner} te debe. En su app verá que te debe a ti.`
+          : `Registras que le debes a ${partner}. En su app verá que te debe a él/ella.`;
+      } else {
+        hint.textContent = type === 'owed_to_me'
+          ? (isLink
+            ? 'Pagaste tú este gasto. Registra quién te debe su parte.'
+            : 'Pagaste tú el gasto entero. Se creará el movimiento automáticamente. Cuando te lo devuelvan, márcalo como cobrado.')
+          : (isLink
+            ? 'Alguien pagó por ti. El gasto queda pendiente hasta que lo pagues.'
+            : 'Alguien pagó por ti. Se creará un movimiento pendiente que no afectará al saldo hasta que lo pagues.');
+      }
     }
     const linkGroup = document.getElementById(prefix + 'LinkGroup');
     if (linkGroup) linkGroup.style.display = type === 'owed_to_me' ? '' : 'none';
@@ -1428,12 +1446,13 @@ const Deudas = {
     const d = this._getDebts().find(x => x.id === id);
     if (!d) return;
     const isOwedToMe = (d.type || 'owed_to_me') === 'owed_to_me';
-    const sharedNote = this.scope === 'shared' ? ' (espacio compartido)' : '';
+    const isShared = this._isSharedDebt(d);
+    const sharedNote = isShared ? ' (compartida con tu pareja)' : '';
     const msg = isOwedToMe
-      ? `¿Marcar como cobrado${sharedNote}? ${this.scope === 'shared' ? '' : `Se creará un ingreso de ${d.amount.toFixed(2)}€ de ${esc(d.person)}.`}`
-      : `¿Marcar como pagado${sharedNote}? ${this.scope === 'shared' ? '' : `Se creará un gasto de ${d.amount.toFixed(2)}€ a ${esc(d.person)}.`}`;
+      ? `¿Marcar como cobrado${sharedNote}? ${isShared ? '' : `Se creará un ingreso de ${d.amount.toFixed(2)}€ de ${esc(d.person)}.`}`
+      : `¿Marcar como pagado${sharedNote}? ${isShared ? '' : `Se creará un gasto de ${d.amount.toFixed(2)}€ a ${esc(d.person)}.`}`;
     App.showConfirm(isOwedToMe ? '✅ Marcar cobrado' : '✅ Marcar pagado', msg, () => {
-      const tx = this._scopeSettleDebt(id);
+      const tx = this._settleDebtById(id);
       this._refreshAll();
       App.showToast(tx ? `${isOwedToMe ? 'Cobrado' : 'Pagado'} ${d.amount.toFixed(2)}€ · movimiento creado` : 'Liquidado');
     });
@@ -1447,7 +1466,7 @@ const Deudas = {
       ? `¿Marcar como cobradas ${debts.length} deuda(s) por un total de ${total.toFixed(2)}€?`
       : `¿Marcar como pagadas ${debts.length} deuda(s) por un total de ${total.toFixed(2)}€?`;
     App.showConfirm(isOwedToMe ? '✅ Cobrar todo' : '✅ Pagar todo', msg, () => {
-      debts.forEach(d => this._scopeSettleDebt(d.id));
+      debts.forEach(d => this._settleDebtById(d.id));
       this._refreshAll();
       App.showToast(`${debts.length} deuda(s) liquidada(s) · ${total.toFixed(2)}€`);
     });
@@ -1463,7 +1482,7 @@ const Deudas = {
       ? `¿Marcar como cobradas todas las deudas de ${esc(person)} (${total.toFixed(2)}€)?`
       : `¿Marcar como pagadas todas las deudas con ${esc(person)} (${total.toFixed(2)}€)?`;
     App.showConfirm(isOwedToMe ? '✅ Cobrar todo' : '✅ Pagar todo', msg, () => {
-      debts.forEach(d => this._scopeSettleDebt(d.id));
+      debts.forEach(d => this._settleDebtById(d.id));
       this._refreshAll();
       App.showToast(`${person}: ${debts.length} deuda(s) liquidada(s)`);
     });
@@ -1473,15 +1492,16 @@ const Deudas = {
     const debts = this._findDebtsByGroupKey(key);
     if (!debts.length) return;
     App.showConfirm('Eliminar deudas', `¿Eliminar ${debts.length} deuda(s) de este grupo?`, () => {
-      debts.forEach(d => this._scopeDeleteDebt(d.id));
+      debts.forEach(d => this._deleteDebtById(d.id));
       this._refreshAll();
       App.showToast('Deudas eliminadas');
     });
   },
 
   _edit(id) {
-    const d = Store.getDebts().find(x => x.id === id);
-    if (!d || d.isPaid) return;
+    const found = Store.findDebtById(id);
+    if (!found || found.debt.isPaid) return;
+    const d = found.debt;
     const related = this._getRelatedDebts(d);
     const selected = related.map(r => r.person);
     const prefix = 'edit';
@@ -1491,7 +1511,7 @@ const Deudas = {
     const splitMode = splitLines ? 'manual' : 'simple';
 
     App.openModal({
-      title: `✏️ Editar deuda${related.length > 1 ? ` (${related.length})` : ''}`,
+      title: `✏️ Editar deuda${related.length > 1 ? ` (${related.length})` : ''}${this._isSharedDebt(d) ? ' 🤝' : ''}`,
       body: this.debtFormHtml(prefix, {
         type: d.type || 'owed_to_me',
         totalAmount,
@@ -1501,9 +1521,10 @@ const Deudas = {
         category: d.category || 'Otros',
         date: d.date || '',
         linkedTxId: d.linkedTxId || '',
-        showLink: true,
+        showLink: !this._isSharedDebt(d),
         splitMode,
         splitLines,
+        forcePersonal: !this._isSharedDebt(d),
       }),
       actions: [
         { label: 'Cancelar' },
@@ -1542,13 +1563,13 @@ const Deudas = {
 
   _delete(id) {
     App.showConfirm('Eliminar deuda', '¿Eliminar esta deuda?', () => {
-      this._scopeDeleteDebt(id);
+      this._deleteDebtById(id);
       this._refreshAll();
     });
   },
 
   _reopen(id) {
-    this._scopeReopenDebt(id);
+    this._reopenDebtById(id);
     this._refreshAll();
     App.showToast('Deuda reabierta');
   },

@@ -63,7 +63,7 @@ const defaultData = {
   people: [],
   peopleGroups: [],
   recurringTransactions: [],
-  catalogEmojis: { category: {}, incomeCategory: {}, type: {}, method: {} },
+  catalogEmojis: { category: {}, incomeCategory: {}, type: {}, method: {}, person: {} },
   emojiLibrary: { custom: [], usage: {} },
   initialCheckingBalance: 0,
   initialSavingsBalance: 0,
@@ -91,7 +91,7 @@ const Store = {
   _pushInFlight: false,
 
   // ── Shared space (partner debts) ───────────────────────────────────────────
-  _sharedData: { debts: [], _lastModified: 0 },
+  _sharedData: { debts: [], participants: [], people: [], peopleGroups: [], _lastModified: 0 },
   _sharedTimer: null,
   _sharedCallbacks: [],
 
@@ -100,7 +100,7 @@ const Store = {
       const raw = localStorage.getItem(SYNC_SETTINGS_KEY);
       if (raw) return JSON.parse(raw);
     } catch {}
-    return { provider: 'supabase', serverUrl: '', syncKey: '', supabaseUrl: '', supabaseAnonKey: '', supabaseRowId: '' };
+    return { provider: 'supabase', serverUrl: '', syncKey: '', supabaseUrl: '', supabaseAnonKey: '', supabaseRowId: '', profileDisplayName: '', profileEmoji: '' };
   },
 
   setSyncSettings(settings) {
@@ -121,12 +121,40 @@ const Store = {
         supabaseUrl: this._normalizeSupabaseUrl(settings.supabaseUrl || ''),
         supabaseAnonKey: settings.supabaseAnonKey || '',
         supabaseRowId: settings.supabaseRowId || prev.supabaseRowId || 'default',
+        profileDisplayName: settings.profileDisplayName !== undefined ? settings.profileDisplayName : (prev.profileDisplayName || ''),
+        profileEmoji: settings.profileEmoji !== undefined ? settings.profileEmoji : (prev.profileEmoji || ''),
       };
     }
     localStorage.setItem(SYNC_SETTINGS_KEY, JSON.stringify(obj));
+    this._registerMyParticipant();
     this._setSyncStatus('syncing', 'Aplicando nueva configuración…');
     this._startSync();
     this._safeConnectSync();
+  },
+
+  getMyProfileId() {
+    return this.getSyncSettings().supabaseRowId || 'default';
+  },
+
+  getProfileDisplayName() {
+    const n = (this.getSyncSettings().profileDisplayName || '').trim();
+    return n || this.getMyProfileId();
+  },
+
+  getProfileEmoji() {
+    return (this.getSyncSettings().profileEmoji || '').trim();
+  },
+
+  setProfileIdentity({ displayName, emoji } = {}) {
+    const prev = this.getSyncSettings();
+    const obj = {
+      ...prev,
+      profileDisplayName: displayName !== undefined ? String(displayName).trim() : prev.profileDisplayName,
+      profileEmoji: emoji !== undefined ? String(emoji).trim() : prev.profileEmoji,
+    };
+    localStorage.setItem(SYNC_SETTINGS_KEY, JSON.stringify(obj));
+    this._registerMyParticipant();
+    if (this.isSharedEnabled()) this._saveShared();
   },
 
   async _safeConnectSync() {
@@ -1068,6 +1096,10 @@ const Store = {
     if (!d.debts) d.debts = [];
     if (!d.people) d.people = [];
     if (!d.peopleGroups) d.peopleGroups = [];
+    if (!d._peopleObjectsMigrated) {
+      d.people = (d.people || []).map(p => this._personEntry(p));
+      d._peopleObjectsMigrated = true;
+    }
     if (!d.recurringTransactions) d.recurringTransactions = [];
     if (d.initialCheckingBalance === undefined) d.initialCheckingBalance = 0;
     if (d.initialSavingsBalance === undefined) d.initialSavingsBalance = 0;
@@ -1178,9 +1210,9 @@ const Store = {
     this._syncPriorityIncludesAuto();
 
     if (!d.catalogEmojis || typeof d.catalogEmojis !== 'object') {
-      d.catalogEmojis = { category: {}, incomeCategory: {}, type: {}, method: {} };
+      d.catalogEmojis = { category: {}, incomeCategory: {}, type: {}, method: {}, person: {} };
     }
-    for (const k of ['category', 'incomeCategory', 'type', 'method']) {
+    for (const k of ['category', 'incomeCategory', 'type', 'method', 'person']) {
       if (!d.catalogEmojis[k] || typeof d.catalogEmojis[k] !== 'object') d.catalogEmojis[k] = {};
     }
 
@@ -1800,7 +1832,7 @@ const Store = {
   },
 
   _catalogEmojiMap(kind) {
-    if (!this._data.catalogEmojis) this._data.catalogEmojis = { category: {}, incomeCategory: {}, type: {}, method: {} };
+    if (!this._data.catalogEmojis) this._data.catalogEmojis = { category: {}, incomeCategory: {}, type: {}, method: {}, person: {} };
     if (!this._data.catalogEmojis[kind]) this._data.catalogEmojis[kind] = {};
     return this._data.catalogEmojis[kind];
   },
@@ -2068,14 +2100,108 @@ const Store = {
   },
 
   // ── People & groups ───────────────────────────────────────────────────────
-  getPeople() { return [...(this._data.people || [])].sort((a, b) => a.localeCompare(b, 'es')); },
+  _genPersonId() {
+    return Date.now().toString(36) + Math.random().toString(36).substr(2, 6);
+  },
+
+  _personEntry(raw) {
+    if (typeof raw === 'string') return { id: this._genPersonId(), name: raw.trim(), emoji: '' };
+    return { id: raw.id || this._genPersonId(), name: (raw.name || '').trim(), emoji: raw.emoji || '' };
+  },
+
+  _personName(p) {
+    return typeof p === 'string' ? p : (p?.name || '');
+  },
+
+  getPeople() {
+    return [...(this._data.people || [])]
+      .map(p => this._personName(p))
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b, 'es'));
+  },
+
+  getPeopleRecords() {
+    return [...(this._data.people || [])].sort((a, b) =>
+      this._personName(a).localeCompare(this._personName(b), 'es'));
+  },
+
+  getPersonRecord(name) {
+    const n = (name || '').trim().toLowerCase();
+    return (this._data.people || []).find(p => this._personName(p).toLowerCase() === n) || null;
+  },
+
+  _getSharedPersonRecord(name) {
+    const n = (name || '').trim().toLowerCase();
+    return (this._sharedData.people || []).find(p => this._personName(p).toLowerCase() === n) || null;
+  },
+
+  getPersonDisplayEmoji(name) {
+    const rec = this.getPersonRecord(name);
+    if (rec?.emoji) return rec.emoji;
+    const shared = this._getSharedPersonRecord(name);
+    if (shared?.emoji) return shared.emoji;
+    const part = (this._sharedData.participants || []).find(p => (p.name || '').toLowerCase() === (name || '').trim().toLowerCase());
+    if (part?.emoji) return part.emoji;
+    const stored = this.getCatalogEmoji('person', name);
+    if (stored) return stored;
+    return typeof EmojiUtils !== 'undefined' ? EmojiUtils.inferDefault(name, 'person') : '👤';
+  },
+
+  getPersonAvatar(name) {
+    const emoji = this.getPersonDisplayEmoji(name);
+    if (emoji && emoji !== '👤') return emoji;
+    const n = (name || '').trim();
+    return n ? n.charAt(0).toUpperCase() : '?';
+  },
+
+  setPersonEmoji(name, emoji) {
+    const n = (name || '').trim();
+    if (!n) return;
+    const rec = this.getPersonRecord(n);
+    if (rec) rec.emoji = (emoji || '').trim();
+    else this.rememberPerson(n, false);
+    const rec2 = this.getPersonRecord(n);
+    if (rec2) rec2.emoji = (emoji || '').trim();
+    this.setCatalogEmoji('person', n, emoji);
+    const sharedRec = this._getSharedPersonRecord(n);
+    if (sharedRec) sharedRec.emoji = (emoji || '').trim();
+    else if (this.isSharedEnabled()) this._rememberSharedPerson(n, false);
+    const sharedRec2 = this._getSharedPersonRecord(n);
+    if (sharedRec2) sharedRec2.emoji = (emoji || '').trim();
+    for (const p of this._sharedData.participants || []) {
+      if ((p.name || '').toLowerCase() === n.toLowerCase()) p.emoji = (emoji || '').trim();
+    }
+    if (this.isSharedEnabled()) this._saveShared();
+  },
+
+  getUnifiedPeople() {
+    const names = new Map();
+    for (const p of this.getPeopleRecords()) {
+      const n = this._personName(p);
+      names.set(n.toLowerCase(), { name: n, emoji: p.emoji || '' });
+    }
+    for (const p of this._sharedData.people || []) {
+      const n = this._personName(p);
+      const key = n.toLowerCase();
+      if (!names.has(key)) names.set(key, { name: n, emoji: p.emoji || '' });
+      else if (p.emoji && !names.get(key).emoji) names.get(key).emoji = p.emoji;
+    }
+    for (const p of this._sharedData.participants || []) {
+      if (!p.name) continue;
+      const key = p.name.toLowerCase();
+      if (!names.has(key)) names.set(key, { name: p.name, emoji: p.emoji || '' });
+      else if (p.emoji && !names.get(key).emoji) names.get(key).emoji = p.emoji;
+    }
+    return [...names.values()].sort((a, b) => a.name.localeCompare(b.name, 'es'));
+  },
 
   rememberPerson(name, save = true) {
     const n = (name || '').trim();
     if (!n) return;
     if (!this._data.people) this._data.people = [];
-    if (!this._data.people.includes(n)) {
-      this._data.people.push(n);
+    const exists = this._data.people.some(p => this._personName(p).toLowerCase() === n.toLowerCase());
+    if (!exists) {
+      this._data.people.push({ id: this._genPersonId(), name: n, emoji: '' });
       if (save) this._save();
     }
   },
@@ -2087,22 +2213,40 @@ const Store = {
   renamePerson(oldName, newName) {
     const n = (newName || '').trim();
     if (!n || oldName === n) return false;
-    const idx = (this._data.people || []).indexOf(oldName);
+    const idx = (this._data.people || []).findIndex(p => this._personName(p) === oldName);
     if (idx === -1) return false;
-    if (!this._data.people.includes(n)) this._data.people[idx] = n;
-    else this._data.people.splice(idx, 1);
+    const dup = (this._data.people || []).findIndex(p => this._personName(p).toLowerCase() === n.toLowerCase());
+    const oldRec = this._data.people[idx];
+    const emoji = oldRec.emoji || this.getCatalogEmoji('person', oldName);
+    if (dup >= 0 && dup !== idx) this._data.people.splice(idx, 1);
+    else this._data.people[idx] = { ...oldRec, name: n };
+    if (emoji) this.setCatalogEmoji('person', n, emoji);
+    this._moveCatalogEmoji('person', oldName, n);
     for (const d of this._data.debts || []) {
       if (d.person === oldName) d.person = n;
     }
     for (const g of this._data.peopleGroups || []) {
       g.members = g.members.map(m => m === oldName ? n : m);
     }
+    for (const d of this._sharedData.debts || []) {
+      if (d.person === oldName) d.person = n;
+    }
+    for (const p of this._sharedData.participants || []) {
+      if (p.name === oldName) p.name = n;
+    }
+    for (const p of this._sharedData.people || []) {
+      if (this._personName(p) === oldName) p.name = n;
+    }
+    if ((this.getPartnerPersonName() || '').toLowerCase() === oldName.toLowerCase()) {
+      this.setPartnerPersonName(n);
+    }
     this._save();
+    if (this.isSharedEnabled()) this._saveShared();
     return true;
   },
 
   deletePerson(name) {
-    this._data.people = (this._data.people || []).filter(p => p !== name);
+    this._data.people = (this._data.people || []).filter(p => this._personName(p) !== name);
     for (const g of this._data.peopleGroups || []) {
       g.members = g.members.filter(m => m !== name);
     }
@@ -3522,18 +3666,120 @@ const Store = {
       const raw = localStorage.getItem(SHARED_SYNC_KEY);
       if (raw) return JSON.parse(raw);
     } catch {}
-    return { supabaseUrl: '', supabaseAnonKey: '', rowId: '', passphrase: '' };
+    return { supabaseUrl: '', supabaseAnonKey: '', rowId: '', passphrase: '', partnerPersonName: '' };
   },
 
-  setSharedSyncSettings({ supabaseUrl = '', supabaseAnonKey = '', rowId = '', passphrase = '' } = {}) {
+  setSharedSyncSettings({ supabaseUrl = '', supabaseAnonKey = '', rowId = '', passphrase = '', partnerPersonName } = {}) {
+    const prev = this.getSharedSyncSettings();
     const obj = {
       supabaseUrl: this._normalizeSupabaseUrl(supabaseUrl),
       supabaseAnonKey: supabaseAnonKey.trim(),
       rowId: rowId.trim() || 'compartido',
       passphrase,
+      partnerPersonName: partnerPersonName !== undefined ? String(partnerPersonName).trim() : (prev.partnerPersonName || ''),
     };
     localStorage.setItem(SHARED_SYNC_KEY, JSON.stringify(obj));
     this._initShared();
+  },
+
+  getPartnerPersonName() {
+    return (this.getSharedSyncSettings().partnerPersonName || '').trim();
+  },
+
+  setPartnerPersonName(name) {
+    const s = this.getSharedSyncSettings();
+    s.partnerPersonName = (name || '').trim();
+    localStorage.setItem(SHARED_SYNC_KEY, JSON.stringify(s));
+  },
+
+  isPartnerPerson(name) {
+    const partner = this.getPartnerPersonName();
+    if (!partner || !this.isSharedEnabled()) return false;
+    return (name || '').trim().toLowerCase() === partner.toLowerCase();
+  },
+
+  getParticipantDisplayName(profileId) {
+    const p = (this._sharedData.participants || []).find(x => x.profileId === profileId);
+    if (p?.name) return p.name;
+    if (profileId === this.getMyProfileId()) return this.getProfileDisplayName();
+    return profileId;
+  },
+
+  _getPartnerProfileId() {
+    const myId = this.getMyProfileId();
+    const partnerName = this.getPartnerPersonName();
+    const participants = this._sharedData.participants || [];
+    if (partnerName) {
+      const match = participants.find(p =>
+        p.profileId !== myId &&
+        (p.name || '').toLowerCase() === partnerName.toLowerCase()
+      );
+      if (match) return match.profileId;
+    }
+    const others = participants.filter(p => p.profileId !== myId);
+    return others.length === 1 ? others[0].profileId : null;
+  },
+
+  _registerMyParticipant() {
+    if (!this.isSharedEnabled() && !this._sharedData.participants) return;
+    if (!this._sharedData.participants) this._sharedData.participants = [];
+    const myId = this.getMyProfileId();
+    const entry = {
+      profileId: myId,
+      name: this.getProfileDisplayName(),
+      emoji: this.getProfileEmoji(),
+    };
+    const idx = this._sharedData.participants.findIndex(p => p.profileId === myId);
+    if (idx >= 0) this._sharedData.participants[idx] = { ...this._sharedData.participants[idx], ...entry };
+    else this._sharedData.participants.push(entry);
+  },
+
+  _rememberSharedPerson(name, save = true) {
+    const n = (name || '').trim();
+    if (!n) return;
+    if (!this._sharedData.people) this._sharedData.people = [];
+    const exists = this._sharedData.people.some(p => this._personName(p).toLowerCase() === n.toLowerCase());
+    if (!exists) {
+      this._sharedData.people.push({ id: this._genPersonId(), name: n, emoji: '' });
+      if (save) this._saveShared();
+    }
+  },
+
+  _ensureSharedStructure() {
+    if (!this._sharedData.debts) this._sharedData.debts = [];
+    if (!this._sharedData.participants) this._sharedData.participants = [];
+    if (!this._sharedData.people) this._sharedData.people = [];
+    if (!this._sharedData.peopleGroups) this._sharedData.peopleGroups = [];
+  },
+
+  resolveSharedDebt(debt) {
+    const myId = this.getMyProfileId();
+    const partnerName = this.getPartnerPersonName();
+
+    if (debt.creditor && debt.debtor) {
+      const creditorName = this.getParticipantDisplayName(debt.creditor);
+      const debtorName = this.getParticipantDisplayName(debt.debtor);
+      let type, person;
+      if (debt.creditor === myId) {
+        type = 'owed_to_me';
+        person = debtorName || partnerName;
+      } else if (debt.debtor === myId) {
+        type = 'i_owe';
+        person = creditorName || partnerName;
+      } else {
+        type = debt.type || 'owed_to_me';
+        person = partnerName || debt.person || '';
+      }
+      return { ...debt, type, person, _isShared: true };
+    }
+
+    return {
+      ...debt,
+      type: debt.type || 'owed_to_me',
+      person: debt.person || partnerName,
+      _isShared: true,
+      _legacy: true,
+    };
   },
 
   isSharedEnabled() {
@@ -3577,6 +3823,8 @@ const Store = {
   async _pushSharedToSupabase() {
     if (!this.isSharedEnabled()) return false;
     try {
+      this._ensureSharedStructure();
+      this._registerMyParticipant();
       const { rowId } = this.getSharedSyncSettings();
       const blob = await this._encryptShared(this._sharedData);
       const { error } = await this._getSharedClient()
@@ -3605,7 +3853,7 @@ const Store = {
       if (!remote) return false;
       if ((remote._lastModified || 0) > (this._sharedData._lastModified || 0)) {
         this._sharedData = remote;
-        if (!this._sharedData.debts) this._sharedData.debts = [];
+        this._ensureSharedStructure();
         localStorage.setItem(SHARED_STORAGE_KEY, JSON.stringify(this._sharedData));
         this._sharedCallbacks.forEach(cb => cb());
       }
@@ -3624,7 +3872,8 @@ const Store = {
       const raw = localStorage.getItem(SHARED_STORAGE_KEY);
       if (raw) this._sharedData = JSON.parse(raw);
     } catch {}
-    if (!this._sharedData.debts) this._sharedData.debts = [];
+    this._ensureSharedStructure();
+    this._registerMyParticipant();
 
     // Pull from Supabase
     await this._pullSharedFromSupabase();
@@ -3642,17 +3891,52 @@ const Store = {
 
   // ── Shared space — debt CRUD ───────────────────────────────────────────────
 
-  getSharedDebts()         { return [...(this._sharedData.debts || [])]; },
+  getSharedDebts() {
+    return (this._sharedData.debts || []).map(d => this.resolveSharedDebt(d));
+  },
+
+  getSharedDebtsRaw() { return [...(this._sharedData.debts || [])]; },
+
   getPendingSharedDebts()  { return this.getSharedDebts().filter(d => !d.isPaid); },
   getSettledSharedDebts()  { return this.getSharedDebts().filter(d => d.isPaid); },
 
+  getUnifiedDebts() {
+    const personal = this.getDebts().map(d => ({ ...d, _isShared: false }));
+    if (!this.isSharedEnabled()) return personal;
+    return [...personal, ...this.getSharedDebts()];
+  },
+
+  getUnifiedPendingDebts() {
+    return this.getUnifiedDebts().filter(d => !d.isPaid);
+  },
+
+  getUnifiedSettledDebts() {
+    return this.getUnifiedDebts().filter(d => d.isPaid);
+  },
+
+  findDebtById(id) {
+    const personal = this.getDebts().find(d => d.id === id);
+    if (personal) return { debt: personal, shared: false };
+    const raw = (this._sharedData.debts || []).find(d => d.id === id);
+    if (raw) return { debt: this.resolveSharedDebt(raw), raw, shared: true };
+    return null;
+  },
+
   addSharedDebt(data) {
-    if (!this._sharedData.debts) this._sharedData.debts = [];
+    this._ensureSharedStructure();
+    const myId = this.getMyProfileId();
+    const partnerProfileId = this._getPartnerProfileId();
+    const type = data.type || 'owed_to_me';
+    const creditor = type === 'owed_to_me' ? myId : (partnerProfileId || 'partner');
+    const debtor = type === 'owed_to_me' ? (partnerProfileId || 'partner') : myId;
     const debt = {
       id: Date.now().toString(36) + Math.random().toString(36).substr(2, 8),
-      person: data.person || '',
       amount: data.amount,
-      type: data.type || 'owed_to_me',
+      creditor,
+      debtor,
+      createdBy: myId,
+      person: data.person || this.getPartnerPersonName(),
+      type,
       description: data.description || '',
       category: data.category || 'Otros',
       date: data.date || new Date().toISOString().split('T')[0],
@@ -3662,8 +3946,10 @@ const Store = {
       _shared: true,
     };
     this._sharedData.debts.push(debt);
+    this._registerMyParticipant();
+    this._rememberSharedPerson(data.person || this.getPartnerPersonName(), false);
     this._saveShared();
-    return debt;
+    return this.resolveSharedDebt(debt);
   },
 
   addSharedDebtsForPeople({ persons = [], amount, type, description, category, date }) {
@@ -3673,7 +3959,16 @@ const Store = {
   updateSharedDebt(id, patch) {
     const d = (this._sharedData.debts || []).find(x => x.id === id);
     if (!d) return;
-    Object.assign(d, patch);
+    const myId = this.getMyProfileId();
+    const partnerProfileId = this._getPartnerProfileId();
+    if (patch.type) {
+      const type = patch.type;
+      d.type = type;
+      d.creditor = type === 'owed_to_me' ? myId : (partnerProfileId || 'partner');
+      d.debtor = type === 'owed_to_me' ? (partnerProfileId || 'partner') : myId;
+    }
+    const { type, ...rest } = patch;
+    Object.assign(d, rest);
     this._saveShared();
   },
 
@@ -3706,6 +4001,22 @@ const Store = {
     const owedToMe = pending.filter(d => (d.type || 'owed_to_me') === 'owed_to_me').reduce((s, d) => s + d.amount, 0);
     const iOwe     = pending.filter(d => d.type === 'i_owe').reduce((s, d) => s + d.amount, 0);
     return Math.round((owedToMe - iOwe) * 100) / 100;
+  },
+
+  getUnifiedNetBalance(person) {
+    const pending = this.getUnifiedPendingDebts().filter(d => d.person === person);
+    const owedToMe = pending.filter(d => (d.type || 'owed_to_me') === 'owed_to_me').reduce((s, d) => s + d.amount, 0);
+    const iOwe     = pending.filter(d => d.type === 'i_owe').reduce((s, d) => s + d.amount, 0);
+    return Math.round((owedToMe - iOwe) * 100) / 100;
+  },
+
+  settleUnifiedPersonNet(person) {
+    const pendingShared = this.getPendingSharedDebts().filter(d => d.person === person);
+    const pendingPersonal = this.getPendingDebts().filter(d => d.person === person);
+    if (!pendingShared.length && !pendingPersonal.length) return null;
+    if (pendingShared.length) this.settleSharedPersonNet(person);
+    if (pendingPersonal.length) return this.settlePersonNet(person);
+    return null;
   },
 
   settleSharedPersonNet(person) {
@@ -3916,7 +4227,7 @@ const Store = {
     if (from.priorityIncludes) d.priorityIncludes = { ...d.priorityIncludes, ...from.priorityIncludes };
     if (from.catalogEmojis) {
       d.catalogEmojis = d.catalogEmojis || { category: {}, incomeCategory: {}, type: {}, method: {} };
-      for (const kind of ['category', 'incomeCategory', 'type', 'method']) {
+      for (const kind of ['category', 'incomeCategory', 'type', 'method', 'person']) {
         if (from.catalogEmojis[kind]) {
           d.catalogEmojis[kind] = { ...(d.catalogEmojis[kind] || {}), ...from.catalogEmojis[kind] };
         }

@@ -165,9 +165,9 @@ const Tutorial = {
           </div>
         </div>
         <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;background:var(--bg);padding:10px;border-radius:8px">
-          En la pestaña <strong>💸 Deudas</strong> verás el toggle<br>
-          <strong>👤 Mis deudas</strong> · <strong>🤝 Compartidas</strong><br>
-          Las deudas compartidas se sincronizan en tiempo real y el balance neto Tricount funciona igual que en las personales.
+          En la pestaña <strong>💸 Deudas</strong> todo está unificado: deudas con terceros y con tu pareja en la misma vista.<br>
+          Configura <strong>tu nombre</strong> y selecciona a tu pareja en <strong>⚙️ → Espacio compartido</strong>.<br>
+          Las deudas con ella se sincronizan solas: lo que tú registras a tu favor, en su app aparece en su contra (estilo Tricount).
         </div>`,
     },
     {

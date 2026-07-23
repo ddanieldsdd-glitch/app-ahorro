@@ -56,7 +56,7 @@ const App = {
         Categorias.render();
       }
     });
-    Store.onSharedChange(() => { if (Deudas.scope === 'shared') Deudas.render(); });
+    Store.onSharedChange(() => { Deudas.render(); });
     this._renderMonthSelector();
     this._setupTabs();
     this._setupArchive();
