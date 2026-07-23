@@ -1,4 +1,4 @@
-const CACHE = 'presupuesto-v54';
+const CACHE = 'presupuesto-v57';
 
 const ASSETS = [
   '/styles.css', '/manifest.json', '/icon.svg',
@@ -48,7 +48,7 @@ self.addEventListener('fetch', (e) => {
   }
   if (url.pathname.startsWith('/api/')) {
     e.respondWith(networkFirst(e.request));
-  } else if (url.pathname.startsWith('/js/')) {
+  } else if (url.pathname.startsWith('/js/') || url.pathname === '/styles.css') {
     e.respondWith(networkFirst(e.request));
   } else if (e.request.mode === 'navigate') {
     e.respondWith(networkFirst(e.request));

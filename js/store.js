@@ -32,7 +32,7 @@ const defaultData = {
   paymentMethods: ['Efectivo', 'Tarjeta', 'Bizum', 'Transferencia'],
   currentMonth: null,
   archives: {},
-  budgetConfig: { weeklyIncome: 70, monthlyExtra: 100, categoryLimits: {} },
+  budgetConfig: { weeklyIncome: 0, monthlyExtra: 0, categoryLimits: {}, incomeUserSet: false, incomeMode: 'hybrid' },
   savingGoals: [],
   roundUpEnabled: true,
   roundUpGoalId: null,
@@ -1070,8 +1070,12 @@ const Store = {
     const d = this._data;
     if (!d.archives) d.archives = {};
     if (!d.paymentMethods) d.paymentMethods = ['Efectivo', 'Tarjeta', 'Bizum', 'Transferencia'];
-    if (!d.budgetConfig) d.budgetConfig = { weeklyIncome: 70, monthlyExtra: 100, categoryLimits: {} };
+    if (!d.budgetConfig) d.budgetConfig = { weeklyIncome: 0, monthlyExtra: 0, categoryLimits: {}, incomeUserSet: false, incomeMode: 'hybrid' };
     if (!d.budgetConfig.categoryLimits) d.budgetConfig.categoryLimits = {};
+    if (d.budgetConfig.incomeUserSet === undefined) {
+      d.budgetConfig.incomeUserSet = (d.budgetConfig.weeklyIncome > 0 || d.budgetConfig.monthlyExtra > 0);
+    }
+    if (!d.budgetConfig.incomeMode) d.budgetConfig.incomeMode = 'hybrid';
     if (!d.savingGoals) d.savingGoals = [];
     if (d.roundUpEnabled === undefined) d.roundUpEnabled = true;
     if (!d.totalRoundUpSavings) d.totalRoundUpSavings = 0;
@@ -2292,6 +2296,25 @@ const Store = {
     return Math.round((total / count) * 100) / 100;
   },
 
+  /** Resume en texto las partidas «solo yo / solo persona» con su concepto. */
+  buildExpensePurpose(splitLines, description) {
+    const desc = (description || '').trim();
+    if (!splitLines?.length) return desc;
+    const soleParts = splitLines
+      .filter(l => l.mode === 'sole')
+      .map(l => {
+        const amt = parseFloat(l.amount) || 0;
+        const who = l.payer === 'me' ? 'Solo yo' : (l.payer ? `Solo ${l.payer}` : 'Solo');
+        const what = (l.purpose || '').trim();
+        if (what) return `${who} (${amt.toFixed(2)}€): ${what}`;
+        if (l.label && !/^Solo/i.test(l.label)) return `${who} (${amt.toFixed(2)}€): ${l.label}`;
+        return amt > 0 ? `${who} (${amt.toFixed(2)}€)` : '';
+      })
+      .filter(Boolean);
+    if (soleParts.length) return soleParts.join(' · ');
+    return desc;
+  },
+
   archiveCurrentMonth() {
     this._backup('pre-archive');
     const month = this._data.currentMonth;
@@ -2310,11 +2333,36 @@ const Store = {
   getArchivedMonths() { return Object.keys(this._data.archives).sort(); },
   getArchives() { return this._data.archives; },
 
-  getBudgetWeeklyIncome() { return this._data.budgetConfig?.weeklyIncome ?? 70; },
-  setBudgetWeeklyIncome(v) { this._data.budgetConfig.weeklyIncome = v; this._save(); },
+  getBudgetWeeklyIncome() { return this._data.budgetConfig?.weeklyIncome ?? 0; },
+  setBudgetWeeklyIncome(v) {
+    this._data.budgetConfig.weeklyIncome = Math.max(0, Number(v) || 0);
+    this._data.budgetConfig.incomeUserSet = true;
+    this._save();
+  },
 
-  getBudgetMonthlyExtra() { return this._data.budgetConfig?.monthlyExtra ?? 100; },
-  setBudgetMonthlyExtra(v) { this._data.budgetConfig.monthlyExtra = v; this._save(); },
+  getBudgetMonthlyExtra() { return this._data.budgetConfig?.monthlyExtra ?? 0; },
+  setBudgetMonthlyExtra(v) {
+    this._data.budgetConfig.monthlyExtra = Math.max(0, Number(v) || 0);
+    this._data.budgetConfig.incomeUserSet = true;
+    this._save();
+  },
+
+  isIncomeUserSet() { return !!this._data.budgetConfig?.incomeUserSet; },
+  setIncomeUserSet(v) { this._data.budgetConfig.incomeUserSet = !!v; this._save(); },
+  getIncomeMode() {
+    const m = this._data.budgetConfig?.incomeMode;
+    return m === 'manual' || m === 'auto' || m === 'hybrid' ? m : 'hybrid';
+  },
+  setIncomeMode(v) {
+    this._data.budgetConfig.incomeMode = v === 'manual' || v === 'auto' || v === 'hybrid' ? v : 'hybrid';
+    this._save();
+  },
+  clearConfiguredIncome() {
+    this._data.budgetConfig.weeklyIncome = 0;
+    this._data.budgetConfig.monthlyExtra = 0;
+    this._data.budgetConfig.incomeUserSet = false;
+    this._save();
+  },
 
   getCategoryLimits() { return this._data.budgetConfig?.categoryLimits ?? {}; },
   setCategoryLimit(cat, amount) { this._data.budgetConfig.categoryLimits[cat] = amount; this._save(); },
@@ -2846,7 +2894,9 @@ const Store = {
   setImprevistosAutoAdjust(v) { this._data.imprevistosAutoAdjust = !!v; this._save(); },
 
   getRecommendedImprevistosBudget() {
-    const monthlyIncome = this.getBudgetWeeklyIncome() * 4.33 + this.getBudgetMonthlyExtra();
+    const monthlyIncome = typeof BudgetEngine !== 'undefined'
+      ? BudgetEngine.getEffectiveIncome().monthly
+      : (this.getBudgetWeeklyIncome() * 4.33 + this.getBudgetMonthlyExtra());
     let pct = 5;
     if (monthlyIncome >= 800) pct = 10;
     const raw = monthlyIncome * pct / 100;
@@ -3411,6 +3461,7 @@ const Store = {
         totalAmount: data.totalAmount || null,
         splitGroupId: data.splitGroupId || null,
         splitLines: data.splitLines || null,
+        expensePurpose: data.expensePurpose || '',
       };
     } else {
       const [person, amount, description] = arguments;
@@ -3476,6 +3527,7 @@ const Store = {
         totalAmount,
         splitGroupId: groupId,
         splitLines: splitLines || null,
+        expensePurpose: this.buildExpensePurpose(splitLines, description),
       });
       if (!sharedLinkedTxId && debt.linkedTxId) sharedLinkedTxId = debt.linkedTxId;
       created.push(debt);
@@ -3938,6 +3990,7 @@ const Store = {
       person: data.person || this.getPartnerPersonName(),
       type,
       description: data.description || '',
+      expensePurpose: data.expensePurpose || data.description || '',
       category: data.category || 'Otros',
       date: data.date || new Date().toISOString().split('T')[0],
       isPaid: false,

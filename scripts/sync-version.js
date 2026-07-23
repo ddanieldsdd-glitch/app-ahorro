@@ -54,6 +54,7 @@ let html = fs.readFileSync(indexPath, 'utf8');
 html = html.replace(/name="app-cache-version" content="[^"]*"/, `name="app-cache-version" content="${cache}"`);
 html = html.replace(/window\.__APP_BUILD_VERSION='[^']*'/, `window.__APP_BUILD_VERSION='${cache}'`);
 html = html.replace(/\?v=presupuesto-v[0-9]+/g, `?v=${cache}`);
+html = html.replace(/href="styles\.css(?:\?v=[^"]*)?"/, `href="styles.css?v=${cache}"`);
 fs.writeFileSync(indexPath, html);
 
 // version files

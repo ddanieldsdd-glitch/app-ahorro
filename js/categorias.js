@@ -200,6 +200,7 @@ const Categorias = {
       </div>
 
       ${Categorias._profileCardHtml()}
+      ${Categorias._incomeCardHtml()}
 
       ${(() => {
           const syncOk = Categorias._isSyncConfigured();
@@ -1574,6 +1575,83 @@ END $$;</code>
   _toggleSettingsExpand(key) {
     this._settingsExpanded[key] = !this._settingsExpanded[key];
     this.render();
+  },
+
+  _incomeCardHtml() {
+    const effective = typeof BudgetEngine !== 'undefined' ? BudgetEngine.getEffectiveIncome() : null;
+    const stats = typeof BudgetEngine !== 'undefined' ? BudgetEngine.getHistoricalStats() : null;
+    const mode = Store.getIncomeMode();
+    const weekly = Store.getBudgetWeeklyIncome();
+    const extra = Store.getBudgetMonthlyExtra();
+    const userSet = Store.isIncomeUserSet();
+    return `<div class="card income-settings-card" style="margin-bottom:10px">
+      <div class="card-header">
+        <span class="card-title">💰 Tus ingresos</span>
+        ${!userSet ? '<span class="profile-card-hint">Opcional — la app aprende del historial</span>' : ''}
+      </div>
+      <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;line-height:1.55">
+        Configura aquí tu ingreso fijo semanal y extras mensuales. <strong>No es obligatorio</strong> para empezar:
+        la app estima ingresos y gastos a partir de tus movimientos y mejora con el tiempo.
+      </p>
+      ${effective && (effective.hasInferred || effective.hasManual) ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+        <div style="padding:10px;background:var(--bg);border-radius:8px;text-align:center">
+          <div style="font-size:10px;color:var(--text-secondary);font-weight:700">Ingreso efectivo</div>
+          <div style="font-size:17px;font-weight:800;color:var(--income)">${effective.monthly.toFixed(0)} €/mes</div>
+          <div style="font-size:10px;color:var(--text-secondary)">${effective.weekly.toFixed(1)} €/sem</div>
+        </div>
+        <div style="padding:10px;background:var(--bg);border-radius:8px;text-align:center">
+          <div style="font-size:10px;color:var(--text-secondary);font-weight:700">Gasto medio</div>
+          <div style="font-size:17px;font-weight:800;color:var(--expense)">${(stats?.avgMonthlyExpense || 0).toFixed(0)} €/mes</div>
+          <div style="font-size:10px;color:var(--text-secondary)">${esc(effective.sourceLabel || '')}</div>
+        </div>
+      </div>` : ''}
+      <div class="form-group" style="margin-bottom:10px">
+        <label style="font-size:12px;font-weight:600">Modo de ingreso</label>
+        <select id="incomeMode" class="profile-card-name" style="max-width:320px">
+          <option value="hybrid" ${mode === 'hybrid' ? 'selected' : ''}>Híbrido — el mayor entre configurado e histórico</option>
+          <option value="manual" ${mode === 'manual' ? 'selected' : ''}>Manual — solo lo que configures</option>
+          <option value="auto" ${mode === 'auto' ? 'selected' : ''}>Automático — solo estimación del historial</option>
+        </select>
+      </div>
+      <div class="form-grid" style="grid-template-columns:1fr 1fr;max-width:400px">
+        <div class="form-group">
+          <label>Semanal fijo (€)</label>
+          <input type="number" id="budgetWeekly" step="1" min="0" value="${weekly}" style="font-size:16px;font-weight:600" placeholder="0">
+        </div>
+        <div class="form-group">
+          <label>Extra mensual (€)</label>
+          <input type="number" id="budgetMonthly" step="1" min="0" value="${extra}" style="font-size:16px;font-weight:600" placeholder="0">
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+        <button class="btn btn-primary btn-sm" onclick="Categorias._saveIncome()">💾 Guardar ingresos</button>
+        ${userSet ? `<button type="button" class="btn btn-secondary btn-sm" onclick="Categorias._clearIncome()">Usar solo estimación</button>` : ''}
+      </div>
+    </div>`;
+  },
+
+  _saveIncome() {
+    const weekly = parseFloat(document.getElementById('budgetWeekly')?.value);
+    const extra = parseFloat(document.getElementById('budgetMonthly')?.value);
+    const mode = document.getElementById('incomeMode')?.value || 'hybrid';
+    Store.setIncomeMode(mode);
+    Store.setBudgetWeeklyIncome(isNaN(weekly) ? 0 : weekly);
+    Store.setBudgetMonthlyExtra(isNaN(extra) ? 0 : extra);
+    if (Store.isImprevistosInPlan() && Store.isImprevistosAutoAdjust() && Store._autoAdjustImprevistosBudget?.()) {
+      Store.setImprevistosBudget(Store.getImprevistosBudget());
+    }
+    App.showToast('✅ Ingresos guardados');
+    this.render();
+    if (typeof Presupuesto !== 'undefined') Presupuesto.render?.();
+    if (typeof Dashboard !== 'undefined') Dashboard.render?.();
+  },
+
+  _clearIncome() {
+    Store.clearConfiguredIncome();
+    App.showToast('Estimación automática activada');
+    this.render();
+    if (typeof Presupuesto !== 'undefined') Presupuesto.render?.();
+    if (typeof Dashboard !== 'undefined') Dashboard.render?.();
   },
 
   _profileCardHtml() {

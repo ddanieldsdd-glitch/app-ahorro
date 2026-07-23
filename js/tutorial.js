@@ -86,8 +86,8 @@ const Tutorial = {
             imprevistos y gastos planificados.
           </div>
           <div style="background:var(--bg);padding:10px;border-radius:8px;font-size:12px;line-height:1.5">
-            <strong>📊 Presupuesto semanal</strong> — configura en ⚙️ cuánto ingresas por semana.
-            La app reparte ese presupuesto entre alimentación, gastos fijos y ahorro.
+            <strong>📊 Presupuesto semanal</strong> — opcionalmente configura ingresos en ⚙️ Ajustes.
+            Si no lo haces, la app aprende de tus movimientos y estima cuánto ingresas y gastas.
           </div>
           <div style="background:var(--bg);padding:10px;border-radius:8px;font-size:12px;line-height:1.5">
             <strong>🐷 Metas de ahorro</strong> — añade metas con fecha objetivo y la app calcula
@@ -95,7 +95,7 @@ const Tutorial = {
           </div>
         </div>
         <div style="font-size:12px;color:var(--text-secondary)">
-          Configura tus importes en <strong>⚙️ → Presupuesto</strong>.
+          Configura ingresos (opcional) en <strong>⚙️ → Tus ingresos</strong>. Las sugerencias de presupuesto están en <strong>💡 Ahorro</strong>.
         </div>`,
     },
     {

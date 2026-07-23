@@ -69,10 +69,260 @@ const BudgetEngine = {
       .reduce((s, t) => s + t.amount, 0);
   },
 
-  // ── Ingresos configurados ─────────────────────────────────────────────────
+  // ── Ingresos configurados / inferidos ─────────────────────────────────────
+
+  getHistoricalStats() {
+    const archives = Store.getArchives();
+    const currentTx = Store.getTransactions().filter(t => !Store.isAdjustment(t));
+    const byMonthExpense = {};
+    const byMonthIncome = {};
+    const allExpenses = [];
+    const allIncomes = [];
+
+    for (const t of currentTx) {
+      if (Store.isSpendableExpense(t)) {
+        allExpenses.push(t);
+        byMonthExpense[t.month] = (byMonthExpense[t.month] || 0) + t.amount;
+      } else if (t.type === 'Ingreso') {
+        allIncomes.push(t);
+        byMonthIncome[t.month] = (byMonthIncome[t.month] || 0) + t.amount;
+      }
+    }
+    for (const [month, txs] of Object.entries(archives)) {
+      for (const t of txs) {
+        if (Store.isAdjustment(t)) continue;
+        if (Store.isSpendableExpense(t)) {
+          allExpenses.push(t);
+          byMonthExpense[month] = (byMonthExpense[month] || 0) + t.amount;
+        } else if (t.type === 'Ingreso') {
+          allIncomes.push(t);
+          byMonthIncome[month] = (byMonthIncome[month] || 0) + t.amount;
+        }
+      }
+    }
+
+    const expenseMonths = Object.keys(byMonthExpense).sort();
+    const incomeMonths = Object.keys(byMonthIncome).sort();
+    const allMonths = [...new Set([...expenseMonths, ...incomeMonths])].sort();
+    const numExpenseMonths = Math.max(expenseMonths.length, 0);
+    const numIncomeMonths = Math.max(incomeMonths.length, 0);
+
+    const totalExpense = Object.values(byMonthExpense).reduce((s, v) => s + v, 0);
+    const totalIncome = Object.values(byMonthIncome).reduce((s, v) => s + v, 0);
+    const avgMonthlyExpense = numExpenseMonths > 0 ? totalExpense / numExpenseMonths : 0;
+    const avgMonthlyIncome = numIncomeMonths > 0 ? totalIncome / numIncomeMonths : 0;
+
+    const byCat = {};
+    for (const t of allExpenses) {
+      byCat[t.category] = (byCat[t.category] || 0) + t.amount;
+    }
+    const catAvg = {};
+    const catDiv = Math.max(numExpenseMonths, 1);
+    for (const [cat, total] of Object.entries(byCat)) {
+      catAvg[cat] = total / catDiv;
+    }
+
+    const groupAvg = {};
+    for (const g of Store.getCategoryGroups()) {
+      let total = 0;
+      for (const t of allExpenses) {
+        if (Store.txInCategoryGroup(t, g)) total += t.amount;
+      }
+      if (total > 0) {
+        groupAvg[g.id] = {
+          id: g.id,
+          name: g.name,
+          emoji: Store.getGroupDisplayEmoji(g),
+          monthly: total / catDiv,
+          isFoodGroup: !!g.isFoodGroup,
+        };
+      }
+    }
+
+    let confidence = 'none';
+    if (allMonths.length >= 3 && (avgMonthlyIncome > 0 || avgMonthlyExpense > 0)) confidence = 'high';
+    else if (allMonths.length >= 2) confidence = 'medium';
+    else if (allMonths.length >= 1 && (totalExpense > 0 || totalIncome > 0)) confidence = 'low';
+
+    return {
+      avgMonthlyExpense,
+      avgWeeklyExpense: avgMonthlyExpense / 4.33,
+      avgDailyExpense: avgMonthlyExpense / 30,
+      avgMonthlyIncome,
+      avgWeeklyIncome: avgMonthlyIncome / 4.33,
+      numMonths: allMonths.length,
+      numExpenseMonths,
+      numIncomeMonths,
+      byMonthExpense,
+      byMonthIncome,
+      catAvg,
+      groupAvg,
+      confidence,
+      allMonths,
+    };
+  },
+
+  getInferredIncome() {
+    const stats = this.getHistoricalStats();
+    if (stats.avgMonthlyIncome > 0) {
+      return {
+        weekly: stats.avgWeeklyIncome,
+        monthly: stats.avgMonthlyIncome,
+        source: 'history',
+        confidence: stats.confidence,
+        label: 'Estimado de tus ingresos registrados',
+      };
+    }
+    if (stats.avgMonthlyExpense > 0) {
+      const monthly = stats.avgMonthlyExpense * 1.05;
+      return {
+        weekly: monthly / 4.33,
+        monthly,
+        source: 'expense_estimate',
+        confidence: stats.confidence === 'none' ? 'low' : stats.confidence,
+        label: 'Estimado a partir de tu gasto habitual (+5%)',
+      };
+    }
+    return { weekly: 0, monthly: 0, source: 'none', confidence: 'none', label: 'Sin datos suficientes' };
+  },
+
+  getEffectiveIncome() {
+    const mode = Store.getIncomeMode();
+    const manualWeekly = Store.getBudgetWeeklyIncome();
+    const manualExtra = Store.getBudgetMonthlyExtra();
+    const manualMonthly = Store.isIncomeUserSet() ? (manualWeekly * 4.33 + manualExtra) : 0;
+    const inferred = this.getInferredIncome();
+
+    let monthly = 0;
+    let source = 'none';
+    let sourceLabel = inferred.label;
+
+    if (mode === 'manual') {
+      monthly = manualMonthly;
+      source = manualMonthly > 0 ? 'manual' : 'none';
+      sourceLabel = manualMonthly > 0 ? 'Configurado en Ajustes' : inferred.label;
+    } else if (mode === 'auto') {
+      monthly = inferred.monthly;
+      source = inferred.source;
+      sourceLabel = inferred.label;
+    } else {
+      monthly = Math.max(manualMonthly, inferred.monthly);
+      if (manualMonthly >= inferred.monthly && manualMonthly > 0) {
+        source = 'manual';
+        sourceLabel = inferred.monthly > 0
+          ? 'Híbrido: usa tu configuración (mayor que el histórico)'
+          : 'Configurado en Ajustes';
+      } else if (inferred.monthly > manualMonthly) {
+        source = inferred.source;
+        sourceLabel = manualMonthly > 0
+          ? `Híbrido: histórico (${inferred.monthly.toFixed(0)}€/mes) supera lo configurado`
+          : inferred.label;
+      }
+    }
+
+    return {
+      weekly: monthly / 4.33,
+      monthly,
+      manualMonthly,
+      inferredMonthly: inferred.monthly,
+      source,
+      sourceLabel,
+      confidence: inferred.confidence,
+      mode,
+      hasManual: manualMonthly > 0,
+      hasInferred: inferred.monthly > 0,
+    };
+  },
 
   getWeeklyIncome() {
-    return Store.getBudgetWeeklyIncome() + Store.getBudgetMonthlyExtra() / 4.33;
+    return this.getEffectiveIncome().weekly;
+  },
+
+  _roundNice(n) {
+    if (n <= 0) return 0;
+    if (n < 20) return Math.round(n);
+    if (n < 100) return Math.round(n / 5) * 5;
+    return Math.round(n / 10) * 10;
+  },
+
+  getLearnedBudgetSuggestions() {
+    const stats = this.getHistoricalStats();
+    const income = this.getEffectiveIncome();
+    const suggestions = [];
+    let rid = 0;
+
+    const push = (rec) => suggestions.push({ id: 'learn_' + (++rid), fromHistory: true, ...rec });
+
+    const suggestedMonthlyGlobal = income.monthly > 0
+      ? income.monthly
+      : (stats.avgMonthlyExpense > 0 ? stats.avgMonthlyExpense * 1.05 : 0);
+    const suggestedWeeklyGlobal = suggestedMonthlyGlobal / 4.33;
+
+    for (const g of Object.values(stats.groupAvg)) {
+      const group = Store.getCategoryGroups().find(x => x.id === g.id);
+      if (!group) continue;
+      const current = group.isFoodGroup ? Store.getEffectiveFoodBudget() : (group.monthlyBudget || 0);
+      const historical = g.monthly;
+      if (historical <= 0) continue;
+
+      const suggested = this._roundNice(historical * 1.05);
+      const diffPct = current > 0 ? Math.abs(current - historical) / historical : 1;
+
+      if (current <= 0 || diffPct > 0.25) {
+        push({
+          type: current <= 0 ? 'setup' : 'adjust',
+          target: group.isFoodGroup ? 'food' : 'group',
+          targetId: group.isFoodGroup ? 'food' : g.id,
+          targetName: g.name,
+          emoji: g.emoji || '📦',
+          priority: Store.getGroupPriority(g.id),
+          currentMonthly: current,
+          currentWeekly: current / 4.33,
+          suggestedMonthly: suggested,
+          suggestedWeekly: suggested / 4.33,
+          reason: current <= 0
+            ? `Según ${stats.numExpenseMonths || 1} mes(es) de movimientos, gastas ~${historical.toFixed(0)}€/mes en ${g.name}.`
+            : `Tu presupuesto (${current.toFixed(0)}€/mes) difiere del histórico (~${historical.toFixed(0)}€/mes).`,
+          impact: `${suggested.toFixed(0)}€/mes · ${(suggested / 4.33).toFixed(1)}€/sem sugeridos`,
+          level: current <= 0 ? 'info' : 'warn',
+        });
+      }
+    }
+
+    const limits = Store.getCategoryLimits();
+    for (const [cat, avg] of Object.entries(stats.catAvg)) {
+      if (avg < 8) continue;
+      if (Store.getCategoryGroup(cat)) continue;
+      const limit = limits[cat] || 0;
+      if (limit > 0) continue;
+      const suggestedWeekly = this._roundNice(avg / 4.33);
+      push({
+        type: 'setup',
+        target: 'category',
+        targetId: cat,
+        targetName: cat,
+        emoji: '🏷️',
+        priority: Store.getCategoryPriority(cat),
+        currentMonthly: 0,
+        currentWeekly: 0,
+        suggestedMonthly: suggestedWeekly * 4.33,
+        suggestedWeekly,
+        reason: `Gastas ~${avg.toFixed(0)}€/mes en ${cat} sin límite semanal definido.`,
+        impact: `${suggestedWeekly.toFixed(0)}€/sem sugerido`,
+        level: 'info',
+      });
+    }
+
+    return {
+      stats,
+      income,
+      global: {
+        suggestedMonthly: suggestedMonthlyGlobal,
+        suggestedWeekly: suggestedWeeklyGlobal,
+      },
+      suggestions: suggestions.slice(0, 10),
+      confidence: stats.confidence,
+    };
   },
 
   // ── Allocaciones del plan ─────────────────────────────────────────────────
@@ -151,8 +401,8 @@ const BudgetEngine = {
       .reduce((s, t) => s + t.amount, 0);
     const totalSpent = expenses.reduce((s, t) => s + t.amount, 0);
 
-    // Monthly income configured
-    const monthlyIncome = Store.getBudgetWeeklyIncome() * 4.33 + Store.getBudgetMonthlyExtra();
+    // Monthly income (effective: manual / inferred / hybrid)
+    const monthlyIncome = this.getEffectiveIncome().monthly;
 
     // By category
     const byCat = {};
@@ -218,9 +468,32 @@ const BudgetEngine = {
    * Devuelve porcentajes y cantidades semanales/mensuales recomendados.
    */
   getSmartSavingsGuide() {
-    const weeklyIncome = Store.getBudgetWeeklyIncome();
-    const monthlyExtra = Store.getBudgetMonthlyExtra();
-    const monthlyIncome = weeklyIncome * 4.33 + monthlyExtra;
+    const effective = this.getEffectiveIncome();
+    const monthlyIncome = effective.monthly;
+
+    if (monthlyIncome <= 0) {
+      const stats = this.getHistoricalStats();
+      return {
+        monthlyIncome: 0,
+        incomeSource: effective.source,
+        incomeSourceLabel: effective.sourceLabel,
+        savingPct: 10,
+        imprevistosPct: 10,
+        label: 'Aprendiendo de tus movimientos',
+        color: '#6366F1',
+        advice: stats.avgMonthlyExpense > 0
+          ? `Sin ingresos definidos aún. Gastas ~${stats.avgMonthlyExpense.toFixed(0)}€/mes de media — registra ingresos o configúralos en ⚙️ para un plan más preciso.`
+          : 'Empieza registrando gastos e ingresos. No hace falta configurar nada: la app aprenderá tu ritmo automáticamente.',
+        monthlySaving: 0,
+        monthlyImprevisto: 0,
+        weeklySaving: 0,
+        weeklyImprevisto: 0,
+        currentWeeklySaving: Store.getRecommendedWeeklySaving(Store.getSavingGoals()),
+        currentImprevistosBudget: Store.getEffectiveImprevistosBudget(),
+        imprevistosInPlan: Store.isImprevistosInPlan(),
+        imprevistosAutoAdjust: Store.isImprevistosAutoAdjust(),
+      };
+    }
 
     let savingPct, imprevistosPct, label, advice, color;
 
@@ -255,6 +528,8 @@ const BudgetEngine = {
 
     return {
       monthlyIncome,
+      incomeSource: effective.source,
+      incomeSourceLabel: effective.sourceLabel,
       savingPct,
       imprevistosPct,
       label,
@@ -280,7 +555,7 @@ const BudgetEngine = {
     const savingsBalance = Store.getSavingsBalance();
     const cashBalance = Store.getCashBalance();
     const totalWealth = checkingBalance + savingsBalance + cashBalance;
-    const monthlyIncome = Store.getBudgetWeeklyIncome() * 4.33 + Store.getBudgetMonthlyExtra();
+    const monthlyIncome = this.getEffectiveIncome().monthly;
 
     // Compute average monthly expense from last 3 months of data
     const archives = Store.getArchives();
@@ -400,8 +675,9 @@ const BudgetEngine = {
 
     const expenseTotal = expenses.reduce((s, t) => s + t.amount, 0);
     const incomeActual = incomes.reduce((s, t) => s + t.amount, 0);
-    const weeklyIncomeCfg = this.getWeeklyIncome();
-    const incomeConfigured = isWeek ? weeklyIncomeCfg : weeklyIncomeCfg * 4.33;
+    const effective = this.getEffectiveIncome();
+    const weeklyIncomeCfg = effective.weekly;
+    const incomeConfigured = isWeek ? weeklyIncomeCfg : effective.monthly;
 
     const byCatMap = {};
     for (const t of expenses) {
@@ -506,6 +782,7 @@ const BudgetEngine = {
     const mv = this.getMonthVariance(month);
     const weekSum = this.getPeriodSummary('week');
     const monthSum = this.getPeriodSummary('month', month);
+    const learned = this.getLearnedBudgetSuggestions();
     const frac = mv.daysInMonth > 0 ? Math.max(0.15, mv.dayOfMonth / mv.daysInMonth) : 1;
     const recommendations = [];
     let rid = 0;
@@ -514,12 +791,12 @@ const BudgetEngine = {
       recommendations.push({ id: 'rec_' + (++rid), ...rec });
     };
 
-    const roundNice = (n) => {
-      if (n <= 0) return 0;
-      if (n < 20) return Math.round(n);
-      if (n < 100) return Math.round(n / 5) * 5;
-      return Math.round(n / 10) * 10;
-    };
+    const roundNice = (n) => this._roundNice(n);
+
+    // Historical baseline suggestions when budgets are missing or far from reality
+    for (const ls of learned.suggestions) {
+      push(ls);
+    }
 
     // ── Food ──────────────────────────────────────────────────────────────
     if (mv.foodBudget > 0) {
@@ -789,7 +1066,15 @@ const BudgetEngine = {
 
     // Sort: danger first, then by priority (cut low-pri first / protect high)
     const levelOrder = { danger: 0, warn: 1, info: 2, good: 3 };
-    recommendations.sort((a, b) =>
+    const deduped = [];
+    const seenTargets = new Set();
+    for (const r of recommendations) {
+      const key = `${r.target}:${r.targetId}`;
+      if (seenTargets.has(key)) continue;
+      seenTargets.add(key);
+      deduped.push(r);
+    }
+    deduped.sort((a, b) =>
       (levelOrder[a.level] ?? 9) - (levelOrder[b.level] ?? 9) ||
       (b.type === 'decrease' ? b.priority - a.priority : a.priority - b.priority)
     );
@@ -797,7 +1082,8 @@ const BudgetEngine = {
     return {
       week: weekSum,
       month: monthSum,
-      recommendations: recommendations.slice(0, 12),
+      learned,
+      recommendations: deduped.slice(0, 14),
       hasPrioritiesConfigured: Object.keys(Store.getExpensePriorities()).length > 0,
     };
   },

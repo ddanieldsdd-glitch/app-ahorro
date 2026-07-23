@@ -47,6 +47,7 @@ const ExcelIO = {
       Importe: dbt.amount ?? '',
       TotalImporte: dbt.totalAmount ?? '',
       Descripción: dbt.description || '',
+      QuéEra: dbt.expensePurpose || dbt.description || '',
       Categoría: dbt.category || '',
       Fecha: dbt.date || '',
       Estado: dbt.isPaid ? 'Pagado' : 'Pendiente',
@@ -55,7 +56,8 @@ const ExcelIO = {
       AutoTx: dbt.autoCreatedTx ? 'Sí' : 'No',
       SplitCount: dbt.splitCount ?? '',
       SplitAmount: dbt.splitAmount ?? '',
-    })), [12,16,10,10,10,30,16,12,10,12,14,8,10,10]);
+      Partidas: dbt.splitLines?.length ? JSON.stringify(dbt.splitLines) : '',
+    })), [12,16,10,10,10,30,28,16,12,10,12,14,8,10,10,40]);
 
     this._appendSheet(wb, 'Personas', (d.people || []).map(p => (
       typeof p === 'string'
@@ -284,13 +286,21 @@ const ExcelIO = {
       const amount = parseFloat(String(r.Importe || r.importe).replace(',', '.'));
       if (!r.Persona && !amount) return null;
       const tipo = String(r.Tipo || '').toLowerCase();
+      let splitLines = null;
+      const partidasRaw = r.Partidas || r.partidas || '';
+      if (partidasRaw) {
+        try { splitLines = JSON.parse(String(partidasRaw)); } catch { splitLines = null; }
+      }
+      const desc = r.Descripción || r.descripcion || '';
+      const purpose = r['QuéEra'] || r.QueEra || r.quéEra || r.concepto || desc;
       return {
         id: r.ID || r.id || (Date.now().toString(36) + Math.random().toString(36).substr(2, 6)),
         person: r.Persona || r.persona || '',
         type: tipo.includes('debo') ? 'i_owe' : 'owed_to_me',
         amount: isNaN(amount) ? 0 : amount,
         totalAmount: parseFloat(String(r.TotalImporte || amount).replace(',', '.')) || amount,
-        description: r.Descripción || r.descripcion || '',
+        description: desc,
+        expensePurpose: purpose,
         category: r.Categoría || r.categoria || 'Otros',
         date: this._parseDate(String(r.Fecha || '')) || new Date().toISOString().split('T')[0],
         isPaid: String(r.Estado || '').toLowerCase().includes('pag'),
@@ -299,6 +309,7 @@ const ExcelIO = {
         autoCreatedTx: String(r.AutoTx || '').toLowerCase().startsWith('s'),
         splitCount: r.SplitCount ? parseInt(r.SplitCount, 10) : undefined,
         splitAmount: r.SplitAmount ? parseFloat(String(r.SplitAmount).replace(',', '.')) : undefined,
+        splitLines,
       };
     }).filter(Boolean);
   },

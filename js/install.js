@@ -1,4 +1,4 @@
-const APP_BUILD_ID = 'presupuesto-v54';
+const APP_BUILD_ID = 'presupuesto-v57';
 const WINDOWS_EXE_URL = 'https://github.com/ddanieldsdd-glitch/app-ahorro/releases/download/v2.0.4/Presupuesto.Personal.Setup.2.0.4.exe';
 const PWA_INSTALLED_KEY = 'ahorro_pwa_installed';
 
@@ -7,7 +7,7 @@ const Install = {
   _isStandalone: false,
   _isElectronApp: false,
   _swRegistration: null,
-  _updateInfo: { running: '', remote: '', lastCheck: 0, checking: false, updateAvailable: false },
+  _updateInfo: { running: '', jsVersion: '', remote: '', lastCheck: 0, checking: false, updateAvailable: false, integrityMismatch: false },
   _updateUiCallbacks: [],
 
   onUpdateStatusChange(cb) { this._updateUiCallbacks.push(cb); },
@@ -18,11 +18,59 @@ const Install = {
   },
 
   getUpdateInfo() {
-    return { ...this._updateInfo, installKind: this.getInstallKind(), installLabel: this.getInstallLabel() };
+    const html = this._getHtmlVersion();
+    const js = this._getJsVersion();
+    const mismatch = html && js && html !== js;
+    return {
+      ...this._updateInfo,
+      htmlVersion: html,
+      jsVersion: js,
+      integrityMismatch: mismatch,
+      installKind: this.getInstallKind(),
+      installLabel: this.getInstallLabel(),
+    };
+  },
+
+  _getHtmlVersion() {
+    return window.__APP_BUILD_VERSION || this._getMetaVersion() || '';
+  },
+
+  _getJsVersion() {
+    if (typeof APP_BUILD_ID !== 'undefined' && APP_BUILD_ID) return APP_BUILD_ID;
+    return '';
+  },
+
+  _checkIntegrity() {
+    const html = this._getHtmlVersion();
+    const js = this._getJsVersion();
+    if (!html || !js) return false;
+    const mismatch = html !== js;
+    this._updateInfo.integrityMismatch = mismatch;
+    this._updateInfo.jsVersion = js;
+    if (mismatch) {
+      this._updateInfo.updateAvailable = true;
+      const newer = this._pickNewestVersion([html, js]);
+      if (newer && this._isBuildNewer(newer, this._getRunningVersion())) {
+        window.__PENDING_APP_VERSION = this._pickNewestVersion([window.__PENDING_APP_VERSION, newer]);
+      }
+    }
+    return mismatch;
+  },
+
+  async _cleanupLegacyServiceWorkers() {
+    if (!('serviceWorker' in navigator)) return;
+    try {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(async (reg) => {
+        const url = reg.active?.scriptURL || reg.waiting?.scriptURL || reg.installing?.scriptURL || '';
+        if (url.includes('/sw.js?')) await reg.unregister();
+      }));
+    } catch { /* ignore */ }
   },
 
   init() {
     this._refreshInstallState();
+    this._cleanupLegacyServiceWorkers();
 
     const justUpdated = sessionStorage.getItem('_appUpdateReload');
     if (justUpdated) {
@@ -31,8 +79,16 @@ const Install = {
       if (running) this._setLocalVersion(running);
       delete window.__PENDING_APP_VERSION;
     } else if (window.__PENDING_APP_VERSION) {
-      setTimeout(() => this._showUpdateBanner('version'), 300);
+      const pending = window.__PENDING_APP_VERSION;
+      const running = this._getHtmlVersion();
+      if (this._isApplePlatform() && this.isInstalled() && this._isBuildNewer(pending, running)) {
+        setTimeout(() => this._showAppleUpdateModal(pending, running), 400);
+      } else {
+        setTimeout(() => this._showUpdateBanner('version'), 300);
+      }
     }
+
+    this._checkIntegrity();
 
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();
@@ -64,10 +120,41 @@ const Install = {
       if (v && !localStorage.getItem('_appCacheVersion')) {
         this._setLocalVersion(this._getRunningVersion() || v);
       }
+      this._checkIntegrity();
       this._updateInfo.running = this._getRunningVersion();
+      this._updateInfo.jsVersion = this._getJsVersion();
       if (v) this._updateInfo.remote = v;
-      if (window.__PENDING_APP_VERSION) this._updateInfo.updateAvailable = true;
+      if (window.__PENDING_APP_VERSION || this._updateInfo.integrityMismatch) {
+        this._updateInfo.updateAvailable = true;
+      }
       this._emitUpdateStatus();
+    });
+  },
+
+  _showAppleUpdateModal(pending, running) {
+    if (document.getElementById('appleUpdateModal')) return;
+    const overlay = document.createElement('div');
+    overlay.id = 'appleUpdateModal';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px';
+    overlay.innerHTML = `
+      <div style="background:var(--card);border-radius:14px;padding:22px;max-width:340px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,.25)">
+        <div style="font-size:17px;font-weight:800;margin-bottom:8px">🔄 Actualización disponible</div>
+        <p style="font-size:13px;color:var(--text-secondary);line-height:1.55;margin-bottom:14px">
+          Hay una versión nueva en el servidor (<strong>${esc(pending)}</strong>).
+          Tienes <strong>${esc(running || '—')}</strong> en este dispositivo.
+          Pulsa actualizar para descargar la versión más reciente. Tus datos se conservan.
+        </p>
+        <button class="btn btn-primary" style="width:100%;margin-bottom:8px" id="appleUpdateNowBtn">⬆ Actualizar ahora</button>
+        <button class="btn btn-secondary" style="width:100%" id="appleUpdateLaterBtn">Más tarde</button>
+      </div>`;
+    document.body.appendChild(overlay);
+    document.getElementById('appleUpdateNowBtn').addEventListener('click', () => {
+      overlay.remove();
+      this.forceUpdateNow(true);
+    });
+    document.getElementById('appleUpdateLaterBtn').addEventListener('click', () => {
+      overlay.remove();
+      this._showUpdateBanner('version');
     });
   },
 
@@ -272,12 +359,22 @@ const Install = {
         ? `Actualización disponible (${this._updateInfo.remote})`
         : `App ${this._updateInfo.running || '—'} · Comprobar actualizaciones`;
     }
-    const panelRemote = document.getElementById('updatePanelRemote');
     const panelRunning = document.getElementById('updatePanelRunning');
+    const panelJs = document.getElementById('updatePanelJs');
+    const panelRemote = document.getElementById('updatePanelRemote');
+    const panelIntegrity = document.getElementById('updatePanelIntegrity');
     const panelStatus = document.getElementById('updatePanelStatus');
     const panelLast = document.getElementById('updatePanelLastCheck');
-    if (panelRunning) panelRunning.textContent = this._updateInfo.running || '—';
+    const htmlV = this._getHtmlVersion();
+    const jsV = this._getJsVersion();
+    if (panelRunning) panelRunning.textContent = htmlV || this._updateInfo.running || '—';
+    if (panelJs) panelJs.textContent = jsV || '—';
     if (panelRemote) panelRemote.textContent = this._updateInfo.remote || '—';
+    if (panelIntegrity) {
+      const mismatch = htmlV && jsV && htmlV !== jsV;
+      panelIntegrity.textContent = mismatch ? `⚠️ HTML (${htmlV}) ≠ JS (${jsV})` : '✓ Coherente';
+      panelIntegrity.style.color = mismatch ? 'var(--expense)' : 'var(--income)';
+    }
     if (panelLast) {
       panelLast.textContent = this._updateInfo.lastCheck
         ? new Date(this._updateInfo.lastCheck).toLocaleString('es-ES')
@@ -288,7 +385,9 @@ const Install = {
         panelStatus.textContent = 'Comprobando…';
         panelStatus.className = 'update-panel-status checking';
       } else if (this._updateInfo.updateAvailable) {
-        panelStatus.textContent = `Nueva versión: ${this._updateInfo.remote}`;
+        panelStatus.textContent = this._updateInfo.integrityMismatch
+          ? 'Actualización incompleta — recarga necesaria'
+          : `Nueva versión: ${this._updateInfo.remote}`;
         panelStatus.className = 'update-panel-status available';
       } else if (this._updateInfo.remote) {
         panelStatus.textContent = 'App al día';
@@ -299,7 +398,7 @@ const Install = {
       }
     }
     const forceBtn = document.getElementById('updatePanelForceBtn');
-    if (forceBtn) forceBtn.style.display = this._updateInfo.updateAvailable ? '' : 'none';
+    if (forceBtn) forceBtn.style.display = (this._updateInfo.updateAvailable || this._updateInfo.integrityMismatch) ? '' : 'none';
 
     const settingsEl = document.getElementById('settingsUpdateStatus');
     if (settingsEl) {
@@ -430,11 +529,11 @@ const Install = {
 
   /** Versión del código JS que está ejecutándose (fiable en macOS con caché parcial). */
   _getRunningVersion() {
-    // Inline en index.html es la fuente más fiable tras recargar (install.js puede venir de caché antigua)
-    if (window.__APP_BUILD_VERSION) return window.__APP_BUILD_VERSION;
-    const meta = this._getMetaVersion();
-    if (meta) return meta;
-    if (typeof APP_BUILD_ID !== 'undefined' && APP_BUILD_ID) return APP_BUILD_ID;
+    const html = this._getHtmlVersion();
+    const js = this._getJsVersion();
+    if (html && js && html !== js) return js;
+    if (html) return html;
+    if (js) return js;
     return this._getLocalVersion() || '';
   },
 
@@ -473,11 +572,14 @@ const Install = {
     }
 
     const needsUpdate = await this._needsVersionUpdate(remote);
-    this._updateInfo.updateAvailable = needsUpdate;
+    this._checkIntegrity();
+    const integrityFail = this._updateInfo.integrityMismatch;
+    this._updateInfo.updateAvailable = needsUpdate || integrityFail;
+    this._updateInfo.jsVersion = this._getJsVersion();
     this._emitUpdateStatus();
 
-    if (needsUpdate) {
-      if (!this._isBannerDismissed()) this._showUpdateBanner('version');
+    if (needsUpdate || integrityFail) {
+      if (!this._isBannerDismissed()) this._showUpdateBanner(integrityFail ? 'integrity' : 'version');
       return true;
     }
 
@@ -570,10 +672,12 @@ const Install = {
     const isApple = this._isApplePlatform();
     const body = `
       <div class="update-panel-grid">
-        <div class="update-panel-row"><span>En este dispositivo</span><code id="updatePanelRunning">${esc(info.running || '—')}</code></div>
+        <div class="update-panel-row"><span>HTML cargado</span><code id="updatePanelRunning">${esc(info.htmlVersion || info.running || '—')}</code></div>
+        <div class="update-panel-row"><span>Código JS</span><code id="updatePanelJs">${esc(info.jsVersion || '—')}</code></div>
         <div class="update-panel-row"><span>En el servidor</span><code id="updatePanelRemote">${esc(info.remote || '—')}</code></div>
+        <div class="update-panel-row"><span>Integridad</span><span id="updatePanelIntegrity" style="font-size:12px;font-weight:600;color:${info.integrityMismatch ? 'var(--expense)' : 'var(--income)'}">${info.integrityMismatch ? `⚠️ HTML (${esc(info.htmlVersion)}) ≠ JS (${esc(info.jsVersion)})` : '✓ Coherente'}</span></div>
         <div class="update-panel-row"><span>Última comprobación</span><span id="updatePanelLastCheck">${info.lastCheck ? new Date(info.lastCheck).toLocaleString('es-ES') : 'Aún no'}</span></div>
-        <div class="update-panel-row"><span>Estado</span><span id="updatePanelStatus" class="update-panel-status ${info.checking ? 'checking' : info.updateAvailable ? 'available' : info.remote ? 'ok' : 'offline'}">${info.checking ? 'Comprobando…' : info.updateAvailable ? `Nueva versión: ${esc(info.remote)}` : info.remote ? 'App al día' : 'Sin conexión'}</span></div>
+        <div class="update-panel-row"><span>Estado</span><span id="updatePanelStatus" class="update-panel-status ${info.checking ? 'checking' : info.updateAvailable ? 'available' : info.remote ? 'ok' : 'offline'}">${info.checking ? 'Comprobando…' : info.updateAvailable ? (info.integrityMismatch ? 'Actualización incompleta' : `Nueva versión: ${esc(info.remote)}`) : info.remote ? 'App al día' : 'Sin conexión'}</span></div>
         <div class="update-panel-row"><span>Modo</span><span>${esc(info.installLabel)}</span></div>
       </div>
       ${isApple ? `<div style="font-size:11px;color:var(--text-secondary);line-height:1.55;margin:12px 0;padding:10px;background:var(--bg);border-radius:8px">
@@ -598,7 +702,10 @@ const Install = {
   },
 
   async forceUpdateNow(hard = false) {
-    if (typeof App !== 'undefined') App.showToast(hard ? '🔄 Limpiando caché y recargando…' : '⬆ Actualizando…', 2500);
+    const doHard = hard || this._isApplePlatform() || this._updateInfo.integrityMismatch;
+    if (typeof App !== 'undefined') {
+      App.showToast(doHard ? '🔄 Limpiando caché y recargando…' : '⬆ Actualizando…', 2500);
+    }
     if (typeof Store !== 'undefined') {
       Store._backup?.('pre-update-reload');
       try {
@@ -612,18 +719,18 @@ const Install = {
     let remote = null;
     try {
       remote = await this._fetchRemoteVersion();
-      if (remote) {
-        this._setLocalVersion(remote);
-        sessionStorage.setItem('_appUpdateReload', remote);
-      }
+      if (remote) sessionStorage.setItem('_appUpdateReload', remote);
       delete window.__PENDING_APP_VERSION;
     } catch { /* ignore */ }
+    try { localStorage.removeItem('_appCacheVersion'); } catch { /* ignore */ }
+
     const reg = this._swRegistration || (navigator.serviceWorker?.getRegistration
       ? await navigator.serviceWorker.getRegistration()
       : null);
     if (reg?.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
     else if (reg?.installing) reg.installing.postMessage({ type: 'SKIP_WAITING' });
-    if (hard || this._isApplePlatform()) {
+
+    if (doHard) {
       try {
         if ('serviceWorker' in navigator) {
           const regs = await navigator.serviceWorker.getRegistrations();
@@ -634,9 +741,19 @@ const Install = {
           await Promise.all(keys.map((k) => caches.delete(k)));
         }
       } catch { /* ignore */ }
+      await new Promise((resolve) => {
+        let n = 0;
+        const tick = () => {
+          if (!navigator.serviceWorker?.controller || n >= 12) resolve();
+          else { n++; setTimeout(tick, 250); }
+        };
+        tick();
+      });
     }
+
     const bust = Date.now();
-    window.location.replace(`${window.location.origin}/index.html?_=${bust}${remote ? '&v=' + encodeURIComponent(remote) : ''}`);
+    const hardParam = doHard ? '&hard=1' : '';
+    window.location.replace(`${window.location.origin}/index.html?_=${bust}${remote ? '&v=' + encodeURIComponent(remote) : ''}${hardParam}`);
   },
 
   _showUpdateBanner(source) {
@@ -658,7 +775,7 @@ const Install = {
       </div>`;
     document.body.appendChild(banner);
 
-    document.getElementById('updateBannerBtn').addEventListener('click', () => this.forceUpdateNow());
+    document.getElementById('updateBannerBtn').addEventListener('click', () => this.forceUpdateNow(true));
     document.getElementById('updateBannerDismiss').addEventListener('click', () => {
       sessionStorage.setItem('updateBannerDismissedAt', String(Date.now()));
       banner.remove();

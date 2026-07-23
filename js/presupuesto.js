@@ -73,7 +73,8 @@ const Presupuesto = {
     const impPctIncome = budget.totalWeekly > 0 ? (imprevistosWeekly / budget.totalWeekly) * 100 : 0;
     const availPctIncome = budget.totalWeekly > 0 ? (available / budget.totalWeekly) * 100 : 0;
     const planAdvice = [];
-    if (available <= 0) planAdvice.push(`🔴 Tus gastos planificados superan tus ingresos. Revisa metas, imprevistos o gastos planificados.`);
+    if (available <= 0 && budget.totalWeekly > 0) planAdvice.push(`🔴 Tus gastos planificados superan tus ingresos. Revisa metas, imprevistos o gastos planificados.`);
+    else if (available <= 0 && budget.totalWeekly <= 0) planAdvice.push(`📊 Añade movimientos de ingreso y gasto — la app estimará tu presupuesto automáticamente. Opcional: configura ingresos en ⚙️ Ajustes.`);
     else if (available < recommendedWeeklySaving) planAdvice.push(`💪 El ${savePctIncome.toFixed(0)}% de tus ingresos va a ahorro. Te quedan ${available.toFixed(2)}€/sem para gastar.`);
     else planAdvice.push(`✅ Plan equilibrado: ${foodPctIncome.toFixed(0)}% comida · ${savePctIncome.toFixed(0)}% ahorro · ${availPctIncome.toFixed(0)}% gastos.`);
     if (available > 0) planAdvice.push(`💡 Prioriza gastar de tus ingresos semanales antes de usar el saldo de tu cuenta. La base guardada no se toca.`);
@@ -83,6 +84,8 @@ const Presupuesto = {
     const savingsGuide = BudgetEngine.getSmartSavingsGuide();
     const sustainability = BudgetEngine.getSustainabilityMetrics();
     const uncategorized = BudgetEngine.getUncategorizedCategories();
+    const effectiveIncome = BudgetEngine.getEffectiveIncome();
+    const learnedBudget = BudgetEngine.getLearnedBudgetSuggestions();
 
     el.innerHTML = `
       ${uncategorized.length > 0 ? `
@@ -167,7 +170,10 @@ const Presupuesto = {
           </div>
         </div>
         <div class="sa-plan-items">
-          <div class="sa-plan-row"><span>💰 Ingreso semanal total</span><strong>${budget.totalWeekly.toFixed(2)} €</strong></div>
+          <div class="sa-plan-row"><span>💰 Ingreso semanal total
+            ${effectiveIncome.source !== 'manual' ? `<span style="font-size:10px;color:var(--text-secondary);margin-left:4px">(${effectiveIncome.source === 'none' ? 'sin datos' : 'estimado'})</span>` : ''}
+          </span><strong>${budget.totalWeekly.toFixed(2)} €</strong></div>
+          ${effectiveIncome.sourceLabel ? `<div style="font-size:11px;color:var(--text-secondary);margin:-4px 0 8px;line-height:1.45">${esc(effectiveIncome.sourceLabel)} · <button type="button" class="linkish" onclick="App._switchTab('categorias')">Configurar ingresos →</button></div>` : ''}
           <div class="sa-plan-row sa-plan-row-adjust"><span>🍽️ Comida <span class="sa-plan-badge">obligatorio</span></span>
             <div><input type="number" id="planFoodBudget" value="${foodBudget}" step="5" class="sa-plan-input" onchange="Presupuesto._savePlanFood()"> €/mes <span class="sa-plan-sub">${foodWeekly.toFixed(2)} €/sem</span></div>
           </div>
@@ -271,6 +277,7 @@ const Presupuesto = {
       ${this._renderPlannedExpenses(budget, limits, weekExpenses, recommendedWeeklySaving, available)}
 
       ${this._renderPeriodSummaries(budget, limits, weekExpenses, categories)}
+      ${this._renderLearnedBudget(learnedBudget)}
       ${this._renderPriorityRecommendations()}
 
       <div class="card">
@@ -446,21 +453,6 @@ const Presupuesto = {
       ${this._renderRecurring()}
       ${this._render503020(budget, monthIncome, monthExpenses)}
 
-      <div class="card">
-        <div class="card-header"><span class="card-title">💰 Tus ingresos</span></div>
-        <div class="form-grid" style="grid-template-columns:1fr 1fr;max-width:400px">
-          <div class="form-group">
-            <label>Semanal fijo (€)</label>
-            <input type="number" id="budgetWeekly" step="1" value="${Store.getBudgetWeeklyIncome()}" style="font-size:16px;font-weight:600">
-          </div>
-          <div class="form-group">
-            <label>Extra mensual (€)</label>
-            <input type="number" id="budgetMonthly" step="1" value="${Store.getBudgetMonthlyExtra()}" style="font-size:16px;font-weight:600">
-          </div>
-        </div>
-        <button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="Presupuesto._saveIncome()">Guardar</button>
-      </div>
-
       ${this._renderOptimizer(weekExpenses, limits, budget, recommendedWeeklySaving, goals)}
 
       <div class="sa-card sa-card-tip">
@@ -490,7 +482,7 @@ const Presupuesto = {
       { selector: '.sa-card-plan-gastos', id: 'plangastos', title: '📋 Gastos planificados', defaultOpen: false },
       { selector: '.sa-card-debts', id: 'debts', title: '💳 Deudas pendientes', defaultOpen: false },
       { selector: '.sa-card-recurring', id: 'recurring', title: '🔁 Movimientos recurrentes', defaultOpen: false },
-      { selector: '.card:has(#budgetWeekly)', id: 'income', title: '💰 Ingresos configurados', defaultOpen: false },
+      { selector: '.sa-card-learned-budget', id: 'learned', title: '📈 Presupuesto sugerido', defaultOpen: true },
       { selector: '.sa-card-optimizer', id: 'optimizer', title: '🔧 Optimizador', defaultOpen: false },
       { selector: '.sa-card-tip', id: 'tips', title: '💡 Consejos', defaultOpen: false },
     ];
@@ -995,6 +987,71 @@ const Presupuesto = {
     if (month) month.style.display = which === 'month' ? '' : 'none';
   },
 
+  _renderLearnedBudget(learned) {
+    if (!learned) learned = BudgetEngine.getLearnedBudgetSuggestions();
+    const { stats, income, global, suggestions, confidence } = learned;
+    const confLabel = { high: 'Alta confianza', medium: 'Confianza media', low: 'Pocos datos', none: 'Sin datos' }[confidence] || '';
+    const confColor = confidence === 'high' ? 'var(--income)' : confidence === 'medium' ? '#F59E0B' : 'var(--text-secondary)';
+    const hasData = stats.numMonths > 0 && (stats.avgMonthlyExpense > 0 || stats.avgMonthlyIncome > 0);
+
+    if (!hasData && !income.hasManual) {
+      return `<div class="sa-card sa-card-learned-budget">
+        <div class="card-header"><span class="card-title">📈 Presupuesto sugerido</span></div>
+        <p style="font-size:13px;color:var(--text-secondary);line-height:1.55">
+          Empieza registrando gastos e ingresos — no hace falta configurar nada antes.
+          Con cada movimiento la app aprenderá tu ritmo y te propondrá presupuestos semanales y mensuales por grupo.
+        </p>
+        <button class="btn btn-secondary btn-sm" onclick="App._switchTab('categorias')">Configurar ingresos (opcional) →</button>
+      </div>`;
+    }
+
+    return `<div class="sa-card sa-card-learned-budget">
+      <div class="card-header">
+        <span class="card-title">📈 Presupuesto sugerido</span>
+        <span style="font-size:11px;font-weight:600;color:${confColor}">${confLabel}${stats.numMonths ? ` · ${stats.numMonths} mes${stats.numMonths !== 1 ? 'es' : ''}` : ''}</span>
+      </div>
+      <p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">
+        Basado en tu historial de movimientos${income.hasManual ? ' y en modo híbrido con tus ingresos configurados' : ''}.
+        ${esc(income.sourceLabel)}.
+      </p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+        <div style="padding:10px;background:var(--bg);border-radius:8px;text-align:center">
+          <div style="font-size:10px;color:var(--text-secondary);text-transform:uppercase;font-weight:700">Ingreso estimado</div>
+          <div style="font-size:18px;font-weight:800;color:var(--income)">${income.monthly.toFixed(0)} €/mes</div>
+          <div style="font-size:11px;color:var(--text-secondary)">${income.weekly.toFixed(1)} €/sem</div>
+        </div>
+        <div style="padding:10px;background:var(--bg);border-radius:8px;text-align:center">
+          <div style="font-size:10px;color:var(--text-secondary);text-transform:uppercase;font-weight:700">Gasto habitual</div>
+          <div style="font-size:18px;font-weight:800;color:var(--expense)">${stats.avgMonthlyExpense.toFixed(0)} €/mes</div>
+          <div style="font-size:11px;color:var(--text-secondary)">${stats.avgWeeklyExpense.toFixed(1)} €/sem</div>
+        </div>
+      </div>
+      ${global.suggestedMonthly > 0 ? `<div style="padding:10px;background:linear-gradient(135deg,var(--primary-light),var(--card));border-radius:8px;margin-bottom:12px;font-size:12px;line-height:1.5">
+        <strong>Presupuesto global sugerido:</strong> ${global.suggestedWeekly.toFixed(1)} €/sem · ${global.suggestedMonthly.toFixed(0)} €/mes
+      </div>` : ''}
+      ${suggestions.length > 0 ? `
+      <div style="font-size:11px;font-weight:700;color:var(--text-secondary);margin-bottom:6px;text-transform:uppercase">Por grupo y categoría</div>
+      <div class="sa-opt-list">
+        ${suggestions.slice(0, 6).map(r => `<div class="sa-opt-item sa-opt-good">
+          <div class="sa-opt-item-hdr">
+            <span class="sa-opt-cat">${r.emoji || ''} ${esc(r.targetName)}</span>
+            <span class="sa-opt-spend">${r.type === 'setup' ? '✨ Sugerido' : '↔ Ajustar'}</span>
+          </div>
+          <div class="sa-opt-msg">${esc(r.reason)}</div>
+          <div style="margin-top:6px;font-size:12px;font-weight:600">
+            ${r.currentWeekly > 0 ? `${r.currentWeekly.toFixed(1)}€/sem → ` : ''}<strong>${r.suggestedWeekly.toFixed(1)}€/sem</strong>
+            · ${r.currentMonthly > 0 ? `${r.currentMonthly.toFixed(0)}€/mes → ` : ''}<strong>${r.suggestedMonthly.toFixed(0)}€/mes</strong>
+          </div>
+          <button class="btn-sm" style="margin-top:8px;background:var(--primary);color:white;border:none;border-radius:6px;padding:5px 12px;cursor:pointer;font-size:11px;font-weight:700"
+            onclick="Presupuesto._applyPriorityRec('${r.id}')">Aplicar sugerencia</button>
+        </div>`).join('')}
+      </div>` : `<p style="font-size:12px;color:var(--text-secondary)">Tus presupuestos por grupo ya están alineados con el historial. Sigue registrando movimientos para afinar las recomendaciones.</p>`}
+      <div style="margin-top:10px">
+        <button type="button" class="linkish" style="font-size:12px" onclick="App._switchTab('categorias')">⚙️ Configurar ingresos manualmente →</button>
+      </div>
+    </div>`;
+  },
+
   _renderPriorityRecommendations() {
     const pack = BudgetEngine.getBudgetRecommendations();
     const recs = pack.recommendations;
@@ -1024,7 +1081,7 @@ const Presupuesto = {
           return `<div class="sa-opt-item ${levelBg[r.level] || 'sa-opt-warn'}">
             <div class="sa-opt-item-hdr">
               <span class="sa-opt-cat">${r.emoji || ''} ${esc(r.targetName)} <span class="prio-mini" style="background:${meta.color}">${meta.short}</span></span>
-              <span class="sa-opt-spend">${r.type === 'increase' ? '⬆️ Subir' : r.type === 'decrease' ? '⬇️ Bajar' : '⚖️ Reequilibrar'}</span>
+              <span class="sa-opt-spend">${r.type === 'increase' ? '⬆️ Subir' : r.type === 'decrease' ? '⬇️ Bajar' : r.type === 'setup' ? '✨ Sugerido' : r.type === 'adjust' ? '↔ Ajustar' : '⚖️ Reequilibrar'}</span>
             </div>
             <div class="sa-opt-msg">${esc(r.reason)}</div>
             <div style="margin-top:6px;font-size:12px;font-weight:600">
@@ -1042,7 +1099,8 @@ const Presupuesto = {
 
   _applyPriorityRec(recId) {
     const pack = BudgetEngine.getBudgetRecommendations();
-    const rec = pack.recommendations.find(r => r.id === recId);
+    const rec = pack.recommendations.find(r => r.id === recId)
+      || pack.learned?.suggestions?.find(r => r.id === recId);
     if (!rec) { App.showToast('Recomendación no disponible'); return; }
     const ok = BudgetEngine.applyRecommendation(rec);
     if (ok) {
@@ -1170,52 +1228,22 @@ const Presupuesto = {
     }
   },
 
-  /** Calculates real spending averages across all available months (current + archives). */
+  /** @deprecated use BudgetEngine.getHistoricalStats() */
   _getSpendingStats() {
-    const archives = Store.getArchives();
-    const currentMonth = Store.getCurrentMonth();
-    const currentTx = Store.getTransactions().filter(t => Store.isSpendableExpense(t));
-
-    // Build per-month expense totals
-    const byMonth = {};
-    for (const t of currentTx) {
-      byMonth[t.month] = (byMonth[t.month] || 0) + t.amount;
-    }
-    for (const [month, txs] of Object.entries(archives)) {
-      const expenses = txs.filter(t => Store.isSpendableExpense(t));
-      if (expenses.length > 0) {
-        byMonth[month] = expenses.reduce((s, t) => s + t.amount, 0);
-      }
-    }
-
-    // Per-category averages
-    const allExpenses = [...currentTx];
-    for (const txs of Object.values(archives)) {
-      allExpenses.push(...txs.filter(t => Store.isSpendableExpense(t)));
-    }
-
-    const months = Object.keys(byMonth).sort();
-    const numMonths = Math.max(months.length, 1);
-    const totalSpent = Object.values(byMonth).reduce((s, v) => s + v, 0);
-    const avgMonthly = totalSpent / numMonths;
-    const avgWeekly = avgMonthly / 4.33;
-    const avgDaily = avgMonthly / 30;
-
-    const byCat = {};
-    for (const t of allExpenses) {
-      byCat[t.category] = (byCat[t.category] || 0) + t.amount;
-    }
-    const catAvg = {};
-    for (const [cat, total] of Object.entries(byCat)) {
-      catAvg[cat] = total / numMonths;
-    }
-
-    return { avgMonthly, avgWeekly, avgDaily, numMonths, byMonth, catAvg };
+    const s = BudgetEngine.getHistoricalStats();
+    return {
+      avgMonthly: s.avgMonthlyExpense,
+      avgWeekly: s.avgWeeklyExpense,
+      avgDaily: s.avgDailyExpense,
+      numMonths: s.numMonths,
+      byMonth: s.byMonthExpense,
+      catAvg: s.catAvg,
+    };
   },
 
   _renderAutonomy(allExpenses, allIncome) {
-    const stats = this._getSpendingStats();
-    const { avgMonthly, avgWeekly, avgDaily, numMonths, byMonth, catAvg } = stats;
+    const stats = BudgetEngine.getHistoricalStats();
+    const { avgMonthlyExpense: avgMonthly, avgWeeklyExpense: avgWeekly, avgDailyExpense: avgDaily, numMonths, byMonthExpense: byMonth, catAvg } = stats;
 
     if (numMonths < 1 || avgMonthly <= 0) return '';
 
@@ -1353,12 +1381,7 @@ const Presupuesto = {
 
 
   _saveIncome() {
-    Store.setBudgetWeeklyIncome(parseFloat(document.getElementById('budgetWeekly').value) || 70);
-    Store.setBudgetMonthlyExtra(parseFloat(document.getElementById('budgetMonthly').value) || 100);
-    if (Store.isImprevistosInPlan() && Store.isImprevistosAutoAdjust() && Store._autoAdjustImprevistosBudget()) {
-      Store.setImprevistosBudget(Store.getImprevistosBudget());
-    }
-    this.render();
+    if (typeof Categorias !== 'undefined') Categorias._saveIncome();
   },
 
   _saveFoodBudget() {

@@ -1842,6 +1842,17 @@ body.mobile-nav {
   color: var(--text);
   box-sizing: border-box;
 }
+.excl-purpose-input {
+  width: 100%;
+  margin-top: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  background: var(--card);
+  color: var(--text);
+  box-sizing: border-box;
+}
 
 .exclusion-summary {
   background: var(--bg);

@@ -122,7 +122,8 @@ const Deudas = {
       g.total = g.debts.reduce((s, d) => s + d.amount, 0);
       g.primary = g.debts[0];
       g.date = g.primary.date || '';
-      g.description = g.primary.description || g.primary.category || 'Sin descripción';
+      g.description = g.primary.description || g.primary.expensePurpose || g.primary.category || 'Sin descripción';
+      g.expensePurpose = g.primary.expensePurpose || '';
       g.category = g.primary.category || '';
       g.linkedTxId = g.primary.linkedTxId || null;
       g.splitCount = g.primary.splitCount || null;
@@ -384,7 +385,7 @@ const Deudas = {
       const mode = row.querySelector('.split-line-mode')?.value || 'equal';
       const payer = row.querySelector('.split-line-payer')?.value || '';
       const id = row.dataset.lineId || this._splitLineId();
-      const line = { id, amount, mode: mode === 'sole_me' ? 'sole' : mode, payer: mode === 'sole_me' ? 'me' : payer, label: '' };
+      const line = { id, amount, mode: mode === 'sole_me' ? 'sole' : mode, payer: mode === 'sole_me' ? 'me' : payer, label: '', purpose: row.querySelector('.split-line-purpose')?.value?.trim() || '' };
       if (mode === 'custom') {
         line.mode = 'custom';
         line.assignments = {};
@@ -416,6 +417,12 @@ const Deudas = {
               oninput="Deudas._recalcManualSplit('${prefix}')">
           </label>`).join('')}
       </div>` : '';
+    const showPurpose = mode === 'sole_me' || mode === 'sole';
+    const purposeBlock = showPurpose ? `
+        <input type="text" class="split-line-purpose" maxlength="100"
+          value="${esc(line.purpose || '')}" placeholder="Qué era (ej: entrada cine, gasolina…)"
+          oninput="Deudas._recalcManualSplit('${prefix}')"
+          style="width:100%;margin-top:6px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">` : '';
     return `
       <div class="split-line-row" data-line-id="${id}">
         <div class="split-line-main">
@@ -434,8 +441,9 @@ const Deudas = {
           </select>
           <button type="button" class="split-line-remove" onclick="Deudas._removeSplitLine('${prefix}','${id}')" title="Quitar">✕</button>
         </div>
+        ${purposeBlock}
         ${customBlock}
-        <div class="split-line-hint">${mode === 'equal' ? (isOwed ? 'Se divide entre tú y las personas seleccionadas' : 'Tu parte de este importe') : mode === 'sole_me' ? (isOwed ? 'Lo pagas tú, no entra en el reparto' : 'Solo tú lo consumes') : mode === 'custom' ? 'Indica cuánto debe cada persona de esta partida' : 'Esa persona debe/consumió todo este importe'}</div>
+        <div class="split-line-hint">${mode === 'equal' ? (isOwed ? 'Se divide entre tú y las personas seleccionadas' : 'Tu parte de este importe') : mode === 'sole_me' ? (isOwed ? 'Lo pagas tú, no entra en el reparto — indica qué era' : 'Solo tú lo consumes') : mode === 'custom' ? 'Indica cuánto debe cada persona de esta partida' : 'Esa persona debe/consumió todo este importe — indica qué era'}</div>
       </div>`;
   },
 
@@ -449,7 +457,7 @@ const Deudas = {
     const persons = this._getSelectedPeople(prefix);
     const type = document.getElementById(prefix + 'Type')?.value || 'owed_to_me';
     const amount = parseFloat(row.querySelector('.split-line-amt')?.value) || 0;
-    const line = { id: lineId, amount, mode: mode === 'sole_me' ? 'sole' : mode, payer: mode === 'sole_me' ? 'me' : (row.querySelector('.split-line-payer')?.value || persons[0] || '') };
+    const line = { id: lineId, amount, mode: mode === 'sole_me' ? 'sole' : mode, payer: mode === 'sole_me' ? 'me' : (row.querySelector('.split-line-payer')?.value || persons[0] || ''), purpose: row.querySelector('.split-line-purpose')?.value?.trim() || '' };
     if (mode === 'custom' && line.assignments) line.assignments = line.assignments;
     row.outerHTML = this._splitLineRowHtml(prefix, line, persons, type);
     this._recalcManualSplit(prefix);
@@ -665,12 +673,20 @@ const Deudas = {
               <input type="number" id="${prefix}SoloYo" class="excl-input" step="0.01" min="0"
                 value="${soloYo > 0 ? soloYo : ''}" placeholder="ej: 20"
                 oninput="Deudas._recalcManualSplit('${prefix}')">
+              <input type="text" id="${prefix}SoloYoPurpose" class="excl-purpose-input" maxlength="100"
+                value="${esc((initLines || []).find(l => l.mode === 'sole' && l.payer === 'me')?.purpose || '')}"
+                placeholder="Qué era (ej: entrada, parking…)"
+                oninput="Deudas._recalcManualSplit('${prefix}')">
             </div>
             <div class="excl-card excl-otro" id="${prefix}SoloPersonaCard" style="display:none">
               <div class="excl-card-label">Solo <span id="${prefix}SoloPersonaLabel">${esc(personName)}</span></div>
               <div class="excl-card-hint">${isOwed ? 'Esa persona lo consume entero → te lo debe' : 'Esa persona lo paga sola'}</div>
               <input type="number" id="${prefix}SoloPersona" class="excl-input" step="0.01" min="0"
                 value="${soloPersona > 0 ? soloPersona : ''}" placeholder="0.00"
+                oninput="Deudas._recalcManualSplit('${prefix}')">
+              <input type="text" id="${prefix}SoloPersonaPurpose" class="excl-purpose-input" maxlength="100"
+                value="${esc((initLines || []).find(l => l.mode === 'sole' && l.payer && l.payer !== 'me')?.purpose || '')}"
+                placeholder="Qué era (ej: cerveza, taxi…)"
                 oninput="Deudas._recalcManualSplit('${prefix}')">
             </div>
             <div class="excl-card excl-shared">
@@ -782,16 +798,19 @@ const Deudas = {
       splitLines = this._linesFromDom(prefix).map(l => ({
         ...l,
         amount: Math.round((parseFloat(l.amount) || 0) * 100) / 100,
-        label: l.label || (l.mode === 'equal' ? 'A medias' : l.mode === 'sole' && l.payer === 'me' ? 'Solo yo' : `Solo ${l.payer}`),
+        purpose: l.purpose || '',
+        label: l.purpose || l.label || (l.mode === 'equal' ? 'A medias' : l.mode === 'sole' && l.payer === 'me' ? 'Solo yo' : `Solo ${l.payer}`),
       }));
       amountsByPerson = this._computeSplitAmounts(splitLines, persons, type);
     } else {
       const soloYo = parseFloat(document.getElementById(prefix + 'SoloYo')?.value) || 0;
       const soloPer = parseFloat(document.getElementById(prefix + 'SoloPersona')?.value) || 0;
+      const soloYoPurpose = document.getElementById(prefix + 'SoloYoPurpose')?.value?.trim() || '';
+      const soloPerPurpose = document.getElementById(prefix + 'SoloPersonaPurpose')?.value?.trim() || '';
       const shared = Math.max(0, total - soloYo - soloPer);
       if (shared > 0) splitLines.push({ id: this._splitLineId(), label: 'A medias', amount: Math.round(shared * 100) / 100, mode: 'equal', payer: '' });
-      if (soloYo > 0) splitLines.push({ id: this._splitLineId(), label: 'Solo yo', amount: Math.round(soloYo * 100) / 100, mode: 'sole', payer: 'me' });
-      if (soloPer > 0 && persons[0]) splitLines.push({ id: this._splitLineId(), label: `Solo ${persons[0]}`, amount: Math.round(soloPer * 100) / 100, mode: 'sole', payer: persons[0] });
+      if (soloYo > 0) splitLines.push({ id: this._splitLineId(), label: 'Solo yo', amount: Math.round(soloYo * 100) / 100, mode: 'sole', payer: 'me', purpose: soloYoPurpose });
+      if (soloPer > 0 && persons[0]) splitLines.push({ id: this._splitLineId(), label: `Solo ${persons[0]}`, amount: Math.round(soloPer * 100) / 100, mode: 'sole', payer: persons[0], purpose: soloPerPurpose });
       amountsByPerson = this._computeSplitAmounts(splitLines, persons, type);
     }
 
@@ -1006,8 +1025,9 @@ const Deudas = {
       ${this._splitModeHtml(prefix, totalStr, splitCount, splitMode, splitLines, type)}
       ${this.personPickerHtml(prefix, defaultSelected)}
       <div class="form-group">
-        <label>Descripción</label>
-        <input type="text" id="${prefix}Desc" value="${esc(description)}" placeholder="Ej: Cena, gasolina..." maxlength="100" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)">
+        <label>Qué era / concepto del gasto</label>
+        <input type="text" id="${prefix}Desc" value="${esc(description)}" placeholder="Ej: Cena, gasolina, entradas…" maxlength="100" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)">
+        <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">Queda registrado en la app, Excel y backup JSON.</div>
       </div>
       <div class="form-group">
         <label>Categoría</label>
@@ -1030,8 +1050,10 @@ const Deudas = {
   },
 
   _readDebtFormMeta(prefix) {
+    const description = document.getElementById(prefix + 'Desc')?.value.trim() || '';
     return {
-      description: document.getElementById(prefix + 'Desc')?.value.trim(),
+      description,
+      expensePurpose: description,
       category: document.getElementById(prefix + 'Category')?.value,
       date: document.getElementById(prefix + 'Date')?.value,
       type: document.getElementById(prefix + 'Type')?.value || 'owed_to_me',
@@ -1090,8 +1112,11 @@ const Deudas = {
     }
 
     if (personalPersons.length) {
+      const expensePurpose = Store.buildExpensePurpose(splitLines, extra.description || extra.expensePurpose || '');
       const payload = {
         ...extra, totalAmount, splitCount, amount, amountsByPerson, splitLines, type, forcePersonal,
+        expensePurpose,
+        description: extra.description || expensePurpose,
       };
       let personalCreated;
       if (extra.linkedTxId) {
@@ -1245,7 +1270,9 @@ const Deudas = {
   _formatSplitBreakdown(splitLines) {
     if (!splitLines?.length) return '';
     return `<div class="split-breakdown-tags">${splitLines.map(l => {
-      const label = l.label || (l.mode === 'equal' ? 'A medias' : l.mode === 'sole' && l.payer === 'me' ? 'Solo yo' : 'Partida');
+      const baseLabel = l.mode === 'equal' ? 'A medias' : l.mode === 'sole' && l.payer === 'me' ? 'Solo yo' : l.mode === 'sole' && l.payer ? `Solo ${l.payer}` : (l.label || 'Partida');
+      const purpose = (l.purpose || '').trim();
+      const label = purpose ? `${baseLabel}: ${purpose}` : baseLabel;
       return `<span class="split-tag">${esc(label)} · ${(parseFloat(l.amount) || 0).toFixed(2)} €</span>`;
     }).join('')}</div>`;
   },
@@ -1263,7 +1290,7 @@ const Deudas = {
           <div class="debt-avatar">${multi ? '👥' : esc(this._personAvatar(group.primary.person))}</div>
           <div class="debt-info">
             <div class="debt-person">${esc(group.description)}</div>
-            <div class="debt-desc">${multi ? esc(peopleLabel) : esc(group.primary.person)}</div>
+            <div class="debt-desc">${multi ? esc(peopleLabel) : esc(group.primary.person)}${group.expensePurpose && group.expensePurpose !== group.description ? `<span style="display:block;font-size:11px;color:var(--text-secondary);margin-top:2px">📝 ${esc(group.expensePurpose)}</span>` : ''}</div>
             <div class="debt-meta">
               <span style="${urgency}">${dateLabel}${daysAgo > 0 ? ` · hace ${daysAgo}d` : ''}</span>
               ${group.category ? `<span class="tx-adj-badge" style="background:var(--bg)">${esc(group.category)}</span>` : ''}
@@ -1662,6 +1689,7 @@ const Deudas = {
     const splitLines = debts[0]?.splitLines || null;
     const isManual = !!splitLines;
     const sp = prefix + 'Debt';
+    const debtDesc = debts[0]?.description || debts[0]?.expensePurpose || defaultDesc || '';
     return `
       <div class="debt-inline-block" id="${prefix}DebtBlock">
         <label class="debt-inline-toggle" onclick="Deudas.toggleInlineDebt('${prefix}')">
@@ -1682,6 +1710,12 @@ const Deudas = {
           </div>
           ${this._splitModeHtml(sp, total, splitCount, isManual ? 'manual' : 'simple', splitLines, debtType)}
           ${this.personPickerHtml(sp, selected)}
+          <div class="form-group" style="margin-top:10px">
+            <label style="font-size:12px;font-weight:600">Qué era / concepto del gasto</label>
+            <input type="text" id="${sp}Desc" value="${esc(debtDesc)}" maxlength="100"
+              placeholder="Ej: Cena, gasolina, entradas…"
+              style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px">
+          </div>
           ${enabled ? `<button type="button" class="btn btn-sm btn-danger" style="margin-top:8px;width:100%" onclick="Deudas._unlinkInlineDebts('${prefix}')">✕ Quitar vinculación</button>` : ''}
         </div>
       </div>`;
@@ -1732,8 +1766,9 @@ const Deudas = {
     }
     const type = document.getElementById(prefix + 'DebtType')?.value || 'owed_to_me';
     existingIds.forEach(id => Store.deleteDebt(id));
+    const inlineDesc = document.getElementById(prefix + 'DebtDesc')?.value?.trim() || txDesc || '';
     const created = this._saveDebtsFromForm(prefix + 'Debt', {
-      type, description: txDesc || '', category: txCategory || 'Otros', date: txDate, linkedTxId: txId,
+      type, description: inlineDesc, category: txCategory || 'Otros', date: txDate, linkedTxId: txId,
     });
     if (!created) return false;
     if (document.getElementById('tab-deudas')?.classList.contains('active')) this.render();

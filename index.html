@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#4F46E5">
-  <meta name="app-cache-version" content="presupuesto-v54">
-  <script>window.__APP_BUILD_VERSION='presupuesto-v54';</script>
+  <meta name="app-cache-version" content="presupuesto-v57">
+  <script>window.__APP_BUILD_VERSION='presupuesto-v57';</script>
   <!-- Comprobación temprana de versión (Safari/iOS/macOS cachean con fuerza — XHR + número de build) -->
   <script>
     (function () {
@@ -46,7 +46,7 @@
       }
       function get(url, cb) { (isApple ? xhrGet : fetchGet)(url, cb); }
       var bust = Date.now() + '-' + Math.random().toString(36).slice(2, 8);
-      var pending = 4, best = null;
+      var pending = 5, best = null;
       function doneOne(raw) {
         if (raw) {
           var v = raw.trim().split(/\s+/)[0];
@@ -62,7 +62,18 @@
       get('/build-id.txt?_=' + bust, doneOne);
       get('/api/version?_=' + bust, doneOne);
       get('/version-check.json?_=' + bust, doneOne);
+      get('/version.json?_=' + bust, doneOne);
       get('/index.html?_=' + bust, doneOne);
+      // Segundo reload tras limpieza de caché (WebKit PWA a veces necesita dos pasadas)
+      try {
+        var params = new URLSearchParams(window.location.search);
+        if (params.get('hard') === '1' && isApple && !sessionStorage.getItem('_appHardReloadDone')) {
+          sessionStorage.setItem('_appHardReloadDone', '1');
+          setTimeout(function () { window.location.replace(window.location.pathname + '?_=' + Date.now()); }, 400);
+        } else if (!params.get('hard')) {
+          sessionStorage.removeItem('_appHardReloadDone');
+        }
+      } catch (e) { /* ignore */ }
     })();
   </script>
   <!-- iOS PWA -->
@@ -77,7 +88,7 @@
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/icons/icon-192.png">
   <title>Presupuesto</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=presupuesto-v57">
   <!-- Anti-flash: apply stored theme before first paint -->
   <script>
     (function() {
@@ -174,28 +185,28 @@
     </div>
   </div>
 
-  <script src="js/crypto-e2e.js?v=presupuesto-v54"></script>
-  <script src="js/store.js?v=presupuesto-v54"></script>
-  <script src="js/emoji-utils.js?v=presupuesto-v54"></script>
-  <script src="js/budget-engine.js?v=presupuesto-v54"></script>
-  <script src="js/install.js?v=presupuesto-v54"></script>
-  <script src="js/storage-prefs.js?v=presupuesto-v54"></script>
-  <script src="js/movement-form.js?v=presupuesto-v54"></script>
-  <script src="js/presupuesto.js?v=presupuesto-v54"></script>
-  <script src="js/dashboard.js?v=presupuesto-v54"></script>
-  <script src="js/registro.js?v=presupuesto-v54"></script>
-  <script src="js/calendario.js?v=presupuesto-v54"></script>
-  <script src="js/deudas.js?v=presupuesto-v54"></script>
-  <script src="js/graficos.js?v=presupuesto-v54"></script>
-  <script src="js/categorias.js?v=presupuesto-v54"></script>
-  <script src="js/backup-io.js?v=presupuesto-v54"></script>
-  <script src="js/excel-io.js?v=presupuesto-v54"></script>
-  <script src="js/tutorial.js?v=presupuesto-v54"></script>
-  <script src="js/vercel-analytics.js?v=presupuesto-v54"></script>
-  <script src="js/app.js?v=presupuesto-v54"></script>
+  <script src="js/crypto-e2e.js?v=presupuesto-v57"></script>
+  <script src="js/store.js?v=presupuesto-v57"></script>
+  <script src="js/emoji-utils.js?v=presupuesto-v57"></script>
+  <script src="js/budget-engine.js?v=presupuesto-v57"></script>
+  <script src="js/install.js?v=presupuesto-v57"></script>
+  <script src="js/storage-prefs.js?v=presupuesto-v57"></script>
+  <script src="js/movement-form.js?v=presupuesto-v57"></script>
+  <script src="js/presupuesto.js?v=presupuesto-v57"></script>
+  <script src="js/dashboard.js?v=presupuesto-v57"></script>
+  <script src="js/registro.js?v=presupuesto-v57"></script>
+  <script src="js/calendario.js?v=presupuesto-v57"></script>
+  <script src="js/deudas.js?v=presupuesto-v57"></script>
+  <script src="js/graficos.js?v=presupuesto-v57"></script>
+  <script src="js/categorias.js?v=presupuesto-v57"></script>
+  <script src="js/backup-io.js?v=presupuesto-v57"></script>
+  <script src="js/excel-io.js?v=presupuesto-v57"></script>
+  <script src="js/tutorial.js?v=presupuesto-v57"></script>
+  <script src="js/vercel-analytics.js?v=presupuesto-v57"></script>
+  <script src="js/app.js?v=presupuesto-v57"></script>
   <script>
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js?v=presupuesto-v54', { updateViaCache: 'none' }).then((reg) => {
+      navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none', scope: '/' }).then((reg) => {
         if (typeof Install !== 'undefined') Install._swRegistration = reg;
         reg.update().catch(() => {});
       });
