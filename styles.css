@@ -1666,6 +1666,52 @@ body.mobile-nav {
 .update-banner .btn-primary { background: #fff; color: var(--primary); }
 .update-banner .btn-secondary { background: rgba(255,255,255,0.2); color: #fff; border-color: rgba(255,255,255,0.4); }
 
+.app-update-btn {
+  position: relative;
+  padding: 5px 8px;
+  font-size: 14px;
+  line-height: 1;
+}
+.app-update-btn.has-update {
+  box-shadow: 0 0 0 2px var(--expense);
+  animation: update-pulse 2s ease-in-out infinite;
+}
+.app-update-btn.has-update::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--expense);
+}
+@keyframes update-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}
+
+.update-panel-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+.update-panel-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border-radius: 8px;
+}
+.update-panel-row span:first-child { color: var(--text-secondary); font-size: 12px; }
+.update-panel-status.ok { color: var(--income); font-weight: 600; }
+.update-panel-status.available { color: var(--expense); font-weight: 600; }
+.update-panel-status.checking { color: var(--primary); font-weight: 600; }
+.update-panel-status.offline { color: var(--text-secondary); }
+
 /* ── Manual split: exclusions mode ────────────────────────────────────── */
 .split-mode-toggle {
   display: flex;

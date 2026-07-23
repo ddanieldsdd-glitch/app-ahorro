@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#4F46E5">
-  <meta name="app-cache-version" content="presupuesto-v52">
-  <script>window.__APP_BUILD_VERSION='presupuesto-v52';</script>
+  <meta name="app-cache-version" content="presupuesto-v53">
+  <script>window.__APP_BUILD_VERSION='presupuesto-v53';</script>
   <!-- Comprobación temprana de versión (Safari/iOS/macOS cachean con fuerza — XHR + número de build) -->
   <script>
     (function () {
@@ -46,11 +46,15 @@
       }
       function get(url, cb) { (isApple ? xhrGet : fetchGet)(url, cb); }
       var bust = Date.now() + '-' + Math.random().toString(36).slice(2, 8);
-      var pending = 3, best = null;
+      var pending = 4, best = null;
       function doneOne(raw) {
         if (raw) {
           var v = raw.trim().split(/\s+/)[0];
           try { var j = JSON.parse(raw); if (j && j.cache) v = j.cache; } catch (e) {}
+          var meta = raw.match(/name="app-cache-version"\s+content="([^"]+)"/i);
+          if (meta && meta[1]) v = meta[1];
+          var inline = raw.match(/__APP_BUILD_VERSION\s*=\s*['"]([^'"]+)['"]/);
+          if (inline && inline[1]) v = inline[1];
           if (v && (!best || parseBuild(v) > parseBuild(best))) best = v;
         }
         if (--pending === 0 && best) applyRemote(best);
@@ -58,6 +62,7 @@
       get('/build-id.txt?_=' + bust, doneOne);
       get('/api/version?_=' + bust, doneOne);
       get('/version-check.json?_=' + bust, doneOne);
+      get('/index.html?_=' + bust, doneOne);
     })();
   </script>
   <!-- iOS PWA -->
@@ -101,6 +106,7 @@
       <div class="app-title">💰 Presupuesto</div>
       <div class="header-controls">
         <span id="syncStatusBadge" class="sync-status-badge sync-pending" title="Estado de sincronización">…</span>
+        <button id="appUpdateBtn" class="btn-secondary app-update-btn" onclick="Install.openUpdatePanel()" title="Actualizaciones" style="display:none" aria-label="Actualizaciones">🔄</button>
         <select id="monthSelector"></select>
         <button id="archiveBtn" class="btn-secondary" title="Archivar mes">📦<span class="header-btn-label"> Archivar</span></button>
         <button class="btn-secondary" onclick="App._exportData()" title="Descargar backup">⬇</button>
@@ -168,28 +174,28 @@
     </div>
   </div>
 
-  <script src="js/crypto-e2e.js?v=presupuesto-v52"></script>
-  <script src="js/store.js?v=presupuesto-v52"></script>
-  <script src="js/emoji-utils.js?v=presupuesto-v52"></script>
-  <script src="js/budget-engine.js?v=presupuesto-v52"></script>
-  <script src="js/install.js?v=presupuesto-v52"></script>
-  <script src="js/storage-prefs.js?v=presupuesto-v52"></script>
-  <script src="js/movement-form.js?v=presupuesto-v52"></script>
-  <script src="js/presupuesto.js?v=presupuesto-v52"></script>
-  <script src="js/dashboard.js?v=presupuesto-v52"></script>
-  <script src="js/registro.js?v=presupuesto-v52"></script>
-  <script src="js/calendario.js?v=presupuesto-v52"></script>
-  <script src="js/deudas.js?v=presupuesto-v52"></script>
-  <script src="js/graficos.js?v=presupuesto-v52"></script>
-  <script src="js/categorias.js?v=presupuesto-v52"></script>
-  <script src="js/backup-io.js?v=presupuesto-v52"></script>
-  <script src="js/excel-io.js?v=presupuesto-v52"></script>
-  <script src="js/tutorial.js?v=presupuesto-v52"></script>
-  <script src="js/vercel-analytics.js?v=presupuesto-v52"></script>
-  <script src="js/app.js?v=presupuesto-v52"></script>
+  <script src="js/crypto-e2e.js?v=presupuesto-v53"></script>
+  <script src="js/store.js?v=presupuesto-v53"></script>
+  <script src="js/emoji-utils.js?v=presupuesto-v53"></script>
+  <script src="js/budget-engine.js?v=presupuesto-v53"></script>
+  <script src="js/install.js?v=presupuesto-v53"></script>
+  <script src="js/storage-prefs.js?v=presupuesto-v53"></script>
+  <script src="js/movement-form.js?v=presupuesto-v53"></script>
+  <script src="js/presupuesto.js?v=presupuesto-v53"></script>
+  <script src="js/dashboard.js?v=presupuesto-v53"></script>
+  <script src="js/registro.js?v=presupuesto-v53"></script>
+  <script src="js/calendario.js?v=presupuesto-v53"></script>
+  <script src="js/deudas.js?v=presupuesto-v53"></script>
+  <script src="js/graficos.js?v=presupuesto-v53"></script>
+  <script src="js/categorias.js?v=presupuesto-v53"></script>
+  <script src="js/backup-io.js?v=presupuesto-v53"></script>
+  <script src="js/excel-io.js?v=presupuesto-v53"></script>
+  <script src="js/tutorial.js?v=presupuesto-v53"></script>
+  <script src="js/vercel-analytics.js?v=presupuesto-v53"></script>
+  <script src="js/app.js?v=presupuesto-v53"></script>
   <script>
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).then((reg) => {
+      navigator.serviceWorker.register('/sw.js?v=presupuesto-v53', { updateViaCache: 'none' }).then((reg) => {
         if (typeof Install !== 'undefined') Install._swRegistration = reg;
         reg.update().catch(() => {});
       });

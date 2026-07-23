@@ -523,13 +523,27 @@ END $$;</code>
           <span class="card-title">🔄 Actualizaciones</span>
         </div>
         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">
-          Al abrir la app se comprueban actualizaciones automáticamente. Tus datos se conservan al actualizar
-          (localStorage + nube si está configurada).
+          En iPhone, iPad y Mac la app instalada puede quedarse con caché antigua. Usa el botón 🔄 del header
+          o esta sección para comprobar y forzar la actualización. Tus datos se conservan.
         </p>
-        <div style="font-size:11px;color:var(--text-secondary);margin-bottom:10px">
-          Versión instalada: <code>${esc(typeof Install !== 'undefined' ? Install.getVersionLabel() : '—')}</code>
+        <div id="settingsUpdateStatus" style="font-size:12px;margin-bottom:10px;padding:10px;background:var(--bg);border-radius:8px;line-height:1.7">
+          ${(() => {
+            const info = typeof Install !== 'undefined' ? Install.getUpdateInfo() : {};
+            const status = info.updateAvailable ? `<span style="color:var(--expense);font-weight:600">Nueva versión disponible: ${esc(info.remote || '?')}</span>`
+              : info.remote ? '<span style="color:var(--income);font-weight:600">App al día</span>' : '<span style="color:var(--text-secondary)">Sin comprobar aún</span>';
+            return `<div>${status}</div>
+              <div style="color:var(--text-secondary);font-size:11px;margin-top:4px">
+                Instalada: <code>${esc(info.running || Install?.getVersionLabel?.() || '—')}</code>
+                · Servidor: <code>${esc(info.remote || '—')}</code>
+                ${info.lastCheck ? `<br>Última comprobación: ${new Date(info.lastCheck).toLocaleString('es-ES')}` : ''}
+              </div>`;
+          })()}
         </div>
-        <button class="btn btn-secondary btn-sm" onclick="Install.manualCheckForUpdates()">🔍 Comprobar actualizaciones</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-secondary btn-sm" onclick="Install.openUpdatePanel()">🔄 Panel de actualización</button>
+          <button class="btn btn-secondary btn-sm" onclick="Install.manualCheckForUpdates()">🔍 Comprobar ahora</button>
+          <button class="btn btn-primary btn-sm" onclick="Install.forceUpdateNow(true)">⬆ Forzar actualización</button>
+        </div>
       </div>
 
       <div class="card" style="margin-bottom:10px;border-color:var(--expense)">

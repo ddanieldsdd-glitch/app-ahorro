@@ -1,4 +1,4 @@
-const APP_BUILD_ID = 'presupuesto-v52';
+const APP_BUILD_ID = 'presupuesto-v53';
 const WINDOWS_EXE_URL = 'https://github.com/ddanieldsdd-glitch/app-ahorro/releases/download/v2.0.4/Presupuesto.Personal.Setup.2.0.4.exe';
 const PWA_INSTALLED_KEY = 'ahorro_pwa_installed';
 
@@ -7,6 +7,19 @@ const Install = {
   _isStandalone: false,
   _isElectronApp: false,
   _swRegistration: null,
+  _updateInfo: { running: '', remote: '', lastCheck: 0, checking: false, updateAvailable: false },
+  _updateUiCallbacks: [],
+
+  onUpdateStatusChange(cb) { this._updateUiCallbacks.push(cb); },
+
+  _emitUpdateStatus() {
+    this._updateUiCallbacks.forEach(cb => { try { cb(this.getUpdateInfo()); } catch { /* ignore */ } });
+    this._refreshUpdateUI();
+  },
+
+  getUpdateInfo() {
+    return { ...this._updateInfo, installKind: this.getInstallKind(), installLabel: this.getInstallLabel() };
+  },
 
   init() {
     this._refreshInstallState();
@@ -51,6 +64,10 @@ const Install = {
       if (v && !localStorage.getItem('_appCacheVersion')) {
         this._setLocalVersion(this._getRunningVersion() || v);
       }
+      this._updateInfo.running = this._getRunningVersion();
+      if (v) this._updateInfo.remote = v;
+      if (window.__PENDING_APP_VERSION) this._updateInfo.updateAvailable = true;
+      this._emitUpdateStatus();
     });
   },
 
@@ -193,12 +210,16 @@ const Install = {
   },
 
   _setupUpdateDetection() {
-    const pollMs = this._isApplePlatform() ? 30 * 1000 : 5 * 60 * 1000;
+    const installed = this.isInstalled();
+    const pollMs = this._isApplePlatform()
+      ? (installed ? 15 * 1000 : 30 * 1000)
+      : (installed ? 2 * 60 * 1000 : 5 * 60 * 1000);
 
     if (!('serviceWorker' in navigator)) {
       this._checkRemoteVersion(false);
       this._bindUpdateListeners();
       setInterval(() => this._onAppForeground(), pollMs);
+      this._setupHeaderUpdateButton();
       return;
     }
 
@@ -232,6 +253,80 @@ const Install = {
     this._checkRemoteVersion(false);
     this._bindUpdateListeners();
     setInterval(() => this._onAppForeground(), pollMs);
+    this._setupHeaderUpdateButton();
+  },
+
+  _setupHeaderUpdateButton() {
+    const btn = document.getElementById('appUpdateBtn');
+    if (!btn) return;
+    const show = this._isMobile() || this._isMac() || this.isInstalled();
+    btn.style.display = show ? '' : 'none';
+    this._refreshUpdateUI();
+  },
+
+  _refreshUpdateUI() {
+    const btn = document.getElementById('appUpdateBtn');
+    if (btn) {
+      btn.classList.toggle('has-update', !!this._updateInfo.updateAvailable);
+      btn.title = this._updateInfo.updateAvailable
+        ? `Actualización disponible (${this._updateInfo.remote})`
+        : `App ${this._updateInfo.running || '—'} · Comprobar actualizaciones`;
+    }
+    const panelRemote = document.getElementById('updatePanelRemote');
+    const panelRunning = document.getElementById('updatePanelRunning');
+    const panelStatus = document.getElementById('updatePanelStatus');
+    const panelLast = document.getElementById('updatePanelLastCheck');
+    if (panelRunning) panelRunning.textContent = this._updateInfo.running || '—';
+    if (panelRemote) panelRemote.textContent = this._updateInfo.remote || '—';
+    if (panelLast) {
+      panelLast.textContent = this._updateInfo.lastCheck
+        ? new Date(this._updateInfo.lastCheck).toLocaleString('es-ES')
+        : 'Aún no';
+    }
+    if (panelStatus) {
+      if (this._updateInfo.checking) {
+        panelStatus.textContent = 'Comprobando…';
+        panelStatus.className = 'update-panel-status checking';
+      } else if (this._updateInfo.updateAvailable) {
+        panelStatus.textContent = `Nueva versión: ${this._updateInfo.remote}`;
+        panelStatus.className = 'update-panel-status available';
+      } else if (this._updateInfo.remote) {
+        panelStatus.textContent = 'App al día';
+        panelStatus.className = 'update-panel-status ok';
+      } else {
+        panelStatus.textContent = 'Sin conexión — reintenta';
+        panelStatus.className = 'update-panel-status offline';
+      }
+    }
+    const forceBtn = document.getElementById('updatePanelForceBtn');
+    if (forceBtn) forceBtn.style.display = this._updateInfo.updateAvailable ? '' : 'none';
+
+    const settingsEl = document.getElementById('settingsUpdateStatus');
+    if (settingsEl) {
+      const info = this._updateInfo;
+      const status = info.updateAvailable
+        ? `<span style="color:var(--expense);font-weight:600">Nueva versión disponible: ${esc(info.remote || '?')}</span>`
+        : info.remote
+          ? '<span style="color:var(--income);font-weight:600">App al día</span>'
+          : '<span style="color:var(--text-secondary)">Sin conexión — reintenta</span>';
+      settingsEl.innerHTML = `<div>${status}</div>
+        <div style="color:var(--text-secondary);font-size:11px;margin-top:4px">
+          Instalada: <code>${esc(info.running || '—')}</code>
+          · Servidor: <code>${esc(info.remote || '—')}</code>
+          ${info.lastCheck ? `<br>Última comprobación: ${new Date(info.lastCheck).toLocaleString('es-ES')}` : ''}
+        </div>`;
+    }
+  },
+
+  _isBannerDismissed() {
+    const raw = sessionStorage.getItem('updateBannerDismissedAt');
+    if (!raw) return false;
+    const t = parseInt(raw, 10);
+    if (!t || Date.now() - t > 60 * 60 * 1000) {
+      sessionStorage.removeItem('updateBannerDismissedAt');
+      return false;
+    }
+    return true;
   },
 
   _bindUpdateListeners() {
@@ -363,17 +458,37 @@ const Install = {
   },
 
   async _checkRemoteVersion(showIfCurrent) {
+    this._updateInfo.checking = true;
+    this._updateInfo.running = this._getRunningVersion();
+    this._emitUpdateStatus();
+
     const remote = await this._fetchRemoteVersion();
-    if (!remote) return false;
-    if (await this._needsVersionUpdate(remote)) {
-      this._showUpdateBanner('version');
+    this._updateInfo.remote = remote || this._updateInfo.remote || '';
+    this._updateInfo.lastCheck = Date.now();
+    this._updateInfo.checking = false;
+
+    if (!remote) {
+      this._emitUpdateStatus();
+      return false;
+    }
+
+    const needsUpdate = await this._needsVersionUpdate(remote);
+    this._updateInfo.updateAvailable = needsUpdate;
+    this._emitUpdateStatus();
+
+    if (needsUpdate) {
+      if (!this._isBannerDismissed()) this._showUpdateBanner('version');
       return true;
     }
+
     const running = this._getRunningVersion() || remote;
     this._setLocalVersion(running);
+    this._updateInfo.running = running;
+    this._updateInfo.updateAvailable = false;
     const banner = document.getElementById('updateBanner');
     if (banner) banner.remove();
     delete window.__PENDING_APP_VERSION;
+    this._emitUpdateStatus();
     if (showIfCurrent && typeof App !== 'undefined') {
       App.showToast(`✅ App al día (${running})`);
     }
@@ -409,6 +524,8 @@ const Install = {
 
   async manualCheckForUpdates() {
     if (typeof App !== 'undefined') App.showToast('🔍 Comprobando actualizaciones…', 2000);
+    this._updateInfo.checking = true;
+    this._emitUpdateStatus();
 
     if (this._swRegistration) {
       try { await this._swRegistration.update(); } catch { /* ignore */ }
@@ -419,35 +536,112 @@ const Install = {
       } catch { /* ignore */ }
     }
 
-    const running = this._getRunningVersion();
-    const remote = await this._fetchRemoteVersion();
+    await this._checkServiceWorkerUpdate();
+    const hadUpdate = await this._checkRemoteVersion(true);
     const swUpdate = !!(this._swRegistration?.waiting);
-    const versionUpdate = await this._needsVersionUpdate(remote);
-    const bannerVisible = !!document.getElementById('updateBanner');
 
-    if (swUpdate || versionUpdate || window.__PENDING_APP_VERSION) {
-      if (!bannerVisible) this._showUpdateBanner(swUpdate ? 'sw' : 'version');
+    if (swUpdate && !hadUpdate) {
+      this._updateInfo.updateAvailable = true;
+      if (!this._isBannerDismissed()) this._showUpdateBanner('sw');
+    }
+
+    if (this._updateInfo.updateAvailable || swUpdate || window.__PENDING_APP_VERSION) {
       if (typeof App !== 'undefined') {
-        const newest = this._pickNewestVersion([remote, window.__PENDING_APP_VERSION, running]);
+        const running = this._getRunningVersion();
+        const newest = this._pickNewestVersion([this._updateInfo.remote, window.__PENDING_APP_VERSION, running]);
         const msg = newest && running && this._isBuildNewer(newest, running)
           ? `🔄 Nueva versión: ${newest} (tienes ${running})`
           : '🔄 Hay una actualización disponible';
         App.showToast(msg, 4500);
       }
-      return;
-    }
-
-    if (typeof App !== 'undefined') {
-      const label = remote || running || 'desconocida';
+    } else if (typeof App !== 'undefined') {
+      const label = this._updateInfo.remote || this._updateInfo.running || 'desconocida';
       if (this._isApplePlatform()) {
-        App.showToast(`✅ App al día (${label}) · iPhone/Mac: si no ves cambios, pulsa Actualizar en el banner o cierra y abre la app`, 5500);
+        App.showToast(`✅ App al día (${label}). Si no ves cambios, usa «Forzar actualización».`, 5500);
       } else {
         App.showToast(`✅ App al día (${label})`);
       }
     }
+    this.openUpdatePanel();
+  },
+
+  openUpdatePanel() {
+    const info = this.getUpdateInfo();
+    const isApple = this._isApplePlatform();
+    const body = `
+      <div class="update-panel-grid">
+        <div class="update-panel-row"><span>En este dispositivo</span><code id="updatePanelRunning">${esc(info.running || '—')}</code></div>
+        <div class="update-panel-row"><span>En el servidor</span><code id="updatePanelRemote">${esc(info.remote || '—')}</code></div>
+        <div class="update-panel-row"><span>Última comprobación</span><span id="updatePanelLastCheck">${info.lastCheck ? new Date(info.lastCheck).toLocaleString('es-ES') : 'Aún no'}</span></div>
+        <div class="update-panel-row"><span>Estado</span><span id="updatePanelStatus" class="update-panel-status ${info.checking ? 'checking' : info.updateAvailable ? 'available' : info.remote ? 'ok' : 'offline'}">${info.checking ? 'Comprobando…' : info.updateAvailable ? `Nueva versión: ${esc(info.remote)}` : info.remote ? 'App al día' : 'Sin conexión'}</span></div>
+        <div class="update-panel-row"><span>Modo</span><span>${esc(info.installLabel)}</span></div>
+      </div>
+      ${isApple ? `<div style="font-size:11px;color:var(--text-secondary);line-height:1.55;margin:12px 0;padding:10px;background:var(--bg);border-radius:8px">
+        <strong>iPhone / iPad / Mac (Safari):</strong> la app instalada puede quedarse con caché antigua.
+        Si hay versión nueva, pulsa <strong>Actualizar ahora</strong>. Si no basta, usa <strong>Forzar actualización</strong>
+        o cierra la app por completo (quitar del multitarea) y ábrela de nuevo.
+      </div>` : ''}
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">
+        <button class="btn btn-secondary btn-sm" style="width:100%" onclick="Install.manualCheckForUpdates()">🔍 Comprobar de nuevo</button>
+        <button class="btn btn-primary btn-sm" id="updatePanelForceBtn" style="width:100%;${info.updateAvailable ? '' : 'display:none'}" onclick="Install.forceUpdateNow()">⬆ Actualizar ahora</button>
+        <button class="btn btn-secondary btn-sm" style="width:100%" onclick="Install.forceUpdateNow(true)">🔄 Forzar actualización (limpiar caché)</button>
+      </div>`;
+
+    if (typeof App !== 'undefined') {
+      App.openModal({
+        title: '🔄 Actualizaciones',
+        body,
+        actions: [{ label: 'Cerrar' }],
+      });
+    }
+    this._refreshUpdateUI();
+  },
+
+  async forceUpdateNow(hard = false) {
+    if (typeof App !== 'undefined') App.showToast(hard ? '🔄 Limpiando caché y recargando…' : '⬆ Actualizando…', 2500);
+    if (typeof Store !== 'undefined') {
+      Store._backup?.('pre-update-reload');
+      try {
+        const prefs = typeof StoragePrefs !== 'undefined' ? StoragePrefs.getPrefs() : {};
+        if (prefs.autoBackupToFolder && Store.exportJSON) {
+          const stamp = new Date().toISOString().split('T')[0];
+          await StoragePrefs.mirrorBackupToFolder(Store.exportJSON(), `presupuesto_pre_update_${stamp}.json`);
+        }
+      } catch { /* ignore */ }
+    }
+    let remote = null;
+    try {
+      remote = await this._fetchRemoteVersion();
+      if (remote) {
+        this._setLocalVersion(remote);
+        sessionStorage.setItem('_appUpdateReload', remote);
+      }
+      delete window.__PENDING_APP_VERSION;
+    } catch { /* ignore */ }
+    const reg = this._swRegistration || (navigator.serviceWorker?.getRegistration
+      ? await navigator.serviceWorker.getRegistration()
+      : null);
+    if (reg?.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+    else if (reg?.installing) reg.installing.postMessage({ type: 'SKIP_WAITING' });
+    if (hard || this._isApplePlatform()) {
+      try {
+        if ('serviceWorker' in navigator) {
+          const regs = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(regs.map((r) => r.unregister()));
+        }
+        if ('caches' in window) {
+          const keys = await caches.keys();
+          await Promise.all(keys.map((k) => caches.delete(k)));
+        }
+      } catch { /* ignore */ }
+    }
+    const bust = Date.now();
+    window.location.replace(`${window.location.origin}/index.html?_=${bust}${remote ? '&v=' + encodeURIComponent(remote) : ''}`);
   },
 
   _showUpdateBanner(source) {
+    this._updateInfo.updateAvailable = true;
+    this._emitUpdateStatus();
     if (document.getElementById('updateBanner')) return;
     const banner = document.createElement('div');
     banner.id = 'updateBanner';
@@ -464,56 +658,9 @@ const Install = {
       </div>`;
     document.body.appendChild(banner);
 
-    document.getElementById('updateBannerBtn').addEventListener('click', async () => {
-      const btn = document.getElementById('updateBannerBtn');
-      if (btn) {
-        btn.disabled = true;
-        btn.textContent = 'Actualizando…';
-      }
-      if (typeof Store !== 'undefined') {
-        Store._backup?.('pre-update-reload');
-        try {
-          const prefs = typeof StoragePrefs !== 'undefined' ? StoragePrefs.getPrefs() : {};
-          if (prefs.autoBackupToFolder && Store.exportJSON) {
-            const stamp = new Date().toISOString().split('T')[0];
-            await StoragePrefs.mirrorBackupToFolder(
-              Store.exportJSON(),
-              `presupuesto_pre_update_${stamp}.json`
-            );
-          }
-        } catch { /* ignore */ }
-      }
-      let remote = null;
-      try {
-        remote = await this._fetchRemoteVersion();
-        if (remote) {
-          this._setLocalVersion(remote);
-          sessionStorage.setItem('_appUpdateReload', remote);
-        }
-        delete window.__PENDING_APP_VERSION;
-      } catch { /* ignore */ }
-      const reg = this._swRegistration || (navigator.serviceWorker?.getRegistration
-        ? await navigator.serviceWorker.getRegistration()
-        : null);
-      if (reg?.waiting) {
-        reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-      } else if (reg?.installing) {
-        reg.installing.postMessage({ type: 'SKIP_WAITING' });
-      }
-      try {
-        if ('serviceWorker' in navigator) {
-          const regs = await navigator.serviceWorker.getRegistrations();
-          await Promise.all(regs.map((r) => r.unregister()));
-        }
-        if ('caches' in window) {
-          const keys = await caches.keys();
-          await Promise.all(keys.map((k) => caches.delete(k)));
-        }
-      } catch { /* ignore */ }
-      const bust = Date.now();
-      window.location.replace(`${window.location.origin}/index.html?_=${bust}${remote ? '&v=' + encodeURIComponent(remote) : ''}`);
-    });
+    document.getElementById('updateBannerBtn').addEventListener('click', () => this.forceUpdateNow());
     document.getElementById('updateBannerDismiss').addEventListener('click', () => {
+      sessionStorage.setItem('updateBannerDismissedAt', String(Date.now()));
       banner.remove();
     });
   },
