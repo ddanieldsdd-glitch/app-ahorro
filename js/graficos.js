@@ -5,7 +5,6 @@ const Graficos = {
   _charts: new Map(),
   _editMode: false,
   _dragId: null,
-  _layoutKey: 'ahorro_chart_dashboard',
   _maxPanels: 6,
 
   TEMPLATES: [
@@ -87,18 +86,13 @@ const Graficos = {
   },
 
   _loadLayout() {
-    try {
-      const raw = localStorage.getItem(this._layoutKey);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed.version === 1 && Array.isArray(parsed.panels)) return parsed;
-      }
-    } catch { /* ignore */ }
+    const stored = Store.getChartDashboardLayout();
+    if (stored) return stored;
     return this._defaultLayout();
   },
 
   _saveLayout(layout) {
-    localStorage.setItem(this._layoutKey, JSON.stringify(layout));
+    Store.setChartDashboardLayout(layout);
   },
 
   _newPanelId() {
@@ -134,6 +128,7 @@ const Graficos = {
         <button class="btn btn-secondary btn-sm" onclick="Graficos._openAddPanel()">＋ Añadir gráfica</button>
         <button class="btn btn-secondary btn-sm" onclick="Graficos._restoreDefault()" title="Restaurar diseño inicial">↺ Restaurar</button>
         <button class="btn btn-secondary btn-sm gc-help-btn" onclick="GraficosTutorial.open(0)" title="Tutorial de gráficas">?</button>
+        ${Store.getSyncSettings?.()?.supabaseUrl || Store.getSyncSettings?.()?.serverUrl ? '<span style="font-size:11px;color:var(--text-secondary);margin-left:auto">☁️ Layout sincronizado</span>' : ''}
       </div>
       <div class="gc-dashboard ${this._editMode ? 'gc-dashboard-edit' : ''}" id="gcDashboard">
         ${this._renderPanelsHtml(layout)}
@@ -398,7 +393,7 @@ const Graficos = {
 
   _restoreDefault() {
     if (!confirm('¿Restaurar el diseño inicial del dashboard? Se perderá tu layout personalizado.')) return;
-    localStorage.removeItem(this._layoutKey);
+    Store.clearChartDashboardLayout();
     this._editMode = false;
     this.render();
     App.showToast('Dashboard restaurado');

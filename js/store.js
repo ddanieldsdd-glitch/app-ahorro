@@ -65,6 +65,7 @@ const defaultData = {
   recurringTransactions: [],
   catalogEmojis: { category: {}, incomeCategory: {}, type: {}, method: {}, person: {} },
   emojiLibrary: { custom: [], usage: {} },
+  chartDashboard: null,
   initialCheckingBalance: 0,
   initialSavingsBalance: 0,
   _balanceMigrated: false,
@@ -331,7 +332,16 @@ const Store = {
       data.imprevistosInPlan ? 1 : 0,
       data.budgetConfig?.weeklyIncome ?? 0,
       (data.savingGoals || []).length,
+      this._chartDashboardFingerprint(data),
     ].join('|');
+  },
+
+  _chartDashboardFingerprint(data) {
+    const layout = data?.chartDashboard;
+    if (!layout?.panels?.length) return '';
+    return layout.panels
+      .map(p => `${p.id}|${p.order}|${p.visible ? 1 : 0}|${p.size}|${JSON.stringify(p.config || {})}`)
+      .join(';');
   },
 
   _effectiveFoodBudgetFor(data) {
@@ -1066,6 +1076,23 @@ const Store = {
     }
   },
 
+  _migrateChartDashboard(d) {
+    if (d.chartDashboard?.version === 1 && Array.isArray(d.chartDashboard.panels)) return;
+    try {
+      const raw = localStorage.getItem('ahorro_chart_dashboard');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.version === 1 && Array.isArray(parsed.panels)) {
+          d.chartDashboard = parsed;
+          localStorage.removeItem('ahorro_chart_dashboard');
+          this._localDirty = true;
+          return;
+        }
+      }
+    } catch { /* ignore */ }
+    if (d.chartDashboard === undefined) d.chartDashboard = null;
+  },
+
   _migrate() {
     const d = this._data;
     if (!d.archives) d.archives = {};
@@ -1105,6 +1132,7 @@ const Store = {
       d._peopleObjectsMigrated = true;
     }
     if (!d.recurringTransactions) d.recurringTransactions = [];
+    this._migrateChartDashboard(d);
     if (d.initialCheckingBalance === undefined) d.initialCheckingBalance = 0;
     if (d.initialSavingsBalance === undefined) d.initialSavingsBalance = 0;
 
@@ -2443,6 +2471,27 @@ const Store = {
     return true;
   },
   removeCategoryLimit(cat) { delete this._data.budgetConfig.categoryLimits[cat]; this._save(); },
+
+  /** Layout del dashboard de gráficas (sincronizado con la nube). */
+  getChartDashboardLayout() {
+    const layout = this._data.chartDashboard;
+    if (layout?.version === 1 && Array.isArray(layout.panels)) {
+      return JSON.parse(JSON.stringify(layout));
+    }
+    return null;
+  },
+
+  setChartDashboardLayout(layout) {
+    if (!layout || layout.version !== 1 || !Array.isArray(layout.panels)) return false;
+    this._data.chartDashboard = JSON.parse(JSON.stringify(layout));
+    this._save();
+    return true;
+  },
+
+  clearChartDashboardLayout() {
+    this._data.chartDashboard = null;
+    this._save();
+  },
 
   /** Normaliza nombre de categoría para comparar variantes (Comida fuera / comida fuera). */
   _normCategoryKey(name) {
@@ -4358,6 +4407,7 @@ const Store = {
       if (from[k] !== undefined && from[k] !== null) d[k] = from[k];
     }
     if (from.budgetConfig) d.budgetConfig = { ...d.budgetConfig, ...from.budgetConfig };
+    if (from.chartDashboard) d.chartDashboard = from.chartDashboard;
     if (from.expensePriorities) d.expensePriorities = { ...d.expensePriorities, ...from.expensePriorities };
     if (from.txGroups) d.txGroups = { ...d.txGroups, ...from.txGroups };
     if (from.priorityIncludes) d.priorityIncludes = { ...d.priorityIncludes, ...from.priorityIncludes };

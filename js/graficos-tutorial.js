@@ -60,7 +60,7 @@ const GraficosTutorial = {
           </div>
         </div>
         <div style="font-size:12px;color:var(--text-secondary)">
-          Tu diseño se guarda automáticamente en este dispositivo.
+          Tu diseño se guarda en tu perfil y se sincroniza entre dispositivos si tienes la nube activada.
         </div>`,
     },
     {
