@@ -1712,6 +1712,85 @@ body.mobile-nav {
 .update-panel-status.checking { color: var(--primary); font-weight: 600; }
 .update-panel-status.offline { color: var(--text-secondary); }
 
+.profile-card {
+  border: 1.5px solid var(--primary);
+  background: linear-gradient(135deg, var(--card) 0%, var(--bg) 100%);
+}
+.profile-card-hint {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--warn-bg);
+  color: var(--warn-text);
+}
+.profile-card-main {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.profile-card-emoji {
+  width: 64px;
+  height: 64px;
+  font-size: 32px;
+  border: 2px solid var(--border);
+  border-radius: 16px;
+  background: var(--card);
+  cursor: pointer;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.profile-card-emoji:active { transform: scale(0.96); }
+.profile-card-fields { flex: 1; min-width: 0; }
+.profile-card-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+  margin-top: 10px;
+}
+.profile-card-label:first-child { margin-top: 0; }
+.profile-card-name {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 16px;
+  font-weight: 600;
+  background: var(--card);
+  color: var(--text);
+  box-sizing: border-box;
+}
+.profile-card-id {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-family: ui-monospace, monospace;
+  background: var(--card);
+  color: var(--text);
+  box-sizing: border-box;
+}
+.profile-card-partner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 12px;
+}
+.profile-card-partner.muted { color: var(--text-secondary); }
+
 /* ── Manual split: exclusions mode ────────────────────────────────────── */
 .split-mode-toggle {
   display: flex;

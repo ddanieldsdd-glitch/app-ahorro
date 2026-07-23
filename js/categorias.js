@@ -199,6 +199,8 @@ const Categorias = {
         })()}
       </div>
 
+      ${Categorias._profileCardHtml()}
+
       ${(() => {
           const syncOk = Categorias._isSyncConfigured();
           const expanded = Categorias._settingsExpanded.sync;
@@ -210,7 +212,12 @@ const Categorias = {
             <span style="font-size:24px">✅</span>
             <div style="flex:1;min-width:0">
               <div style="font-size:13px;font-weight:700;color:var(--income)">Sincronización configurada</div>
-              <div style="font-size:11px;color:var(--text-secondary)">${host ? esc(host) + ' · ' : ''}Perfil <strong>${esc(s.supabaseRowId || 'default')}</strong>${enc ? ' · Cifrado ✓' : ''}${Store.isRealtimeActive?.() ? ' · <span style="color:var(--income)">Tiempo real ✓</span>' : ''}</div>
+              <div style="font-size:11px;color:var(--text-secondary)">${(() => {
+                const emoji = Store.getProfileEmoji() || Store.getPersonDisplayEmoji(Store.getProfileDisplayName());
+                const dn = Store.getProfileDisplayName();
+                const who = dn && dn !== s.supabaseRowId ? `${emoji ? emoji + ' ' : ''}<strong>${esc(dn)}</strong> · ` : '';
+                return `${who}ID <strong>${esc(s.supabaseRowId || 'default')}</strong>${host ? ' · ' + esc(host) : ''}${enc ? ' · Cifrado ✓' : ''}${Store.isRealtimeActive?.() ? ' · <span style="color:var(--income)">Tiempo real ✓</span>' : ''}`;
+              })()}</div>
             </div>
             <button type="button" class="btn btn-secondary btn-sm" onclick="Categorias._toggleSettingsExpand('sync')">${expanded ? 'Ocultar' : 'Editar'}</button>
           </div>` : '';
@@ -247,7 +254,7 @@ const Categorias = {
                 <li><strong>Publishable key</strong> (<code>sb_publishable_…</code>) → campo clave</li>
               </ul>
             </li>
-            <li>Elige un <strong>ID de perfil</strong> (ej. <code>yo</code>) y una <strong>frase secreta</strong>. Pon lo mismo en todos <em>tus</em> dispositivos.</li>
+            <li>Elige un <strong>ID de perfil</strong> en la tarjeta <strong>Tu perfil</strong> (arriba) y una <strong>frase secreta</strong> abajo. Pon lo mismo en todos <em>tus</em> dispositivos.</li>
             <li>Pulsa <strong>Guardar y sincronizar</strong>.</li>
           </ol>
           <details style="margin-top:10px">
@@ -300,48 +307,25 @@ END $$;</code>
               Settings → API Keys en Supabase. No uses la Secret key.
             </div>
           </div>
-          <div class="form-group" style="margin-bottom:8px">
-            <label style="font-size:12px;font-weight:600">3. ID de tu perfil</label>
-            <input type="text" id="supabaseRowId" placeholder="ej: yo"
-              value="${esc(Store.getSyncSettings().supabaseRowId || '')}"
-              style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--card);color:var(--text)">
-            <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">
-              Mismo ID en todos <strong>tus</strong> dispositivos. Tu pareja usará otro (ej. <code>pareja</code>).
+          <div class="form-group" style="margin:12px 0 10px;padding:10px;border-radius:8px;background:var(--bg);border:1.5px solid ${Store.isEncryptionEnabled() ? 'var(--income)' : 'var(--border)'}">
+            <label style="font-size:12px;font-weight:700;display:flex;align-items:center;gap:6px;margin-bottom:6px">
+              3. Frase de cifrado
+              <span style="font-size:10px;font-weight:500;padding:2px 7px;border-radius:10px;background:${Store.isEncryptionEnabled() ? 'var(--income)' : 'var(--border)'};color:${Store.isEncryptionEnabled() ? '#fff' : 'var(--text-secondary)'}">
+                ${Store.isEncryptionEnabled() ? 'Activo ✓' : 'Obligatoria'}
+              </span>
+            </label>
+            <div style="position:relative">
+              <input type="password" id="e2ePassphrase" placeholder="Frase secreta — solo tú la conoces"
+                value="${esc(Store.getPassphrase())}"
+                style="width:100%;padding:8px 36px 8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;box-sizing:border-box;background:var(--card);color:var(--text)">
+              <button type="button" onclick="Categorias._togglePassphraseVisibility()"
+                style="position:absolute;right:8px;top:50%;transform:translateY(-50%);border:none;background:none;cursor:pointer;font-size:14px;color:var(--text-secondary)"
+                id="passphraseToggleBtn">👁</button>
             </div>
-          </div>
-          <div class="form-group" style="margin-bottom:8px">
-            <label style="font-size:12px;font-weight:600">Tu nombre (visible para tu pareja)</label>
-            <div style="display:flex;gap:8px;align-items:center">
-              <button type="button" id="profileEmojiBtn" onclick="Categorias._pickProfileEmoji()"
-                style="font-size:22px;width:44px;height:44px;border:1px solid var(--border);border-radius:var(--radius);background:var(--card);cursor:pointer;flex-shrink:0">${esc(Store.getProfileEmoji() || Store.getPersonDisplayEmoji(Store.getProfileDisplayName()))}</button>
-              <input type="text" id="profileDisplayName" placeholder="ej: Dani"
-                value="${esc(Store.getSyncSettings().profileDisplayName || '')}"
-                style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--card);color:var(--text)">
+            <div style="font-size:11px;color:var(--text-secondary);margin-top:6px;line-height:1.5">
+              Guárdala fuera de la app. Sin ella no se pueden recuperar los datos cifrados.
+              Usa la <em>misma frase</em> en todos tus dispositivos.
             </div>
-            <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">
-              Así te verá tu pareja en las deudas compartidas. El emoji es opcional.
-            </div>
-          </div>
-        </div>
-
-        <div class="form-group" style="margin:12px 0 10px;padding:10px;border-radius:8px;background:var(--bg);border:1.5px solid ${Store.isEncryptionEnabled() ? 'var(--income)' : 'var(--border)'}">
-          <label style="font-size:12px;font-weight:700;display:flex;align-items:center;gap:6px;margin-bottom:6px">
-            4. Frase de cifrado
-            <span style="font-size:10px;font-weight:500;padding:2px 7px;border-radius:10px;background:${Store.isEncryptionEnabled() ? 'var(--income)' : 'var(--border)'};color:${Store.isEncryptionEnabled() ? '#fff' : 'var(--text-secondary)'}">
-              ${Store.isEncryptionEnabled() ? 'Activo ✓' : 'Obligatoria'}
-            </span>
-          </label>
-          <div style="position:relative">
-            <input type="password" id="e2ePassphrase" placeholder="Frase secreta — solo tú la conoces"
-              value="${esc(Store.getPassphrase())}"
-              style="width:100%;padding:8px 36px 8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;box-sizing:border-box;background:var(--card);color:var(--text)">
-            <button type="button" onclick="Categorias._togglePassphraseVisibility()"
-              style="position:absolute;right:8px;top:50%;transform:translateY(-50%);border:none;background:none;cursor:pointer;font-size:14px;color:var(--text-secondary)"
-              id="passphraseToggleBtn">👁</button>
-          </div>
-          <div style="font-size:11px;color:var(--text-secondary);margin-top:6px;line-height:1.5">
-            Guárdala fuera de la app. Sin ella no se pueden recuperar los datos cifrados.
-            Usa la <em>misma frase</em> en todos tus dispositivos.
           </div>
         </div>
 
@@ -1590,6 +1574,68 @@ END $$;</code>
   _toggleSettingsExpand(key) {
     this._settingsExpanded[key] = !this._settingsExpanded[key];
     this.render();
+  },
+
+  _profileCardHtml() {
+    const s = Store.getSyncSettings();
+    const emoji = Store.getProfileEmoji() || Store.getPersonDisplayEmoji(Store.getProfileDisplayName());
+    const name = s.profileDisplayName || '';
+    const rowId = s.supabaseRowId || '';
+    const partner = Store.getPartnerPersonName();
+    const partnerEmoji = partner ? Store.getPersonDisplayEmoji(partner) : '';
+    const missingName = !name.trim();
+    return `<div class="card profile-card" style="margin-bottom:10px">
+      <div class="card-header">
+        <span class="card-title">👤 Tu perfil</span>
+        ${missingName ? '<span class="profile-card-hint">Configura tu nombre para deudas compartidas</span>' : ''}
+      </div>
+      <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;line-height:1.55">
+        Así te identifican tú y tu pareja en las <strong>deudas compartidas</strong>.
+        El ID de perfil debe coincidir con Supabase (ej. <code>yo</code> / <code>pareja</code>).
+      </p>
+      <div class="profile-card-main">
+        <button type="button" id="profileEmojiBtn" class="profile-card-emoji" onclick="Categorias._pickProfileEmoji()" title="Cambiar emoticono">${esc(emoji)}</button>
+        <div class="profile-card-fields">
+          <label class="profile-card-label">Tu nombre</label>
+          <input type="text" id="profileDisplayName" class="profile-card-name" placeholder="ej: Dani"
+            value="${esc(name)}">
+          <label class="profile-card-label">ID de perfil (Supabase)</label>
+          <input type="text" id="supabaseRowId" class="profile-card-id" placeholder="ej: yo"
+            value="${esc(rowId)}">
+        </div>
+      </div>
+      ${partner ? `<div class="profile-card-partner">
+        <span>Pareja en la app:</span>
+        <strong>${partnerEmoji ? esc(partnerEmoji) + ' ' : ''}${esc(partner)}</strong>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="Categorias._settingsExpanded.shared=true; Categorias.render(); document.getElementById('sharedSettingsBody')?.scrollIntoView({behavior:'smooth',block:'start'})">Editar</button>
+      </div>` : Store.isSharedEnabled() ? `<div class="profile-card-partner muted">
+        <span>Selecciona a tu pareja en <strong>Espacio compartido</strong> ↓</span>
+      </div>` : ''}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+        <button class="btn btn-primary btn-sm" onclick="Categorias._saveProfileIdentity()">💾 Guardar perfil</button>
+      </div>
+    </div>`;
+  },
+
+  _saveProfileIdentity() {
+    const displayName = document.getElementById('profileDisplayName')?.value.trim() || '';
+    const emoji = document.getElementById('profileEmojiBtn')?.textContent.trim() || '';
+    const rowId = document.getElementById('supabaseRowId')?.value.trim() || 'default';
+    Store.setSyncSettings({
+      ...Store.getSyncSettings(),
+      profileDisplayName: displayName,
+      profileEmoji: emoji,
+      supabaseRowId: rowId,
+    });
+    Store.setProfileIdentity({ displayName, emoji });
+    if (displayName) Store.rememberPerson(displayName, false);
+    if (Store.isSharedEnabled()) {
+      Store._registerMyParticipant?.();
+      Store._saveShared?.();
+    }
+    App.showToast(displayName ? `✅ Perfil guardado · ${emoji ? emoji + ' ' : ''}${displayName}` : '✅ Perfil guardado');
+    this.render();
+    if (typeof Deudas !== 'undefined') Deudas.render();
   },
 
   _getUsedItems(type) {
